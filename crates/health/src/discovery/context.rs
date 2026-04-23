@@ -46,6 +46,7 @@ pub(super) enum CollectorKind {
     LeakDetector,
     Nmxt,
     NvueRest,
+    NvueGnmi,
 }
 
 impl CollectorKind {
@@ -56,6 +57,7 @@ impl CollectorKind {
         CollectorKind::LeakDetector,
         CollectorKind::Nmxt,
         CollectorKind::NvueRest,
+        CollectorKind::NvueGnmi,
     ];
 
     pub(super) fn stop_message(self) -> &'static str {
@@ -68,6 +70,9 @@ impl CollectorKind {
             }
             CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
             CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
+            CollectorKind::NvueGnmi => {
+                "Stopping NVUE gNMI streaming collector for removed switch endpoint"
+            }
         }
     }
 }
@@ -79,6 +84,7 @@ pub(super) struct CollectorState {
     logs: HashMap<Cow<'static, str>, Collector>,
     nmxt: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
+    nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
 }
 
 impl CollectorState {
@@ -90,6 +96,7 @@ impl CollectorState {
             logs: HashMap::new(),
             nmxt: HashMap::new(),
             nvue_rest: HashMap::new(),
+            nvue_gnmi: HashMap::new(),
         }
     }
 
@@ -101,6 +108,7 @@ impl CollectorState {
             CollectorKind::LeakDetector => &self.leak_detector,
             CollectorKind::Nmxt => &self.nmxt,
             CollectorKind::NvueRest => &self.nvue_rest,
+            CollectorKind::NvueGnmi => &self.nvue_gnmi,
         }
     }
 
@@ -115,6 +123,7 @@ impl CollectorState {
             CollectorKind::LeakDetector => &mut self.leak_detector,
             CollectorKind::Nmxt => &mut self.nmxt,
             CollectorKind::NvueRest => &mut self.nvue_rest,
+            CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
         }
     }
 
