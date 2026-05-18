@@ -31,7 +31,7 @@ use url::Url;
 use crate::HealthError;
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, CredentialProvider, EndpointMetadata,
-    EndpointSource, MachineData, PowerShelfData, SwitchData,
+    EndpointSource, MachineData, PowerShelfData, SwitchData, SwitchEndpointRole,
 };
 
 #[derive(Clone)]
@@ -268,6 +268,9 @@ impl ApiClientWrapper {
                     .placement_in_rack
                     .as_ref()
                     .and_then(|placement| placement.tray_index),
+                endpoint_role: SwitchEndpointRole::Bmc,
+                is_primary: switch.is_primary,
+                nmxt_enabled: false,
             })),
             None,
         )

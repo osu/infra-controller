@@ -163,12 +163,21 @@ pub struct PowerShelfData {
     pub serial: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwitchEndpointRole {
+    Bmc,
+    Host,
+}
+
 #[derive(Clone, Debug)]
 pub struct SwitchData {
     pub id: Option<SwitchId>,
     pub serial: String,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
+    pub endpoint_role: SwitchEndpointRole,
+    pub is_primary: bool,
+    pub nmxt_enabled: bool,
 }
 
 #[derive(Clone)]

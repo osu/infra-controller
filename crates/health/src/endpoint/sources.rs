@@ -26,7 +26,7 @@ use crate::HealthError;
 use crate::config::StaticBmcEndpoint;
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
-    PowerShelfData, SwitchData,
+    PowerShelfData, SwitchData, SwitchEndpointRole,
 };
 
 pub struct StaticEndpointSource {
@@ -99,6 +99,9 @@ impl StaticEndpointSource {
                         serial,
                         slot_number: switch.slot_number,
                         tray_index: switch.tray_index,
+                        endpoint_role: SwitchEndpointRole::Host,
+                        is_primary: false,
+                        nmxt_enabled: false,
                     }))
                 } else if let Some(machine) = &cfg.machine {
                     let machine_id = &machine.id;

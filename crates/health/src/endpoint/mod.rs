@@ -20,7 +20,7 @@ mod sources;
 
 pub use model::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, CredentialProvider, EndpointMetadata,
-    EndpointSource, MachineData, PowerShelfData, SwitchData,
+    EndpointSource, MachineData, PowerShelfData, SwitchData, SwitchEndpointRole,
 };
 pub use sources::{CompositeEndpointSource, StaticEndpointSource};
 
