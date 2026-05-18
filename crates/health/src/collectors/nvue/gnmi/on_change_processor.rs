@@ -259,9 +259,8 @@ mod tests {
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use mac_address::MacAddress;
 
-    use crate::endpoint::{BmcAddr, EndpointMetadata, SwitchData};
-
     use super::*;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, SwitchData};
 
     const TEST_COLLECTOR_NAME: &str = "nvue_gnmi_system_events";
 
@@ -343,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_find_instance_key() {
-        let elems = vec![
+        let elems = [
             make_path_elem("system-events", &[]),
             make_path_elem("system-event", &[("event-id", "38")]),
             make_path_elem("state", &[]),

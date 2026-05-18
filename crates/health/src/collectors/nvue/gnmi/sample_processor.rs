@@ -329,9 +329,8 @@ mod tests {
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 
-    use crate::endpoint::{EndpointMetadata, SwitchData};
-
     use super::*;
+    use crate::endpoint::{EndpointMetadata, SwitchData};
 
     #[derive(Default)]
     struct CapturingSink {
