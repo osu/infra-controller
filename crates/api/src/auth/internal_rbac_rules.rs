@@ -258,6 +258,7 @@ impl InternalRBACRules {
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
         x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow]);
+        x.perm("RefreshEndpointReport", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteExploredEndpoint", vec![ForgeAdminCLI]);
         x.perm("PauseExploredEndpointRemediation", vec![ForgeAdminCLI]);
         x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI, Flow]);
@@ -588,10 +589,10 @@ impl InternalRBACRules {
             "ClearManagedHostQuarantineState",
             vec![ForgeAdminCLI, SiteAgent],
         );
-        x.perm("CreateVpcPeering", vec![ForgeAdminCLI]);
-        x.perm("FindVpcPeeringIds", vec![ForgeAdminCLI]);
-        x.perm("FindVpcPeeringsByIds", vec![ForgeAdminCLI]);
-        x.perm("DeleteVpcPeering", vec![ForgeAdminCLI]);
+        x.perm("CreateVpcPeering", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindVpcPeeringIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindVpcPeeringsByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteVpcPeering", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("ResetHostReprovisioning", vec![ForgeAdminCLI, Flow]);
         x.perm("CopyBfbToDpuRshim", vec![ForgeAdminCLI]);
         x.perm("GetPowerOptions", vec![ForgeAdminCLI, SiteAgent, Flow]);

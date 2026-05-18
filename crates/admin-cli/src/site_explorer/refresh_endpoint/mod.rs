@@ -15,23 +15,17 @@
  * limitations under the License.
  */
 
-use std::net::IpAddr;
+pub mod args;
+pub mod cmd;
 
-use carbide_uuid::machine::MachineInterfaceId;
-use rpc::forge::MachineArchitecture;
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-pub struct PxeInstructionRequest {
-    pub arch: MachineArchitecture,
-    pub product: Option<String>,
-    pub client_ip: IpAddr,
-}
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 
-/// Input provided to `PxeInstructions::get_pxe_instructions`.
-/// The PxeInstructionsRequest model contains the client_ip
-/// as determined by carbide-pxe, whereas PxeInstructionsInput
-/// contains the resolved machine_interface_id.
-pub struct PxeInstructionsInput {
-    pub interface_id: MachineInterfaceId,
-    pub arch: MachineArchitecture,
-    pub product: Option<String>,
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::refresh_endpoint(&ctx.api_client, self).await
+    }
 }
