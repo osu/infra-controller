@@ -28,7 +28,7 @@ use crate::collectors::{
     StreamingCollectorStartContext,
 };
 use crate::config::{Configurable, LogCollectionMode};
-use crate::endpoint::BmcEndpoint;
+use crate::endpoint::{BmcEndpoint, SwitchEndpointRole};
 use crate::sink::DataSink;
 
 fn logs_state_file_path(template: &str, endpoint_id: &str) -> PathBuf {
@@ -41,11 +41,26 @@ pub(super) async fn spawn_collectors_for_endpoint(
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    if endpoint.switch_data().is_some() {
-        spawn_switch_collectors(ctx, endpoint, data_sink, metrics_prefix)
-    } else {
-        spawn_generic_redfish_collectors(ctx, endpoint, data_sink, metrics_prefix)
+    match endpoint.switch_data().map(|switch| switch.endpoint_role) {
+        Some(SwitchEndpointRole::Host) => {
+            spawn_switch_host_collectors(ctx, endpoint, data_sink, metrics_prefix)
+        }
+        Some(SwitchEndpointRole::Bmc) | None => {
+            spawn_generic_redfish_collectors(ctx, endpoint, data_sink, metrics_prefix)
+        }
     }
+}
+
+fn is_switch_host_endpoint(endpoint: &BmcEndpoint) -> bool {
+    endpoint
+        .switch_data()
+        .is_some_and(|switch| switch.endpoint_role == SwitchEndpointRole::Host)
+}
+
+fn switch_host_nmxt_enabled(endpoint: &BmcEndpoint) -> bool {
+    endpoint.switch_data().is_some_and(|switch| {
+        switch.endpoint_role == SwitchEndpointRole::Host && switch.nmxt_enabled
+    })
 }
 
 fn spawn_generic_redfish_collectors(
@@ -267,7 +282,7 @@ fn spawn_generic_redfish_collectors(
     Ok(())
 }
 
-fn spawn_switch_collectors(
+fn spawn_switch_host_collectors(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
     data_sink: Option<Arc<dyn DataSink>>,
@@ -276,7 +291,8 @@ fn spawn_switch_collectors(
     let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
 
-    if let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
+    if switch_host_nmxt_enabled(endpoint)
+        && let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
     {
         let collector_registry = Arc::new(
@@ -304,20 +320,21 @@ fn spawn_switch_collectors(
                 tracing::info!(
                     endpoint_key = %key,
                     total_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
-                    "Started NMX-T collection for switch endpoint"
+                    "Started NMX-T collection for switch host endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start NMX-T collector for: {:?}",
+                    "Could not start NMX-T collector for switch host: {:?}",
                     endpoint.addr
                 )
             }
         }
     }
 
-    if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
+    if is_switch_host_endpoint(endpoint)
+        && let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
         && let Configurable::Enabled(rest_cfg) = &nvue_cfg.rest
         && !ctx.collectors.contains(CollectorKind::NvueRest, &key)
     {
@@ -346,13 +363,13 @@ fn spawn_switch_collectors(
                 tracing::info!(
                     endpoint_key = %key,
                     total_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
-                    "Started NVUE REST collection for switch endpoint"
+                    "Started NVUE REST collection for switch host endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start NVUE REST collector for: {:?}",
+                    "Could not start NVUE REST collector for switch host: {:?}",
                     endpoint.addr
                 )
             }
