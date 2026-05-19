@@ -16,7 +16,7 @@
  */
 
 use forge_secrets::credentials::{
-    BgpCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
+    BgpCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials, CredentialWriter,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -242,4 +242,42 @@ async fn test_create_bgp_credential_validates_max_password_length(pool: sqlx::Pg
             password: "a".repeat(MAX_BGP_PASSWORD_LENGTH),
         })
     );
+}
+
+#[crate::sqlx_test]
+async fn test_get_switch_nvos_credentials(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = create_test_env(pool).await;
+    let bmc_mac_address = "00:11:22:33:44:55".parse()?;
+
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin { bmc_mac_address },
+            &Credentials::UsernamePassword {
+                username: "nvos-admin".to_string(),
+                password: "nvos-secret".to_string(),
+            },
+        )
+        .await?;
+
+    let response = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                bmc_mac_addr: bmc_mac_address.to_string(),
+            },
+        ))
+        .await?
+        .into_inner();
+
+    let credentials = response.credentials.expect("credentials");
+    let Some(rpc::forge::bmc_credentials::Type::UsernamePassword(username_password)) =
+        credentials.r#type
+    else {
+        panic!("expected username/password credentials");
+    };
+
+    assert_eq!(username_password.username, "nvos-admin");
+    assert_eq!(username_password.password, "nvos-secret");
+
+    Ok(())
 }

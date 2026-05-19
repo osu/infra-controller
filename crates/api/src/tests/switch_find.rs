@@ -262,3 +262,60 @@ async fn test_find_switches_by_ids_response_fields(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_find_switch_host_endpoints_returns_resolved_nvos_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let switch_id = new_switch(&env, Some("Switch1".to_string()), None).await?;
+
+    let mut rows = db::switch::find_switch_endpoints_by_ids(&env.pool, &[switch_id]).await?;
+    let expected = rows.pop().expect("switch endpoint row");
+    let host_mac = expected.nvos_mac.expect("nvos mac");
+    let host_ip = expected.nvos_ip.expect("nvos ip");
+
+    let response = env
+        .api
+        .find_switch_host_endpoints(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+            switch_ids: vec![switch_id],
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.endpoints.len(), 1);
+    assert_eq!(response.endpoints[0].switch_id, Some(switch_id));
+    assert_eq!(response.endpoints[0].bmc_mac, expected.bmc_mac.to_string());
+    assert_eq!(response.endpoints[0].host_mac, host_mac.to_string());
+    assert_eq!(response.endpoints[0].host_ip, host_ip.to_string());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_find_switch_host_endpoints_skips_switch_without_nvos_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let switch_id = new_switch(&env, Some("Switch1".to_string()), None).await?;
+    let rows = db::switch::find_switch_endpoints_by_ids(&env.pool, &[switch_id]).await?;
+    let bmc_mac = rows.first().expect("switch endpoint row").bmc_mac;
+
+    {
+        let mut txn = env.pool.begin().await?;
+        db::expected_switch::update_nvos_mac_addresses(txn.as_mut(), bmc_mac, &[]).await?;
+        txn.commit().await?;
+    }
+
+    let response = env
+        .api
+        .find_switch_host_endpoints(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+            switch_ids: vec![switch_id],
+        }))
+        .await?
+        .into_inner();
+
+    assert!(response.endpoints.is_empty());
+
+    Ok(())
+}

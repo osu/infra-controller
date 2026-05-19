@@ -388,7 +388,9 @@ mod tests {
 
     use super::*;
     use crate::config::{Config, Configurable};
-    use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SwitchData};
+    use crate::endpoint::{
+        BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole,
+    };
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
     use crate::sink::{CollectorEvent, EventContext};
@@ -431,13 +433,25 @@ mod tests {
         ))
     }
 
-    fn switch_metadata() -> EndpointMetadata {
+    fn switch_metadata_with_role(
+        endpoint_role: SwitchEndpointRole,
+        is_primary: bool,
+        nmxt_enabled: bool,
+        serial: &str,
+    ) -> EndpointMetadata {
         EndpointMetadata::Switch(SwitchData {
             id: None,
-            serial: "switch-serial-1".to_string(),
+            serial: serial.to_string(),
             slot_number: None,
             tray_index: None,
+            endpoint_role,
+            is_primary,
+            nmxt_enabled,
         })
+    }
+
+    fn switch_metadata() -> EndpointMetadata {
+        switch_metadata_with_role(SwitchEndpointRole::Host, false, false, "switch-serial-1")
     }
 
     fn machine_metadata() -> EndpointMetadata {
@@ -506,6 +520,128 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Logs), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::LeakDetector), 0);
+    }
+
+    #[tokio::test]
+    async fn test_switch_bmc_endpoint_starts_redfish_but_not_switch_host_collectors() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Enabled(Default::default());
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Enabled(Default::default());
+
+        let mut ctx = context_with_config(config, "test_switch_bmc_redfish_only");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 8),
+            "55:66:77:88:99:bb",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Bmc,
+                true,
+                false,
+                "switch-bmc",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test_switch_bmc_redfish_only")
+            .await
+            .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
+    }
+
+    #[tokio::test]
+    async fn test_switch_host_primary_starts_nmxt_and_nvue_rest_when_globally_enabled() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Enabled(Default::default());
+
+        let mut ctx = context_with_config(config, "test_switch_host_nmxt_nvue_enabled");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 9),
+            "55:66:77:88:99:cc",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                true,
+                true,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test")
+            .await
+            .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 1);
+    }
+
+    #[tokio::test]
+    async fn test_switch_host_policy_gates_nmxt_but_not_nvue_rest() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Enabled(Default::default());
+        config.collectors.nvue = Configurable::Enabled(Default::default());
+
+        let mut ctx = context_with_config(config, "test_switch_host_nmxt_endpoint_disabled");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 10),
+            "55:66:77:88:99:dd",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                false,
+                false,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test")
+            .await
+            .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 1);
+    }
+
+    #[tokio::test]
+    async fn test_switch_host_does_not_start_host_collectors_when_globally_disabled() {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+
+        let mut ctx = context_with_config(config, "test_switch_host_collectors_global_disabled");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 11),
+            "55:66:77:88:99:ee",
+            Some(switch_metadata_with_role(
+                SwitchEndpointRole::Host,
+                true,
+                true,
+                "switch-host",
+            )),
+        );
+
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test")
+            .await
+            .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
     }
 
     #[tokio::test]
