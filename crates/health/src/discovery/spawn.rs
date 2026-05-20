@@ -279,7 +279,9 @@ fn spawn_switch_host_collectors(
     let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
 
-    if endpoint.switch_data().is_some_and(|switch| switch.nmxt_enabled)
+    if endpoint
+        .switch_data()
+        .is_some_and(|switch| switch.nmxt_enabled)
         && let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
     {

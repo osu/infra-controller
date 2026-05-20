@@ -16,7 +16,8 @@
  */
 
 use forge_secrets::credentials::{
-    BgpCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials, CredentialWriter,
+    BgpCredentialType, CredentialKey, CredentialReader, CredentialType, CredentialWriter,
+    Credentials,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
