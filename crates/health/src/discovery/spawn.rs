@@ -51,18 +51,6 @@ pub(super) async fn spawn_collectors_for_endpoint(
     }
 }
 
-fn is_switch_host_endpoint(endpoint: &BmcEndpoint) -> bool {
-    endpoint
-        .switch_data()
-        .is_some_and(|switch| switch.endpoint_role == SwitchEndpointRole::Host)
-}
-
-fn switch_host_nmxt_enabled(endpoint: &BmcEndpoint) -> bool {
-    endpoint.switch_data().is_some_and(|switch| {
-        switch.endpoint_role == SwitchEndpointRole::Host && switch.nmxt_enabled
-    })
-}
-
 fn spawn_generic_redfish_collectors(
     ctx: &mut DiscoveryLoopContext,
     endpoint: &Arc<BmcEndpoint>,
@@ -291,7 +279,7 @@ fn spawn_switch_host_collectors(
     let key = endpoint.key();
     let endpoint_arc = endpoint.clone();
 
-    if switch_host_nmxt_enabled(endpoint)
+    if endpoint.switch_data().is_some_and(|switch| switch.nmxt_enabled)
         && let Configurable::Enabled(nmxt_cfg) = &ctx.nmxt_config
         && !ctx.collectors.contains(CollectorKind::Nmxt, &key)
     {
@@ -333,8 +321,7 @@ fn spawn_switch_host_collectors(
         }
     }
 
-    if is_switch_host_endpoint(endpoint)
-        && let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
+    if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
         && let Configurable::Enabled(rest_cfg) = &nvue_cfg.rest
         && !ctx.collectors.contains(CollectorKind::NvueRest, &key)
     {

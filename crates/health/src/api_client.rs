@@ -200,14 +200,10 @@ impl ApiClientWrapper {
         match self.client.find_switches(switch_request).await {
             Ok(response) => {
                 let switches = response.switches;
-                let switch_ids = switches
-                    .iter()
-                    .filter_map(|switch| switch.id)
-                    .collect::<Vec<_>>();
-                let switches_by_id = switches
+                let switches_by_id: HashMap<_, _> = switches
                     .iter()
                     .filter_map(|switch| switch.id.map(|id| (id, switch)))
-                    .collect::<HashMap<_, _>>();
+                    .collect();
 
                 let mut endpoints = Vec::new();
 
@@ -222,7 +218,8 @@ impl ApiClientWrapper {
                     }
                 }
 
-                if !switch_ids.is_empty() {
+                if !switches_by_id.is_empty() {
+                    let switch_ids = switches_by_id.keys().copied().collect();
                     match self
                         .client
                         .find_switch_host_endpoints(rpc::forge::SwitchesByIdsRequest { switch_ids })
