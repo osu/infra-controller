@@ -72,6 +72,7 @@ pub mod network_devices;
 pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
+pub mod nmxc;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
 pub mod operating_system_definition;
@@ -85,7 +86,6 @@ pub mod rack_type;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
-pub mod rpc_conv;
 pub mod site_explorer;
 pub mod sku;
 pub mod state_history;
@@ -95,15 +95,6 @@ pub mod tenant;
 pub mod trim_table;
 pub mod vpc;
 pub mod vpc_prefix;
-
-/// Converts a `Vec<T>` of any type `T` that is convertible to a type `R`
-/// into a `Vec<R>`.
-pub fn try_convert_vec<T, R, E>(source: Vec<T>) -> Result<Vec<R>, E>
-where
-    R: TryFrom<T, Error = E>,
-{
-    source.into_iter().map(R::try_from).collect()
-}
 
 /// Error that is returned when we validate various configurations that are obtained
 /// from Forge users.

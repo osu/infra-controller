@@ -36,7 +36,7 @@ use model::resource_pool::common::CommonPools;
 use sqlx::PgConnection;
 
 use crate::CarbideError;
-use crate::cfg::file::VpcPeeringPolicy;
+use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, VpcPeeringPolicy};
 
 #[derive(Default, Clone)]
 pub struct EthVirtData {
@@ -44,6 +44,14 @@ pub struct EthVirtData {
     pub dhcp_servers: Vec<String>,
     pub deny_prefixes: Vec<Ipv4Network>,
     pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
+}
+
+pub struct AdminNetworkOptions<'a> {
+    pub fnn_enabled: bool,
+    pub common_pools: &'a CommonPools,
+    pub booturl: &'a Option<String>,
+    pub use_vpc_vrf_loopback: bool,
+    pub routing_profile: Option<&'a FnnRoutingProfileConfig>,
 }
 
 #[derive(Clone)]
@@ -202,11 +210,16 @@ pub async fn admin_network(
     txn: &mut PgConnection,
     snapshot: &ManagedHostStateSnapshot,
     dpu_machine_id: &MachineId,
-    fnn_enabled_on_admin: bool,
-    common_pools: &CommonPools,
-    booturl: &Option<String>,
-    use_vpc_vrf_loopback: bool,
+    options: AdminNetworkOptions<'_>,
 ) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
+    let AdminNetworkOptions {
+        fnn_enabled: fnn_enabled_on_admin,
+        common_pools,
+        booturl,
+        use_vpc_vrf_loopback,
+        routing_profile: admin_vpc_routing_profile,
+    } = options;
+
     let admin_segments = db::network_segment::admin(txn).await?;
     let admin_segment_ids = admin_segments
         .iter()
@@ -231,11 +244,31 @@ pub async fn admin_network(
         .into());
     };
 
-    let admin_segment = admin_segments.iter().find(|v| v.id == interface.segment_id);
+    // Keep host_interface_id tied to the requesting DPU's host link, but source
+    // all address-bearing admin config from the host's primary admin interface.
+    // In multi-DPU FNN mode that primary can be a non-DPU host NIC; dpu-agent
+    // still disables the admin DHCP path on non-primary DPUs via is_primary_dpu.
+    let active_interface = snapshot
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|interface| {
+            interface.primary_interface && admin_segment_ids.contains(&interface.segment_id)
+        })
+        .ok_or_else(|| {
+            CarbideError::InvalidArgument(format!(
+                "No primary admin interface found on host: {host_machine_id}"
+            ))
+        })?;
+
+    let admin_segment = admin_segments
+        .iter()
+        .find(|v| v.id == active_interface.segment_id);
 
     let Some(admin_segment) = admin_segment else {
         return Err(CarbideError::internal(format!(
-            "Unknown admin segment `{}` attached on host: {host_machine_id} with dpu: {dpu_machine_id}", interface.segment_id
+            "Unknown primary admin segment `{}` attached on host: {host_machine_id}",
+            active_interface.segment_id
         ))
         .into());
     };
@@ -267,15 +300,15 @@ pub async fn admin_network(
         None => "unknowndomain".to_string(),
     };
 
-    let address = interface
+    let address = active_interface
         .addresses
         .iter()
         .copied()
         .find(|address| address.is_ipv4())
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!(
-                "No IPv4 address found on host interface {} for dpu: {dpu_machine_id}",
-                interface.id
+                "No IPv4 address found on primary host admin interface {}",
+                active_interface.id
             ))
         })?;
 
@@ -370,7 +403,7 @@ pub async fn admin_network(
             vec![]
         },
         prefix: prefix.prefix.to_string(),
-        fqdn: format!("{}.{}", interface.hostname, domain),
+        fqdn: format!("{}.{}", active_interface.hostname, domain),
         booturl: booturl.clone(),
         svi_ip,
         tenant_vrf_loopback_ip,
@@ -381,6 +414,7 @@ pub async fn admin_network(
         internal_uuid: None,
         mtu: u32::try_from(admin_segment.config.mtu).ok(),
         ipv6_interface_config: None,
+        routing_profile: admin_vpc_routing_profile.map(rpc::RoutingProfile::from),
     };
     Ok((cfg, interface.id))
 }
@@ -398,6 +432,7 @@ pub async fn tenant_network(
     segment: &NetworkSegment,
     vpc_peering_policy_on_existing: Option<VpcPeeringPolicy>,
     booturl: &Option<String>,
+    fnn_config: Option<&FnnConfig>,
 ) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
     let is_l2_segment = segment.status.can_stretch.unwrap_or(true);
@@ -510,6 +545,27 @@ pub async fn tenant_network(
         .and_then(|v| v.status.as_ref().and_then(|vs| vs.vni))
         .unwrap_or_default() as u32;
 
+    // Resolve the routing profile from the VPC attached to this interface.
+    let routing_profile = match (vpc.as_ref(), fnn_config) {
+        (Some(vpc), Some(fnn)) if vpc.network_virtualization_type == VpcVirtualizationType::Fnn => {
+            let profile_type =
+                vpc.routing_profile_type
+                    .as_ref()
+                    .ok_or_else(|| CarbideError::Internal {
+                        message: "tenant routing profile type not found in VPC record".to_string(),
+                    })?;
+            let profile = fnn.routing_profiles.get(profile_type).ok_or_else(|| {
+                CarbideError::NotFoundError {
+                    kind: "routing_profile_type",
+                    id: profile_type.to_string(),
+                }
+            })?;
+
+            Some(rpc::RoutingProfile::from(profile))
+        }
+        _ => None,
+    };
+
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     let (svi_ip, svi_ip_v6) = ds.svi_ips(network_virtualization_type, is_l2_segment)?;
 
@@ -620,6 +676,7 @@ pub async fn tenant_network(
                 .unwrap_or_default(),
             svi_ip: svi_ip_v6,
         }),
+        routing_profile,
     })
 }
 

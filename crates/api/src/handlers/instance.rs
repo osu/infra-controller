@@ -17,7 +17,9 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
+use ::rpc::model::RpcTryFrom;
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
@@ -30,7 +32,6 @@ use health_report::{
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
-use model::instance::DeleteInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
@@ -282,7 +283,7 @@ pub(crate) async fn find_by_machine_id(
     };
 
     let maybe_instance =
-        Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
+        Option::<rpc::Instance>::rpc_try_from(mh_snapshot).map_err(CarbideError::from)?;
 
     let instances = if let Some(instance) = maybe_instance {
         vec![instance]
@@ -669,15 +670,18 @@ pub(crate) async fn release(
     request: Request<rpc::InstanceReleaseRequest>,
 ) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
     log_request_data(&request);
-    let delete_instance = DeleteInstance::try_from(request.into_inner())?;
+    let delete_instance = request.into_inner();
+    let instance_id = delete_instance
+        .id
+        .ok_or(RpcDataConversionError::MissingArgument("id"))?;
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, delete_instance.instance_id)
+    let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
-            id: delete_instance.instance_id.to_string(),
+            id: instance_id.to_string(),
         })?;
 
     log_machine_id(&instance.machine_id);
@@ -697,7 +701,7 @@ pub(crate) async fn release(
     // Instance Release called from the Repair tenant.
     if delete_instance.is_repair_tenant == Some(true) {
         tracing::info!(
-            instance_id = %delete_instance.instance_id,
+            %instance_id,
             machine_id = %instance.machine_id,
             has_issues = delete_instance.issue.is_some(),
             "Instance release requested by repair tenant"
@@ -749,7 +753,7 @@ pub(crate) async fn release(
 
     if instance.deleted.is_some() {
         tracing::info!(
-            instance_id = %delete_instance.instance_id,
+            %instance_id,
             "Instance is already marked for deletion.",
         );
         txn.commit().await?;
@@ -759,7 +763,7 @@ pub(crate) async fn release(
     // TODO: This is racy. If the instance just got deleted we still
     // see an error here that is not returned as `NotFound` error. Ideally
     // we convert this case of the DatabaseError into NotFound too.
-    db::instance::mark_as_deleted(delete_instance.instance_id, &mut txn).await?;
+    db::instance::mark_as_deleted(instance_id, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -1533,7 +1537,7 @@ fn snapshot_to_instance(
     mh_snapshot: ManagedHostStateSnapshot,
 ) -> Result<rpc::Instance, CarbideError> {
     let machine_id = mh_snapshot.host_snapshot.id;
-    Option::<rpc::Instance>::try_from(mh_snapshot)
+    Option::<rpc::Instance>::rpc_try_from(mh_snapshot)
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
             CarbideError::internal(format!(

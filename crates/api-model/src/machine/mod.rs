@@ -217,8 +217,8 @@ pub enum NotAllocatableReason {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagedHostStateSnapshotError {
-    #[error("Missing attached dpu id in primary interface. Machine id: {0}")]
-    AttachedDpuIdMissing(MachineId),
+    #[error("Missing primary interface. Machine id: {0}")]
+    PrimaryInterfaceMissing(MachineId),
 
     #[error("Missing dpu with primary dpu id. Machine id: {0}, DPU ID: {1}")]
     MissingPrimaryDpu(MachineId, MachineId),
@@ -579,18 +579,13 @@ impl ManagedHostStateSnapshot {
             }
         });
 
-        let primary_dpu_id = self
+        let primary_interface = self
             .host_snapshot
             .interfaces
             .iter()
-            .find_map(|x| {
-                if x.primary_interface {
-                    Some(x.attached_dpu_machine_id)
-                } else {
-                    None
-                }
-            })
-            .flatten();
+            .find(|interface| interface.primary_interface);
+        let primary_dpu_id =
+            primary_interface.and_then(|interface| interface.attached_dpu_machine_id);
 
         if let Some(primary_dpu_id) = primary_dpu_id {
             let index = self
@@ -608,9 +603,12 @@ impl ManagedHostStateSnapshot {
                 let snapshot = self.dpu_snapshots.remove(index);
                 self.dpu_snapshots.insert(0, snapshot);
             }
-        } else if !self.is_zero_dpu() {
-            // If it is not Zero-DPU case, return failure.
-            return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
+        } else if primary_interface.is_none() && !self.is_zero_dpu() {
+            // DPU hosts still need some primary interface so boot/network callers have a host
+            // primary to anchor on. A present primary interface without an attached DPU is valid:
+            // ExpectedMachine can declare a non-DPU host admin NIC as primary, and in that case no
+            // DPU should be promoted ahead of PCI order.
+            return Err(ManagedHostStateSnapshotError::PrimaryInterfaceMissing(
                 self.host_snapshot.id,
             ));
         };
@@ -1103,6 +1101,8 @@ pub enum ManagedHostState {
     // This is host specific state. We expect DPU to be in Ready state.
     WaitingForCleanup {
         cleanup_state: CleanupState,
+        #[serde(default)]
+        cleanup_context: CleanupContext,
     },
 
     /// A forced deletion process has been triggered by the admin CLI
@@ -1832,6 +1832,14 @@ pub enum CleanupState {
     // Unused
     DisableBIOSBMCLockdown,
 }
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CleanupContext {
+    #[default]
+    Deprovision,
+    InitialDiscovery,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum LockdownState {
@@ -2111,7 +2119,7 @@ impl Display for ManagedHostState {
                     write!(f, "Assigned/{instance_state}")
                 }
             },
-            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+            ManagedHostState::WaitingForCleanup { cleanup_state, .. } => {
                 write!(f, "WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
@@ -2202,7 +2210,7 @@ impl ManagedHostState {
                 }
                 _ => format!("Assigned/{instance_state}"),
             },
-            ManagedHostState::WaitingForCleanup { cleanup_state } => {
+            ManagedHostState::WaitingForCleanup { cleanup_state, .. } => {
                 format!("WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => "ForceDeletion".to_string(),

@@ -51,9 +51,10 @@ carbide-preingestion-manager = { path = "../preingestion-manager" }
 carbide-nvlink-manager = { path = "../nvlink-manager" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
+libnmxc = { path = "../libnmxc" }
 logfmt = { path = "../logfmt" }
 mqttea = { path = "../mqttea" }
-carbide-rpc = { path = "../rpc", features = ["sqlx"] }
+carbide-rpc = { path = "../rpc", features = ["sqlx", "model"] }
 carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-ssh = { path = "../ssh" }
