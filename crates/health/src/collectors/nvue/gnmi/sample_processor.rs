@@ -330,7 +330,7 @@ mod tests {
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 
     use super::*;
-    use crate::endpoint::{EndpointMetadata, SwitchData};
+    use crate::endpoint::{EndpointMetadata, SwitchData, SwitchEndpointRole};
 
     #[derive(Default)]
     struct CapturingSink {
@@ -525,6 +525,9 @@ mod tests {
                     serial: "SN-SWITCH-001".to_string(),
                     slot_number: Some(7),
                     tray_index: Some(3),
+                    endpoint_role: SwitchEndpointRole::Host,
+                    is_primary: false,
+                    nmxt_enabled: false,
                 })),
                 rack_id: Some(RackId::new("RACK_2")),
             },

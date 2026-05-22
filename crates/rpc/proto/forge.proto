@@ -264,6 +264,7 @@ service Forge {
 
   // Query for BMC Credentials
   rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
+  rpc GetSwitchNvosCredentials(GetSwitchNvosCredentialsRequest) returns (GetBmcCredentialsResponse);
 
   // Admin CLI actions
 
@@ -2137,6 +2138,9 @@ message Switch {
   optional PlacementInRack placement_in_rack = 11;
   reserved 12, 13;
   bool is_primary = 14;
+
+  // NVOS host endpoint
+  BmcInfo nvos_info = 15;
 }
 
 message SwitchList {
@@ -3749,6 +3753,10 @@ message SSHKeyValidationResponse {
 
 message GetBmcCredentialsRequest {
   string mac_addr = 1;
+}
+
+message GetSwitchNvosCredentialsRequest {
+  common.SwitchId switch_id = 1;
 }
 
 message GetBmcCredentialsResponse {
