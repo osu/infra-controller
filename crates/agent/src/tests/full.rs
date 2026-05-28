@@ -277,34 +277,31 @@ async fn run_common_parts(
     // same gRPC endpoints that Carbide API would (and, in this case, the exact gRPC
     // endpoints that our local agent that we're spawning will need to make calls to).
     // A `state` is provided to the Router so that each mocked call (e.g. how `handle_netconf
-    // is leveraged for `/forge.Forge/GetManagedHostNetworkConfig` calls) can have
+    // is leveraged for `/core.Core/GetManagedHostNetworkConfig` calls) can have
     // additional bits of context (just like carbide-api would).
     let app = Router::new()
         .route("/up", get(handle_up))
-        .route("/forge.Forge/DiscoverMachine", post(handle_discover))
+        .route("/core.Core/DiscoverMachine", post(handle_discover))
         .route(
-            "/forge.Forge/GetManagedHostNetworkConfig",
+            "/core.Core/GetManagedHostNetworkConfig",
             post(handle_netconf),
         )
         .route(
-            "/forge.Forge/RecordDpuNetworkStatus",
+            "/core.Core/RecordDpuNetworkStatus",
             post(handle_record_netstat),
         )
         .route(
-            "/forge.Forge/DpuAgentUpgradeCheck",
+            "/core.Core/DpuAgentUpgradeCheck",
             post(handle_dpu_agent_upgrade_check),
         )
         .route(
-            "/forge.Forge/UpdateAgentReportedInventory",
+            "/core.Core/UpdateAgentReportedInventory",
             post(handle_update_agent_reported_inventory),
         )
-        .route(
-            "/forge.Forge/GetDpuInfoList",
-            post(handle_get_dpu_info_list),
-        )
-        .route("/forge.Forge/FindInterfaces", post(handle_find_interfaces))
+        .route("/core.Core/GetDpuInfoList", post(handle_get_dpu_info_list))
+        .route("/core.Core/FindInterfaces", post(handle_find_interfaces))
         // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
+        .route("/core.Core/Version", post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;

@@ -59,12 +59,9 @@ pub async fn test_network_monitor() -> eyre::Result<()> {
     // Start carbide API
     let app = Router::new()
         .route("/up", get(handle_up))
-        .route(
-            "/forge.Forge/GetDpuInfoList",
-            post(handle_get_dpu_info_list),
-        )
+        .route("/core.Core/GetDpuInfoList", post(handle_get_dpu_info_list))
         // ForgeApiClient needs a working Version route for connection retrying
-        .route("/forge.Forge/Version", post(handle_version))
+        .route("/core.Core/Version", post(handle_version))
         .fallback(handler)
         .with_state(state.clone());
     let (addr, join_handle) = common::run_grpc_server(app).await?;

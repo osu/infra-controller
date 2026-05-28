@@ -42,8 +42,8 @@ use tokio::task::JoinHandle;
 
 use crate::machine::Machine;
 
-pub const ENDPOINT_DISCOVER_DHCP: &str = "/forge.Forge/DiscoverDhcp";
-pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = "/forge.Forge/ExpireDhcpLease";
+pub const ENDPOINT_DISCOVER_DHCP: &str = "/core.Core/DiscoverDhcp";
+pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = "/core.Core/ExpireDhcpLease";
 
 // Contents of the response
 const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
@@ -230,14 +230,14 @@ impl MockAPIServer {
         fail: Arc<Mutex<bool>>,
         address_overrides: Arc<Mutex<HashMap<String, String>>>,
     ) -> Result<Response<GrpcBody>, MockAPIServerError> {
-        let path = req.uri().path();
+        let path = req.uri().path().to_owned();
         calls
             .lock()
             .unwrap()
-            .entry(path.to_owned())
+            .entry(path.clone())
             .and_modify(|e| *e += 1)
             .or_insert(1);
-        match path {
+        match path.as_str() {
             // Add the endpoints you need here
             ENDPOINT_DISCOVER_DHCP => {
                 let inject_failure = *fail.lock().unwrap();
@@ -257,10 +257,10 @@ impl MockAPIServer {
                     status: rpc::ExpireDhcpLeaseStatus::Released.into(),
                 })
             }
-            "/forge.Forge/Echo" => respond(rpc::EchoResponse {
+            "/core.Core/Echo" => respond(rpc::EchoResponse {
                 message: "dhcp_echo".into(),
             }),
-            "/forge.Forge/Version" => respond(rpc::BuildInfo::default()),
+            "/core.Core/Version" => respond(rpc::BuildInfo::default()),
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
         }
     }
