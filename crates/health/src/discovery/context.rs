@@ -155,6 +155,7 @@ impl CollectorState {
             .chain(self.leak_detector.keys())
             .chain(self.nmxt.keys())
             .chain(self.nvue_rest.keys())
+            .chain(self.nvue_gnmi.keys())
             .filter(|key| !active_keys.contains(*key))
             .cloned()
             .collect()
@@ -231,5 +232,39 @@ impl DiscoveryLoopContext {
             nmxt_config,
             nvue_config,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+    use std::collections::HashSet;
+
+    use super::*;
+    use crate::collectors::Collector;
+
+    fn noop_collector() -> Collector {
+        Collector::spawn_task(|_| async {})
+    }
+
+    #[tokio::test]
+    async fn removed_keys_includes_nvue_gnmi_collectors() {
+        let mut state = CollectorState::new();
+        state.insert(
+            CollectorKind::NvueGnmi,
+            Cow::Borrowed("removed-gNMI-endpoint"),
+            noop_collector(),
+        );
+        state.insert(
+            CollectorKind::NvueRest,
+            Cow::Borrowed("active-rest-endpoint"),
+            noop_collector(),
+        );
+
+        let active = HashSet::from([Cow::Borrowed("active-rest-endpoint")]);
+        let removed = state.removed_keys(&active);
+
+        assert!(removed.contains(&Cow::Borrowed("removed-gNMI-endpoint")));
+        assert!(!removed.contains(&Cow::Borrowed("active-rest-endpoint")));
     }
 }

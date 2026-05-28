@@ -36,7 +36,7 @@ use crate::collectors::runtime::{BackoffConfig, ExponentialBackoff, StreamingCon
 use crate::config::NvueGnmiConfig;
 use crate::endpoint::BmcEndpoint;
 use crate::metrics::CollectorRegistry;
-use crate::sink::{DataSink, EventContext};
+use crate::sink::{CollectorEvent, DataSink, EventContext};
 
 // gRPC ConnectivityState values for `connection_state`. 0 (UNKNOWN) is the gauge default.
 const IDLE: i64 = 1;
@@ -214,6 +214,8 @@ pub fn spawn_gnmi_collector(
 
     let registry = collector_registry.registry();
     let prefix = collector_registry.prefix().clone();
+    let collector_removed_sample_context = sample_event_context.clone();
+    let mut collector_removed_on_change_context = None;
 
     let sample_const_labels = HashMap::from([
         (
@@ -256,10 +258,11 @@ pub fn spawn_gnmi_collector(
         )?;
         let on_change_event_context =
             EventContext::from_endpoint(endpoint, ON_CHANGE_STREAM_ID_SYSTEM_EVENTS);
+        collector_removed_on_change_context = Some(on_change_event_context.clone());
         let on_change_processor = GnmiOnChangeProcessor::new(
             ON_CHANGE_STREAM_ID_SYSTEM_EVENTS.to_string(),
             on_change_row_metrics,
-            data_sink,
+            data_sink.clone(),
             on_change_event_context,
             switch_id,
         );
@@ -268,6 +271,7 @@ pub fn spawn_gnmi_collector(
     } else {
         None
     };
+    let collector_removed_data_sink = data_sink;
 
     Ok(Collector::spawn_task(move |cancel_token| async move {
         let sample_handle = tokio::spawn(gnmi_sample_task(
@@ -290,6 +294,17 @@ pub fn spawn_gnmi_collector(
         let _ = sample_handle.await;
         if let Some(handle) = on_change_handle {
             let _ = handle.await;
+        }
+
+        if let Some(data_sink) = collector_removed_data_sink.as_deref() {
+            data_sink.handle_event(
+                &collector_removed_sample_context,
+                &CollectorEvent::CollectorRemoved,
+            );
+
+            if let Some(event_context) = &collector_removed_on_change_context {
+                data_sink.handle_event(event_context, &CollectorEvent::CollectorRemoved);
+            }
         }
     }))
 }
