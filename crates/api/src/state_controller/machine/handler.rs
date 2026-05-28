@@ -10456,18 +10456,33 @@ async fn set_host_boot_order(
 ) -> Result<SetBootOrderOutcome, StateHandlerError> {
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
-            // There used to be a `force_dpu_nic_mode`-gated short-circuit
-            // here that, for zero-DPU hosts when the flag was set, called
-            // `boot_first(Boot::UefiHttp)` and returned `Done` to skip
-            // the rest of the SetBootOrder flow. Dropped along with the
-            // flag. We don't extend the `boot_first(UefiHttp)` call to
-            // all zero-DPU hosts because libredfish doesn't implement
-            // `boot_first` for every vendor yet (Dell currently returns
-            // `NotSupported`); zero-DPU hosts fall through to the
-            // `set_boot_order_dpu_first` path below, which downgrades
-            // the resulting `NoDpu` error via `allow_zero_dpu_hosts`
-            // and still hits `CheckBootOrder` for verification.
-            //
+            // Zero-DPU dispatch: `set_boot_order_dpu_first` is DPU-targeting and
+            // returns `NotSupported` on vendors without a custom impl. When the
+            // host has no DPU, PATCH BootSourceOverride directly — UefiHttp
+            // first, fall back to Pxe for BMCs that don't accept UefiHttp.
+            // Downstream substates handle `jid = None`.
+            if ctx.services.site_config.allow_zero_dpu_hosts
+                && mh_snapshot
+                    .host_snapshot
+                    .associated_dpu_machine_ids()
+                    .is_empty()
+            {
+                if let Err(uefi_err) = redfish_client.boot_first(Boot::UefiHttp).await {
+                    tracing::warn!(
+                        %uefi_err,
+                        "boot_first(UefiHttp) failed; falling back to Pxe"
+                    );
+                    redfish_client
+                        .boot_first(Boot::Pxe)
+                        .await
+                        .map_err(|e| redfish_error("boot_first Pxe (fallback)", e))?;
+                }
+                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                    retry_count: set_boot_order_info.retry_count,
+                }));
+            }
             // Resolve the boot NIC MAC the same way `CheckHostConfig` does,
             // supporting hosts with DPU(s) and zero DPUs alike.
             let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {
