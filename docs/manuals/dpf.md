@@ -18,7 +18,7 @@ authoritative source for installing and configuring DPF is the upstream guide:
 
 - <https://docs.nvidia.com/networking/display/dpf25101>
 
-NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
+NICo is designed to follow the Zero-Trust use case detailed in the DPF documentation: [DPF Zero-Trust Mode - HBN Usecase](https://docs.nvidia.com/networking/display/dpf25101/hbn-in-dpf-zero-trust).
 
 You should follow that guide as the base. The instructions below only describe
 the **deltas, additions, and tweaks** that need to be applied on top of the
@@ -31,8 +31,8 @@ The guide is organized into the following sections:
 
 1. **Prerequisites** — work that must be done before installing DPF.
 2. **DPF Installation** — NICo-relevant notes when installing the DPF operator.
-3. **Post-Installation Configuration** — the cluster state that must be in
-   place after DPF is installed and before NICo starts.
+3. **Post-Installation Configuration** — the cluster state and NICo configuration that must be in place after DPF is installed and before NICo starts.
+4. **Restart carbide-api** — what NICo creates on startup, and why a restart is required to apply DPF config changes.
 
 > **Note**: NICo expects DPF to be installed and configured on the same
 > Kubernetes cluster where NICo (the controller) runs.
@@ -41,15 +41,9 @@ The guide is organized into the following sections:
 
 ## 1. Prerequisites
 
-The official DPF guide lists a set of cluster-level prerequisites (Argo CD,
-cert-manager, Kamaji etc.). Follow that guide for those
-components.
+The official DPF guide lists a set of [cluster-level prerequisites](https://docs.nvidia.com/networking/display/dpf25101/helm-prerequisites) (Argo CD, cert-manager, Kamaji etc.). Follow that guide for those components.
 
-NICo reuses several of those same components (notably Argo CD and
-cert-manager). If they are already installed for NICo, **do not reinstall
-them** — only configure the missing pieces and adapt the existing
-installations so DPF can use them. The subsections below cover the prerequisite
-configuration that is specific to a NICo + DPF deployment.
+NICo reuses several of those same components (notably Argo CD and cert-manager). If they are already installed for NICo, **do not reinstall them** — only configure the missing pieces and adapt the existing installations so DPF can use them. The subsections below cover the prerequisite configuration that is specific to a NICo + DPF deployment.
 
 ### 1.1. Create the DPF operator namespace
 
@@ -304,7 +298,6 @@ a `ClusterRoleBinding`:
 
 ```yaml
 ---
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -313,16 +306,13 @@ metadata:
 rules:
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["bfbs"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpus"]
     verbs: ["get", "list", "watch", "patch", "delete"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
-    resources: ["dpus/status"]
-    verbs: ["patch"]
-  - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpudevices"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpunodes"]
     verbs: ["get", "list", "create", "patch", "delete"]
@@ -334,31 +324,21 @@ rules:
     verbs: ["get", "create"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpusets"]
-    verbs: ["get", "patch"]
+    verbs: ["get"]
   - apiGroups: ["provisioning.dpu.nvidia.com"]
     resources: ["dpuclusters"]
     verbs: ["get", "list"]
   - apiGroups: ["svc.dpu.nvidia.com"]
-    resources:
-      - dpudeployments
-    verbs: ["get", "list", "patch", "delete"]
+    resources: ["dpudeployments"]
+    verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["svc.dpu.nvidia.com"]
-    resources:
-      - dpuservices
-      - dpuservicechains
-    verbs: ["get", "list"]
+    resources: ["dpuservices", "dpuservicechains"]
+    verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["svc.dpu.nvidia.com"]
-    resources:
-      - dpuserviceinterfaces
-      - dpuservicetemplates
-      - dpuserviceconfigurations
-      - dpuservicenads
-    verbs: ["get", "list", "patch"]
+    resources: ["dpuserviceinterfaces", "dpuservicetemplates", "dpuserviceconfigurations", "dpuservicenads"]
+    verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["operator.dpu.nvidia.com"]
     resources: ["dpfoperatorconfigs"]
-    verbs: ["get", "patch"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
     verbs: ["get", "patch"]
   - apiGroups: [""]
     resources: ["secrets"]
@@ -378,11 +358,6 @@ subjects:
     name: carbide-api
     namespace: forge-system
 ```
-
-If you are integrating a different orchestrator or running NICo under a
-different ServiceAccount or namespace, replace `carbide-api` / `forge-system`
-accordingly. The principle is the same: the orchestrator SA must be able to
-manage DPF objects cluster-wide.
 
 ### 3.2. `DPFOperatorConfig`
 
@@ -407,7 +382,8 @@ spec:
     # Replace with the IP of the KubeAPI server where DPF control plane is running
     kubernetesAPIServerVIP: "REPLACE_ME"
     # Replace with the port of the KubeAPI server where DPF control plane is running
-    kubernetesAPIServerPort: "REPLACE_ME"
+    # don't quote "" as it should be integer
+    kubernetesAPIServerPort: REPLACE_ME
     argoCDNamespace: argocd
   kamajiClusterManager:
     disable: false
@@ -422,11 +398,10 @@ Field-by-field:
 | Field | Meaning |
 |---|---|
 | `dpuDetector.disable: true` | DPF normally polls hosts to discover new DPUs. NICo disables auto-discovery because DPUs are fed in via `DPUSet` CRs from the orchestrator. |
-| `provisioningController.dmsTimeout: 900` | 15 minute timeout for the Device Management Service handshake. |
 | `provisioningController.osInstallTimeout: "60m"` | Total budget for the OS install flow per DPU. |
-| `installViaRedfish` | Provision DPUs by talking Redfish to the host BMC (vs. PXE-based). |
+| `provisioningController.installViaRedfish` | Provision DPUs by talking Redfish to the host BMC (vs. PXE-based). |
 | `skipDPUNodeDiscovery: true` | Do not auto-detect DPUs as Kubernetes nodes — DPF is told about them explicitly by NICo. |
-| `overrides.kubernetesAPIServerVIP` | Replace `CONTROL_PLANE_IP` with the host-cluster API-server VIP that DPUs should reach. |
+| `overrides.kubernetesAPIServerVIP` | Replace `REPLACE_ME` with the host-cluster API-server VIP that DPUs should reach. |
 | `overrides.kubernetesAPIServerPort` | Host-cluster API-server port (`6443` by default). |
 | `overrides.argoCDNamespace` | Namespace where Argo CD is installed. |
 | `kamajiClusterManager.disable: false` | Use Kamaji as the DPU control plane. |
@@ -451,11 +426,13 @@ spec:
     keepalived:
       # Controller interface where the Kamaji cluster IP is configured
       interface: "REPLACE_ME"
-      # External IP used by the Kamaji cluster
+      # External IP used by the Kamaji cluster that needs to be accessible from the DPUs
       vip: "REPLACE_ME"
       virtualRouterID: 126
       nodeSelector:
-        node-role.kubernetes.io/control-plane: 'true'
+        # Confirm this with node. Some env can have this as 'true' also.
+        # kubectl get node <node-name> -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/control-plane}'
+        node-role.kubernetes.io/control-plane: ""
 ```
 
 Field-by-field:
@@ -512,7 +489,192 @@ What this does and why it looks unusual:
 
 If your environment uses a different LoadBalancer mechanism (kube-vip, a cloud-provider LB, etc.), use it to expose the VIP and point the `DPUCluster`'s `keepalived.vip` at the same address.
 
+### 3.5. Enable DPF in the carbide-api (NICo) site config
+
+DPF integration is gated on a site-level switch in the carbide-api TOML config
+(the file mounted into the `carbide-api` deployment, typically via the
+`carbide-api-site-config-files` ConfigMap). Add a `[dpf]` section and set
+`enabled = true`:
+
+```toml
+[dpf]
+enabled = true
+```
+
+`[dpf].services.*` sub-tables can additionally override the Helm chart and
+container image of each mandatory DPUService that carbide-api deploys
+(`dts`, `doca_hbn`, `dpu_agent`, `dhcp_server`, `fmds`, `otel`). All of these
+have built-in defaults; override them only when pinning to a non-default
+version or registry. Each entry has the same shape:
+
+```toml
+[dpf.services.<service>]
+name                    = "<logical service name>"
+helm_repo_url           = "<helm repository URL>"
+helm_chart              = "<helm chart name>"
+helm_version            = "<helm chart version>"   # empty → CI default
+docker_repo_url         = "<image registry+repo>"
+docker_image_tag        = "<image tag>"            # empty → CI default
+docker_image_pull_secret = "dpf-pull-secret"
+```
+
+Field reference (all under `[dpf]`):
+
+| TOML key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
+| `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
+
+Notes:
+
+- The DPF operator namespace (`dpf-operator-system`) and the kubeconfig used
+  to talk to the host cluster are **not** configured here — carbide-api uses
+  its in-cluster ServiceAccount and the fixed `dpf-operator-system` namespace.
+
+### 3.6. Mark hosts as DPF-managed in expected machines
+
+Whether a given host is provisioned via DPF or via iPXE is decided per host,
+in the *expected machines* list that NICo loads on startup. The relevant
+field is **`is_dpf_enabled`** on each expected-machine entry. A host is
+provisioned via DPF only when **both** of the following are true:
+
+1. `[dpf].enabled = true` in the site config (section 3.5), and
+2. `is_dpf_enabled = true` on that host's expected-machine entry.
+
+There are several operator paths that can set this field. They are described
+below in the order an operator typically uses them.
+
+#### 3.6.a. `carbide-admin-cli expected-machine add` — create a new entry
+
+Adds a new expected-machine row. `--dpf-enabled` is optional; **omitting it
+stores `false`**.
+
+```bash
+carbide-admin-cli expected-machine add \
+  --bmc-mac-address 1a:1b:1c:1d:1e:1f \
+  --bmc-username admin \
+  --bmc-password secret \
+  --chassis-serial-number CHASSIS-SN-001 \
+  --dpf-enabled true
+```
+
+#### 3.6.b. `carbide-admin-cli expected-machine patch` — partial update via flags
+
+Updates an existing entry in place. The lookup key is `--bmc-mac-address`
+(or `--id <UUID>`). Omitting `--dpf-enabled` **preserves** the existing
+value.
+
+```bash
+carbide-admin-cli expected-machine patch \
+  --bmc-mac-address 1a:1b:1c:1d:1e:1f \
+  --chassis-serial-number CHASSIS-SN-001 \
+  --dpf-enabled true
+```
+
+#### 3.6.c. `carbide-admin-cli expected-machine update --filename` — single-host update from JSON
+
+Updates one entry from a JSON file. The JSON shape uses
+`chassis_serial_number` (not `serial_number`) and any field omitted from the
+file is **preserved** server-side.
+
+`em.json`:
+
+```json
+{
+  "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
+  "bmc_username": "admin",
+  "bmc_password": "secret",
+  "chassis_serial_number": "CHASSIS-SN-001",
+  "dpf_enabled": true
+}
+```
+
+```bash
+carbide-admin-cli expected-machine update --filename em.json
+```
+
+This is the most ergonomic path for "toggle DPF on one already-existing
+expected machine without touching anything else."
+
+#### 3.6.d. `carbide-admin-cli expected-machine replace-all --filename` — destructive full reload
+
+Wipes the entire `expected_machines` table and re-creates it from the file.
+The file shape is a wrapper object whose `expected_machines` array uses the
+same per-entry shape as `update`:
+
+`em-all.json`:
+
+```json
+{
+  "expected_machines": [
+    {
+      "bmc_mac_address": "1a:1b:1c:1d:1e:1f",
+      "bmc_username": "admin",
+      "bmc_password": "secret",
+      "chassis_serial_number": "CHASSIS-SN-001",
+      "dpf_enabled": true
+    }
+  ]
+}
+```
+
+```bash
+carbide-admin-cli expected-machine replace-all --filename em-all.json
+```
+
+> **Important**: this is **not a merge**. Any expected-machine row that is
+> not present in the file is **deleted**. Each entry is then re-created via
+> the same path as `add`, so any entry whose `dpf_enabled` is omitted is
+> re-inserted with `dpf_enabled = false`.
+
+#### 3.6.e. Quick reference
+
+| Goal | Path |
+|---|---|
+| Add a new host with DPF enabled | `carbide-admin-cli expected-machine add … --dpf-enabled true` |
+| Flip DPF on an existing entry, preserving everything else | `carbide-admin-cli expected-machine update --filename em.json` |
+| Flip DPF inline with one or more other fields | `carbide-admin-cli expected-machine patch … --dpf-enabled true` |
+| Replace the entire inventory | `carbide-admin-cli expected-machine replace-all --filename em-all.json` |
+| Inspect current value | `carbide-admin-cli expected-machine show <bmc-mac>` |
+
+### 3.7 Enabling DPF for Existing (Ingested) Nodes
+
+You can enable the DPF flag on an already discovered host without force-deleting or recreating it by using:
+
+```bash
+carbide-admin-cli dpf enable <host-id>
+```
+
+After changing the DPF status for a host in this way, you should trigger a reprovisioning for all the DPUs under a host (using its host ID). For environments where a host has multiple DPUs, make sure to trigger reprovisioning for all DPUs under the host; otherwise, NICo will not transition the node to DPF-managed status.
+
+**Note:** The `carbide-admin-cli dpf enable` command updates the DPF flag only for the currently ingested machine. If you later force-delete the host, this change is lost—on rediscovery, the DPF setting will revert to whatever is present in your `expected_machines` database.
+
 ---
 
-After all post-installation configuration objects are applied and reconciled
-successfully, the DPF stack is ready and NICo can be started.
+## 4. Restart carbide-api to create the DPF initialization objects
+
+Once everything in sections 1–3 is in place, carbide-api must be (re)started.
+DPF initialization in carbide-api is **startup-only**: the `[dpf]` config is
+read once when the process comes up, and that is the only point at which the
+DPF initialization objects are created in the host cluster.
+
+On startup with `[dpf].enabled = true`, carbide-api creates the following
+objects in the `dpf-operator-system` namespace:
+
+- a `Secret` (`bmc-shared-password`) holding the shared BMC password,
+- a `BFB` CR named `bf-bundle-<sha256([dpf].bfb_url)>`,
+- a `DPUFlavor` CR named after `[dpf].flavor_name`,
+- a set of `DPUServiceInterface`, `DPUServiceTemplate`,
+  `DPUServiceConfiguration`, and `DPUServiceNAD` CRs — one per mandatory
+  DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
+  `carbide-fmds`, `carbide-otelcol`),
+- a `DPUDeployment` CR named after `[dpf].deployment_name`, which references
+  the BFB, the DPUFlavor, and the service templates above, and which the DPF
+  operator then reconciles into actual `DPUService` and per-DPU resources, and
+  `spec.provisioningController.bfCFGTemplateConfigMap`).
+
+Because this path runs only at process start, **any change to `[dpf]`** —
+enabling DPF for the first time, changing the BFB URL, renaming the
+`DPUDeployment`/`DPUFlavor`, or pinning a different chart/image version under
+`[dpf.services.*]` — **requires a carbide-api restart** for the new
+configuration to take effect.
