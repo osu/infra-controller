@@ -207,7 +207,6 @@ navigation:
           path: development/new_hardware_support.md
         - page: Build Guide
           path: development/build-guide.md
-
     - section: Reference
       contents:
         - page: Hardware Compatibility List
