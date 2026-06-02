@@ -142,19 +142,6 @@ impl NvueClient {
         let _response = self.execute(request).await?;
 
         let builder = self.request(Method::PATCH, &revision_path)?;
-        let mut config = config.clone();
-        // Just in case the config we got was derived from an older one,
-        // let's clear the rev-id from the header.
-        config.remove_rev_id();
-        // The startup templates wrap the payload in a [{header:...},{set:...}] list.
-        // The REST API expects only the inner config object, so strip the wrapper.
-        // If the config is a top-level array but has no "set" entry that is a
-        // schema error — surface it now rather than letting the API reject it
-        // with a cryptic response.
-        let config = match config.extract_set_payload()? {
-            Some(inner) => inner,
-            None => config,
-        };
         let builder = builder.json(&config);
         let request = builder.build()?;
         let _response = self.execute(request).await?;
