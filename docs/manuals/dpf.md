@@ -678,3 +678,98 @@ enabling DPF for the first time, changing the BFB URL, renaming the
 `DPUDeployment`/`DPUFlavor`, or pinning a different chart/image version under
 `[dpf.services.*]` — **requires a carbide-api restart** for the new
 configuration to take effect.
+
+---
+
+## Appendix: `carbide-admin-cli dpf` command reference
+
+`carbide-admin-cli` ships a top-level `dpf` subcommand group for inspecting and
+toggling DPF state on already-ingested hosts and for diffing the running DPF
+service stack against the configured one. The full set is listed below.
+
+> **Important**: All `dpf enable` changes are written to the
+> machine's metadata only. **They are wiped on force-delete** and on
+> rediscovery the host reverts to whatever its expected-machine entry says.
+> To persist the per-host DPF setting, update the expected-machines table
+> (see section 3.6). This is useful when you want to reprovision a host that
+> was not previously managed by DPF, using the DPF framework.
+
+### `dpf enable` — turn DPF on for a host
+
+```bash
+carbide-admin-cli dpf enable <host-machine-id>
+```
+
+| Argument | Required | Notes |
+|---|:---:|---|
+| `<host-machine-id>` | yes | Must be a **host** machine id; DPU ids are rejected. |
+
+Sets `machines.dpf.enabled = true` on the given host's runtime row by calling
+the `ModifyDPFState` RPC. 
+
+### `dpf show` — inspect DPF state for one or all hosts
+
+```bash
+# One host
+carbide-admin-cli dpf show <host-machine-id>
+
+# All hosts (paginated by --page-size)
+carbide-admin-cli dpf show
+```
+
+| Argument | Required | Notes |
+|---|:---:|---|
+| `<host-machine-id>` | no | If omitted, lists DPF state for **every** host. DPU ids are rejected. |
+
+Output for a single host prints `Enabled` and `Used For Ingestion` flags; the
+multi-host form prints a table with one row per host. DPUs are excluded
+from the all-hosts list.
+
+### `dpf snapshot` — dump DPF CRs for a host
+
+```bash
+carbide-admin-cli dpf snapshot <host-machine-id>
+```
+
+| Argument | Required | Notes |
+|---|:---:|---|
+| `<host-machine-id>` | yes | Must be a host machine id; DPU ids are rejected. |
+
+Calls the `GetDpfHostSnapshot` RPC and prints the `DPUNode`, `DPUDevice`, and
+`DPU` CRs that DPF currently has for the given host. Useful for diagnosing
+why a host is stuck during DPF-based provisioning.
+
+### `dpf service-version` (alias: `sv`) — diff configured vs. deployed services
+
+```bash
+carbide-admin-cli dpf service-version
+# or
+carbide-admin-cli dpf sv
+```
+
+No arguments. Prints a table comparing each configured DPF service
+(`[dpf.services.*]` from the site config if given or read it from 
+the compile time version) against what is actually deployed
+in the cluster:
+
+| Column | Meaning |
+|---|---|
+| `Service` | Logical service name (`dts`, `doca-hbn`, ...). |
+| `Config Helm Version` | Helm chart version used by NICo. |
+| `Live Helm Version` | Helm chart version currently deployed; suffixed with `(match)` or `(DIFFERS)`, or `n/a` if not deployed. |
+| `Config Docker Tag` | Image tag used by NICo (`-` if unset). |
+| `Live Docker Tag` | Image tag currently deployed; suffixed with `(match)` or `(DIFFERS)`, or `n/a` if not deployed. |
+
+A `DIFFERS` row indicates the running stack does not match the carbide-api
+config and that a carbide-api restart (section 4) is needed to reconcile the
+configured versions onto the cluster.
+
+### Quick reference
+
+| Goal | Command |
+|---|---|
+| Turn DPF on for an already-discovered host (transient) | `carbide-admin-cli dpf enable <host-id>` |
+| Show DPF state for one host | `carbide-admin-cli dpf show <host-id>` |
+| List DPF state for all hosts | `carbide-admin-cli dpf show` |
+| Snapshot DPF CRs for a host | `carbide-admin-cli dpf snapshot <host-id>` |
+| Diff configured vs. deployed DPF service versions | `carbide-admin-cli dpf service-version` |
