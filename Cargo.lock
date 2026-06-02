@@ -1938,6 +1938,8 @@ dependencies = [
  "clap",
  "dns-record",
  "eyre",
+ "hickory-resolver",
+ "hickory-server",
  "metrics-endpoint",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1955,8 +1957,59 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "trust-dns-resolver",
- "trust-dns-server",
+]
+
+[[package]]
+name = "carbide-dpa"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "eyre",
+ "mac_address",
+ "mqttea",
+ "opentelemetry",
+ "prost",
+ "serde",
+ "sqlx",
+ "state-controller",
+ "tonic-prost-build",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-dpa-manager"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-dpa",
+ "carbide-secrets",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "eyre",
+ "http",
+ "mqttea",
+ "opentelemetry",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3572,7 +3625,7 @@ checksum = "2eac901828f88a5241ee0600950ab981148a18f2f756900ffba1b125ca6a3ef9"
 dependencies = [
  "cookie",
  "document-features",
- "idna 1.1.0",
+ "idna",
  "log",
  "publicsuffix",
  "serde",
@@ -4374,15 +4427,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 
 [[package]]
-name = "drain"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d105028bd2b5dfcb33318fd79a445001ead36004dd8dffef1bdd7e493d8bc1e"
-dependencies = [
- "tokio",
-]
-
-[[package]]
 name = "dtor"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4398,6 +4442,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7454e41ff9012c00d53cf7f475c5e3afa3b91b7c90568495495e8d9bf47a1055"
 
 [[package]]
+=======
+>>>>>>> e6402e01d (Migrate from trust-dns-server to hickory-server (#2093))
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4553,30 +4599,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
-name = "enum-as-inner"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9720bba047d567ffc8a3cba48bf19126600e249ab7f128e9233e6376976a116"
-dependencies = [
- "heck 0.4.1",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "enum-as-inner"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e6a265c649f3f5979b601d26f1d05ada116434c87741c9493cb56218f76cbc"
-dependencies = [
- "heck 0.5.0",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
+=======
+>>>>>>> e6402e01d (Migrate from trust-dns-server to hickory-server (#2093))
 name = "enum-ordinalize"
 version = "4.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5374,39 +5398,11 @@ dependencies = [
  "futures-channel",
  "futures-io",
  "futures-util",
-<<<<<<< HEAD
-=======
- "hickory-proto 0.26.1",
->>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
- "idna 1.1.0",
+ "hickory-proto",
+ "idna",
  "ipnet",
- "once_cell",
- "rand 0.8.5",
- "thiserror 1.0.69",
- "tinyvec",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-<<<<<<< HEAD
-=======
-name = "hickory-proto"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502"
-dependencies = [
- "async-trait",
- "cfg-if",
- "data-encoding",
- "enum-as-inner",
- "futures-channel",
- "futures-util",
- "idna 1.1.0",
- "ipnet",
- "once_cell",
- "rand 0.9.4",
+ "jni",
+ "rand 0.10.1",
  "thiserror 2.0.18",
  "tinyvec",
  "tracing",
@@ -5420,13 +5416,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bab31817bfb44672a252e97fe81cd0c18d1b2cf892108922f6818820df8c643"
 dependencies = [
  "data-encoding",
- "idna 1.1.0",
+ "idna",
  "ipnet",
  "jni",
  "once_cell",
  "prefix-trie",
  "rand 0.10.1",
  "ring",
+ "serde",
  "thiserror 2.0.18",
  "tinyvec",
  "tracing",
@@ -5461,12 +5458,58 @@ dependencies = [
 ]
 
 [[package]]
-name = "hkdf"
-version = "0.12.4"
+name = "hickory-server"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+checksum = "130236ba6abba90da6a7acf7a87b27d862b592c3145dc74bc47bf86d8ff198ec"
 dependencies = [
- "hmac 0.12.1",
+ "async-trait",
+ "bytes",
+ "cfg-if",
+ "data-encoding",
+ "futures-util",
+ "hickory-net",
+ "hickory-proto",
+ "ipnet",
+ "prefix-trie",
+ "serde",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "hickory-server"
+version = "0.26.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "130236ba6abba90da6a7acf7a87b27d862b592c3145dc74bc47bf86d8ff198ec"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "cfg-if",
+ "data-encoding",
+ "futures-util",
+ "hickory-net",
+ "hickory-proto",
+ "ipnet",
+ "prefix-trie",
+ "serde",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "hkdf"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
+dependencies = [
+ "hmac 0.13.0",
 ]
 
 [[package]]
@@ -5815,27 +5858,8 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "idna"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "418a0a6fab821475f634efe3ccc45c013f742efe03d853e8d3355d5cb850ecf8"
-dependencies = [
- "matches",
- "unicode-bidi",
- "unicode-normalization",
-]
-
-[[package]]
-name = "idna"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d20d6b07bfbc108882d88ed8e37d39636dcc260e15e30c45e6ba089610b917c"
-dependencies = [
- "unicode-bidi",
- "unicode-normalization",
-]
-
-[[package]]
-name = "idna"
+=======
+>>>>>>> e6402e01d (Migrate from trust-dns-server to hickory-server (#2093))
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
@@ -6676,18 +6700,11 @@ dependencies = [
 name = "link-section"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4641b91711debb59c61b07eb5e30521ed6d9e2bdd9fd04f934e7da3a5bc386d4"
+checksum = "4d1e908a416d6e9f725743b84a36feea40c4c131e805fbc26d61f9f451f36080"
 
 [[package]]
->>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
-name = "linked-hash-map"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
-
-[[package]]
-name = "linux-raw-sys"
-version = "0.4.15"
+name = "linktime-proc-macro"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
@@ -6783,15 +6800,6 @@ checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
 dependencies = [
  "hashbrown 0.17.0",
 >>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
-]
-
-[[package]]
-name = "lru-cache"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31e24f1ad8321ca0e8a1e0ac13f23cb668e6f5466c2c57319f6a5cf1cc8e3b1c"
-dependencies = [
- "linked-hash-map",
 ]
 
 [[package]]
@@ -8776,7 +8784,7 @@ version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42ea446cab60335f76979ec15e12619a2165b5ae2c12166bef27d283a9fadf"
 dependencies = [
- "idna 1.1.0",
+ "idna",
  "psl-types",
 ]
 
@@ -11312,18 +11320,6 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd79e69d3b627db300ff956027cc6c3798cef26d22526befdfcd12feeb6d2257"
-dependencies = [
- "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.11",
- "toml_edit 0.19.15",
-]
-
-[[package]]
-name = "toml"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
@@ -11388,19 +11384,8 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.19.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
-dependencies = [
- "indexmap 2.12.0",
- "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.11",
- "winnow 0.5.40",
-]
-
-[[package]]
-name = "toml_edit"
+=======
+>>>>>>> e6402e01d (Migrate from trust-dns-server to hickory-server (#2093))
 version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
@@ -11844,98 +11829,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "trust-dns-proto"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f7f83d1e4a0e4358ac54c5c3681e5d7da5efc5a7a632c90bb6d6669ddd9bc26"
-dependencies = [
- "async-trait",
- "cfg-if",
- "data-encoding",
- "enum-as-inner 0.5.1",
- "futures-channel",
- "futures-io",
- "futures-util",
- "idna 0.2.3",
- "ipnet",
- "lazy_static",
- "rand 0.8.5",
- "smallvec",
- "thiserror 1.0.69",
- "tinyvec",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "trust-dns-proto"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3119112651c157f4488931a01e586aa459736e9d6046d3bd9105ffb69352d374"
-dependencies = [
- "async-trait",
- "cfg-if",
- "data-encoding",
- "enum-as-inner 0.6.1",
- "futures-channel",
- "futures-io",
- "futures-util",
- "idna 0.4.0",
- "ipnet",
- "once_cell",
- "rand 0.8.5",
- "smallvec",
- "thiserror 1.0.69",
- "tinyvec",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "trust-dns-resolver"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a3e6c3aff1718b3c73e395d1f35202ba2ffa847c6a62eea0db8fb4cfe30be6"
-dependencies = [
- "cfg-if",
- "futures-util",
- "ipconfig",
- "lru-cache",
- "once_cell",
- "parking_lot",
- "rand 0.8.5",
- "resolv-conf",
- "smallvec",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "trust-dns-proto 0.23.2",
-]
-
-[[package]]
-name = "trust-dns-server"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c540f73c2b2ec2f6c54eabd0900e7aafb747a820224b742f556e8faabb461bc7"
-dependencies = [
- "async-trait",
- "bytes",
- "cfg-if",
- "drain",
- "enum-as-inner 0.6.1",
- "futures-executor",
- "futures-util",
- "serde",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "toml 0.7.8",
- "tracing",
- "trust-dns-proto 0.23.2",
-]
-
-[[package]]
+=======
+>>>>>>> e6402e01d (Migrate from trust-dns-server to hickory-server (#2093))
 name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12170,7 +12065,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08bc136a29a3d1758e07a9cca267be308aeebf5cfd5a10f3f67ab2097683ef5b"
 dependencies = [
  "form_urlencoded",
- "idna 1.1.0",
+ "idna",
  "percent-encoding",
  "serde",
 ]
@@ -12906,16 +12801,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"
-version = "0.5.40"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f593a95398737aeed53e489c785df13f3618e41dbcd6718c6addbf1395aa6876"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "winnow"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
 dependencies = [
