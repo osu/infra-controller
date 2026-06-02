@@ -497,6 +497,7 @@ impl DpaMonitor {
     }
 
     // Handle a DPA interface in Provisioning state.
+    #[allow(clippy::unused_async)]
     async fn handle_dpa_interface_provisioning(
         &mut self,
         mh: &mut ManagedHostStateSnapshot,
@@ -578,13 +579,13 @@ impl DpaMonitor {
     }
 
     // Handle a DPA interface in Unlocking state.
+    #[allow(clippy::unused_async)]
     async fn handle_dpa_interface_unlocking(
         &mut self,
         mh: &mut ManagedHostStateSnapshot,
         idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-
         // Once we reach Unlocking state, we would have replied to
         // ForgeAgentControl requests from scout with a reply indicating
         // that it should unlock the card. The scout does the action, and
@@ -620,6 +621,7 @@ impl DpaMonitor {
     }
 
     // Handle a DPA interface in ApplyFirmware state.
+    #[allow(clippy::unused_async)]
     async fn handle_dpa_interface_apply_firmware(
         &mut self,
         mh: &mut ManagedHostStateSnapshot,
@@ -685,6 +687,7 @@ impl DpaMonitor {
     }
 
     // Handle a DPA interface in ApplyProfile state.
+    #[allow(clippy::unused_async)]
     async fn handle_dpa_interface_apply_profile(
         &mut self,
         mh: &mut ManagedHostStateSnapshot,
@@ -697,6 +700,7 @@ impl DpaMonitor {
     }
 
     // Handle a DPA interface in Locking state.
+    #[allow(clippy::unused_async)]
     async fn handle_dpa_interface_locking(
         &mut self,
         mh: &mut ManagedHostStateSnapshot,
@@ -727,7 +731,7 @@ impl DpaMonitor {
 
         Ok(HandlerResult {
             new_state: None,
-            txn: None,  
+            txn: None,
         })
     }
 
@@ -826,11 +830,13 @@ impl DpaMonitor {
             }
 
             DpaInterfaceControllerState::ApplyFirmware => {
-                self.handle_dpa_interface_apply_firmware(mh, idx, metrics).await
+                self.handle_dpa_interface_apply_firmware(mh, idx, metrics)
+                    .await
             }
 
             DpaInterfaceControllerState::ApplyProfile => {
-                self.handle_dpa_interface_apply_profile(mh, idx, metrics).await
+                self.handle_dpa_interface_apply_profile(mh, idx, metrics)
+                    .await
             }
 
             DpaInterfaceControllerState::Locking => {
