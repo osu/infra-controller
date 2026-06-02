@@ -496,6 +496,302 @@ impl DpaMonitor {
         Ok(None)
     }
 
+    // Handle a DPA interface in Provisioning state.
+    async fn handle_dpa_interface_provisioning(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+        if host_use_admin_network {
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let new_state = DpaInterfaceControllerState::Ready;
+        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+        Ok(HandlerResult {
+            new_state: Some(new_state),
+            txn: None,
+        })
+    }
+
+    // Handle a DPA interface in Ready state.
+    async fn handle_dpa_interface_ready(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        // We will stay in Ready state as long use_admin_network is true.
+        // When an instance is created from this host, use_admin_network
+        // will be turned off. We then need to SetVNI, and wait for the
+        // SetVNI to take effect.
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+        if !host_use_admin_network {
+            // We are in the process of transitioning to an instance.
+            // So go through the unlock/apply firmware/lock sequence
+            let new_state = DpaInterfaceControllerState::Unlocking;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        let dpa_info = self.dpa_info.clone().unwrap();
+        let hb_interval = self.config.hb_interval;
+        let client = dpa_info
+            .mqtt_client
+            .clone()
+            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+
+        // When we are in the Ready state, we need to make sure that there are no VNIs configured on the NICs.
+        // If an instance has just been released and we transition to Ready state, we need to reset the VNIs on the NICs to 0.
+        // The reconciliation routine will send SetVNI command with VNI being 0, as long as the observed state is different from the desired state.
+        // If the observed state is the same as the desired state, we can stay in the Assigned state and we
+        // will send heartbeat commands to keep the states in sync.
+
+        let txn = self
+            .reconcile_ready_state(
+                &mh.host_snapshot,
+                dpa_interface,
+                client,
+                &dpa_info,
+                hb_interval,
+                metrics,
+            )
+            .await?;
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn,
+        })
+    }
+
+    // Handle a DPA interface in Unlocking state.
+    async fn handle_dpa_interface_unlocking(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+
+        // Once we reach Unlocking state, we would have replied to
+        // ForgeAgentControl requests from scout with a reply indicating
+        // that it should unlock the card. The scout does the action, and
+        // publishes an observation indicating the lock status. That causes
+        // us to update the card state in the DB. If card_state is none, that
+        // means this sequence has not yet taken place. So we just wait.
+
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        if dpa_interface.card_state.is_none() {
+            tracing::info!("card_state none for dpa: {:#?}", dpa_interface.id);
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        if let Some(ref mut cs) = dpa_interface.card_state
+            && cs.lockmode == Some(Unlocked)
+        {
+            let new_state = DpaInterfaceControllerState::ApplyFirmware;
+            tracing::info!(state = ?new_state, "Interface unlocked. Transitioning to next state");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
+
+    // Handle a DPA interface in ApplyFirmware state.
+    async fn handle_dpa_interface_apply_firmware(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        // At this point, we're in the ApplyFirmware state, which means we
+        // have sent a firmware flash instruction to scout (via a configured
+        // FirmwareFlasherProfile). Now, we wait for an observation report
+        // from scout indicating firmware has been applied (or skipped if no
+        // config was available).
+        let Some(ref card_state) = dpa_interface.card_state else {
+            tracing::info!(
+                "no firmware report, because card_state none for dpa: {:#?}, waiting for retry",
+                dpa_interface.id
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        if let Some(ref firmware_report) = card_state.firmware_report {
+            // Transition on to the next state if the flash succeeded and reset
+            // either wasn't requested (None) or succeeded (Some(true)).
+            //
+            // To explain this a bit better, if no reset was requested, then
+            // we'll get None back here. Since no reset was requested at all,
+            // then we can continue, so we just "default" to true, to let
+            // things continue. If a reset WAS requested, then we'll unwrap
+            // whatever the result was (either success/true, or failed/false).
+            let reset_ok = firmware_report.reset.unwrap_or(true);
+            if firmware_report.flashed && reset_ok {
+                let new_state = DpaInterfaceControllerState::ApplyProfile;
+                tracing::info!(
+                    state = ?new_state,
+                    observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
+                    "firmware report received and successfully applied, transitioning"
+                );
+                return Ok(HandlerResult {
+                    new_state: Some(new_state),
+                    txn: None,
+                });
+            }
+            tracing::warn!(
+                flashed = firmware_report.flashed,
+                reset = ?firmware_report.reset,
+                observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
+                "firmware report received but not successful, waiting for retry"
+            );
+        }
+
+        // ..if we get here, it's because the firmware_report in the CardState
+        // wasn't set yet. ...or it was, and this round wasn't successful, so we're
+        // just going to keep hanging out in this state until it is (letting the
+        // apply workflow happen again).
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
+
+    // Handle a DPA interface in ApplyProfile state.
+    async fn handle_dpa_interface_apply_profile(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        handle_apply_profile(dpa_interface)
+    }
+
+    // Handle a DPA interface in Locking state.
+    async fn handle_dpa_interface_locking(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let Some(ref cs) = dpa_interface.card_state else {
+            tracing::error!(
+                "Unexpected - card_state none for dpa: {:#?}",
+                dpa_interface.id
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        if cs.lockmode == Some(Locked) {
+            let new_state = DpaInterfaceControllerState::Assigned;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,  
+        })
+    }
+
+    async fn handle_dpa_interface_assigned(
+        &mut self,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+
+        // We will stay in the Assigned state as long as use_admin_network is off, which
+        // means we are in the tenant network. Once use_admin_network is turned on, we
+        // will send a SetVNI command to the DPA Interface card to set the VNI to 0
+        // and will transition to WaitingForResetVNI state.
+
+        if host_use_admin_network {
+            let new_state = DpaInterfaceControllerState::Ready;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        let dpa_info = self.dpa_info.clone().unwrap();
+        let hb_interval = self.config.hb_interval;
+        let client = dpa_info
+            .mqtt_client
+            .clone()
+            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+
+        // When we are in the Assigned state, we need to make sure the NICs are configured
+        // with the correct VNI. We have to reconcile the desired state (as specified in the
+        // spx_config field of the instance) with the observed state of the NIC in the
+        // network_status_observation field of the DpaInterface. Send SetVNI command to the NIC
+        // to set the VNI to the desired value if the observed state is different from the desired state.
+        // If the observed state is the same as the desired state, we can stay in the Assigned state and we
+        // will send heartbeat commands to keep the states in sync.
+
+        let instance = mh.instance.as_ref().ok_or_else(|| {
+            tracing::error!("reconcile_assigned_state instance is missing");
+            eyre::eyre!("reconcile_assigned_state instance is missing")
+        })?;
+        let txn = self
+            .reconcile_assigned_state(
+                dpa_interface,
+                &mh.host_snapshot,
+                instance,
+                client,
+                &dpa_info,
+                hb_interval,
+                metrics,
+            )
+            .await?;
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn,
+        })
+    }
+
     // This should return a txn if we started one, an indication of whether state is changing,
     // and if so, the new state.
     // We should:
@@ -513,237 +809,36 @@ impl DpaMonitor {
     ) -> DpaManagerResult<HandlerResult> {
         let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
 
-        let hb_interval = self.config.hb_interval;
-
-        let dpa_info = self.dpa_info.clone().unwrap();
-
-        let host_use_admin_network = dpa_interface.use_admin_network();
-
         let controller_state = dpa_interface.controller_state.value.clone();
+
         match controller_state {
             DpaInterfaceControllerState::Provisioning => {
-                if host_use_admin_network {
-                    return Ok(HandlerResult {
-                        new_state: None,
-                        txn: None,
-                    });
-                }
-
-                let new_state = DpaInterfaceControllerState::Ready;
-                tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                Ok(HandlerResult {
-                    new_state: Some(new_state),
-                    txn: None,
-                })
+                self.handle_dpa_interface_provisioning(mh, idx, metrics)
+                    .await
             }
 
             DpaInterfaceControllerState::Ready => {
-                // We will stay in Ready state as long use_admin_network is true.
-                // When an instance is created from this host, use_admin_network
-                // will be turned off. We then need to SetVNI, and wait for the
-                // SetVNI to take effect.
-
-                let client = dpa_info
-                    .mqtt_client
-                    .clone()
-                    .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
-
-                if !host_use_admin_network {
-                    // We are in the process of transitioning to an instance.
-                    // So go through the unlock/apply firmware/lock sequence
-                    let new_state = DpaInterfaceControllerState::Unlocking;
-                    tracing::info!(state = ?new_state, "Dpa Interface state transition");
-
-                    Ok(HandlerResult {
-                        new_state: Some(new_state),
-                        txn: None,
-                    })
-                } else {
-                    // When we are in the Ready state, we need to make sure that there are no VNIs configured on the NICs.
-                    // If an instance has just been released and we transition to Ready state, we need to reset the VNIs on the NICs to 0.
-                    // The reconciliation routine will send SetVNI command with VNI being 0, as long as the observed state is different from the desired state.
-                    // If the observed state is the same as the desired state, we can stay in the Assigned state and we
-                    // will send heartbeat commands to keep the states in sync.
-
-                    let txn = self
-                        .reconcile_ready_state(
-                            &mh.host_snapshot,
-                            dpa_interface,
-                            client,
-                            &dpa_info,
-                            hb_interval,
-                            metrics,
-                        )
-                        .await?;
-
-                    Ok(HandlerResult {
-                        new_state: None,
-                        txn,
-                    })
-                }
+                self.handle_dpa_interface_ready(mh, idx, metrics).await
             }
 
             DpaInterfaceControllerState::Unlocking => {
-                // Once we reach Unlocking state, we would have replied to
-                // ForgeAgentControl requests from scout with a reply indicating
-                // that it should unlock the card. The scout does the action, and
-                // publishes an observation indicating the lock status. That causes
-                // us to update the card state in the DB. If card_state is none, that
-                // means this sequence has not yet taken place. So we just wait.
-                if dpa_interface.card_state.is_none() {
-                    tracing::info!("card_state none for dpa: {:#?}", dpa_interface.id);
-                    return Ok(HandlerResult {
-                        new_state: None,
-                        txn: None,
-                    });
-                }
-                if let Some(ref mut cs) = dpa_interface.card_state
-                    && cs.lockmode == Some(Unlocked)
-                {
-                    let new_state = DpaInterfaceControllerState::ApplyFirmware;
-                    tracing::info!(state = ?new_state, "Interface unlocked. Transitioning to next state");
-                    return Ok(HandlerResult {
-                        new_state: Some(new_state),
-                        txn: None,
-                    });
-                }
-                Ok(HandlerResult {
-                    new_state: None,
-                    txn: None,
-                })
+                self.handle_dpa_interface_unlocking(mh, idx, metrics).await
             }
 
             DpaInterfaceControllerState::ApplyFirmware => {
-                // At this point, we're in the ApplyFirmware state, which means we
-                // have sent a firmware flash instruction to scout (via a configured
-                // FirmwareFlasherProfile). Now, we wait for an observation report
-                // from scout indicating firmware has been applied (or skipped if no
-                // config was available).
-                let Some(ref card_state) = dpa_interface.card_state else {
-                    tracing::info!(
-                        "no firmware report, because card_state none for dpa: {:#?}, waiting for retry",
-                        dpa_interface.id
-                    );
-                    return Ok(HandlerResult {
-                        new_state: None,
-                        txn: None,
-                    });
-                };
-                if let Some(ref firmware_report) = card_state.firmware_report {
-                    // Transition on to the next state if the flash succeeded and reset
-                    // either wasn't requested (None) or succeeded (Some(true)).
-                    //
-                    // To explain this a bit better, if no reset was requested, then
-                    // we'll get None back here. Since no reset was requested at all,
-                    // then we can continue, so we just "default" to true, to let
-                    // things continue. If a reset WAS requested, then we'll unwrap
-                    // whatever the result was (either success/true, or failed/false).
-                    let reset_ok = firmware_report.reset.unwrap_or(true);
-                    if firmware_report.flashed && reset_ok {
-                        let new_state = DpaInterfaceControllerState::ApplyProfile;
-                        tracing::info!(
-                            state = ?new_state,
-                            observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
-                            "firmware report received and successfully applied, transitioning"
-                        );
-                        return Ok(HandlerResult {
-                            new_state: Some(new_state),
-                            txn: None,
-                        });
-                    }
-                    tracing::warn!(
-                        flashed = firmware_report.flashed,
-                        reset = ?firmware_report.reset,
-                        observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
-                        "firmware report received but not successful, waiting for retry"
-                    );
-                }
-
-                // ..if we get here, it's because the firmware_report in the CardState
-                // wasn't set yet. ...or it was, and this round wasn't successful, so we're
-                // just going to keep hanging out in this state until it is (letting the
-                // apply workflow happen again).
-                Ok(HandlerResult {
-                    new_state: None,
-                    txn: None,
-                })
+                self.handle_dpa_interface_apply_firmware(mh, idx, metrics).await
             }
 
-            DpaInterfaceControllerState::ApplyProfile => handle_apply_profile(dpa_interface),
+            DpaInterfaceControllerState::ApplyProfile => {
+                self.handle_dpa_interface_apply_profile(mh, idx, metrics).await
+            }
 
             DpaInterfaceControllerState::Locking => {
-                let Some(ref cs) = dpa_interface.card_state else {
-                    tracing::error!(
-                        "Unexpected - card_state none for dpa: {:#?}",
-                        dpa_interface.id
-                    );
-                    return Ok(HandlerResult {
-                        new_state: None,
-                        txn: None,
-                    });
-                };
-                if cs.lockmode == Some(Locked) {
-                    let new_state = DpaInterfaceControllerState::Assigned;
-                    tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    return Ok(HandlerResult {
-                        new_state: Some(new_state),
-                        txn: None,
-                    });
-                }
-                Ok(HandlerResult {
-                    new_state: None,
-                    txn: None,
-                })
+                self.handle_dpa_interface_locking(mh, idx, metrics).await
             }
 
             DpaInterfaceControllerState::Assigned => {
-                // We will stay in the Assigned state as long as use_admin_network is off, which
-                // means we are in the tenant network. Once use_admin_network is turned on, we
-                // will send a SetVNI command to the DPA Interface card to set the VNI to 0
-                // and will transition to WaitingForResetVNI state.
-
-                let client = dpa_info
-                    .mqtt_client
-                    .clone()
-                    .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
-
-                if host_use_admin_network {
-                    let new_state = DpaInterfaceControllerState::Ready;
-                    tracing::info!(state = ?new_state, "Dpa Interface state transition");
-                    Ok(HandlerResult {
-                        new_state: Some(new_state),
-                        txn: None,
-                    })
-                } else {
-                    // When we are in the Assigned state, we need to make sure the NICs are configured
-                    // with the correct VNI. We have to reconcile the desired state (as specified in the
-                    // spx_config field of the instance) with the observed state of the NIC in the
-                    // network_status_observation field of the DpaInterface. Send SetVNI command to the NIC
-                    // to set the VNI to the desired value if the observed state is different from the desired state.
-                    // If the observed state is the same as the desired state, we can stay in the Assigned state and we
-                    // will send heartbeat commands to keep the states in sync.
-
-                    let instance = mh.instance.as_ref().ok_or_else(|| {
-                        tracing::error!("reconcile_assigned_state instance is missing");
-                        eyre::eyre!("reconcile_assigned_state instance is missing")
-                    })?;
-                    let txn = self
-                        .reconcile_assigned_state(
-                            dpa_interface,
-                            &mh.host_snapshot,
-                            instance,
-                            client,
-                            &dpa_info,
-                            hb_interval,
-                            metrics,
-                        )
-                        .await?;
-
-                    Ok(HandlerResult {
-                        new_state: None,
-                        txn,
-                    })
-                }
+                self.handle_dpa_interface_assigned(mh, idx, metrics).await
             }
         }
     }
