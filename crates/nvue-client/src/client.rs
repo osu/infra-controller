@@ -22,8 +22,7 @@ use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
 
-use crate::NvueConfig;
-use crate::config::NvueRevision;
+use crate::config::{NvueConfig, NvueConfigWithHeader, NvueRevision};
 
 #[derive(Debug)]
 pub struct NvueClient {
@@ -105,7 +104,7 @@ impl NvueClient {
 
     /// Return the config that is tagged as "applied" (in other words, the one
     /// that is currently running on the system).
-    pub async fn get_applied_config(&self) -> Result<NvueConfig, NvueClientError> {
+    pub async fn get_applied_config(&self) -> Result<NvueConfigWithHeader, NvueClientError> {
         const PATH: &str = "/nvue_v1/?rev=applied&filled=false";
         let request = self.request(Method::GET, PATH)?.build()?;
         let response = self.execute(request).await?;
