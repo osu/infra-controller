@@ -1209,7 +1209,7 @@ pub async fn create_test_env_with_overrides(
         config.ib_fabrics.clone(),
         test_meter.meter(),
         api.ib_fabric_manager.clone(),
-        config.host_health,
+        config.host_health.clone(),
         api.work_lock_manager_handle.clone(),
     );
 
@@ -1218,7 +1218,7 @@ pub async fn create_test_env_with_overrides(
         nmxc_sim.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
-        config.host_health,
+        config.host_health.clone(),
         api.work_lock_manager_handle.clone(),
     );
 
