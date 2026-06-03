@@ -784,6 +784,12 @@ pub struct DpfConfig {
     /// DPU provisioning.
     #[serde(default = "default_dpf_bfb_url")]
     pub bfb_url: String,
+    /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
+    /// docker images of the mandatory services. When set, it is applied to every
+    /// mandatory service except `dts` and `doca_hbn`. This also overrides if
+    /// docker_image_pull_secret is set in services sections as well.
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
     /// Additional Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
@@ -797,8 +803,25 @@ impl Default for DpfConfig {
             flavor_name: default_dpf_flavor_name(),
             node_label_key: default_dpf_node_label_key(),
             bfb_url: String::new(),
+            docker_image_pull_secret: None,
             services: Box::default(),
         }
+    }
+}
+
+impl DpfConfig {
+    /// Returns the mandatory services with the optional [`Self::docker_image_pull_secret`]
+    /// override applied. The override affects every mandatory service except `dts` and
+    /// `doca_hbn`, which keep their own configured pull secret.
+    pub fn resolved_mandatory_services(&self) -> DpfMandatoryServicesConfig {
+        let mut services = (*self.services).clone();
+        if let Some(secret) = &self.docker_image_pull_secret {
+            services.dpu_agent.docker_image_pull_secret = secret.clone();
+            services.dhcp_server.docker_image_pull_secret = secret.clone();
+            services.fmds.docker_image_pull_secret = secret.clone();
+            services.otel.docker_image_pull_secret = secret.clone();
+        }
+        services
     }
 }
 
@@ -898,7 +921,7 @@ pub struct MachineIdentityConfig {
     /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
     #[serde(default)]
     pub token_endpoint_http_proxy: Option<String>,
-    /// Key-id for encryption/decryption of signing keys (selects from secrets `machine_identity.encryption_keys`).
+    /// Key-id for encrypting new tenant identity ciphertext (selects from secrets `machine_identity.encryption_keys`).
     #[serde(default)]
     pub current_encryption_key_id: Option<String>,
     /// Trust domains allowed for tenant JWT `iss` (normalized host). Empty = allow any.
@@ -2139,13 +2162,11 @@ pub struct TrafficInterceptBridging {
     /// within the DPU.
     pub internal_bridge_routing_prefix: Ipv4Network,
 
-    /// The name of the bridge (aka br-host) that sits between host PF and br-hbn
-    /// It will be connected to br-hbn or the hbn pod via a patch_point or
-    /// patch port of some kind.
-    #[serde(default = "default_host_intercept_bridge_name")]
-    pub host_intercept_bridge_name: String,
+    /// The HBN/SFC bridge that intercept patch ports attach to during provisioning.
+    #[serde(default = "default_hbn_bridge")]
+    pub hbn_bridge: String,
 
-    /// The name of the bridge that sits between VFs and br-hbn.
+    /// The name of the bridge that sits between VFs and br-hbn _**for VM-owned VFs**_.
     /// This bridge will be assigned an address from <internal_bridge_routing_prefix>
     /// so that we can route traffic to a /32 bound to it and used as a VTEP for
     /// an additional GENEVE VPN.
@@ -2153,21 +2174,55 @@ pub struct TrafficInterceptBridging {
     pub vf_intercept_bridge_name: String,
 
     /// The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <vf_intercept_bridge_name> bridge
+    /// This will be the side owned by the <vf_intercept_bridge_name> bridge _**for VM-owned VFs**_
     #[serde(default = "default_vf_intercept_bridge_port")]
     pub vf_intercept_bridge_port: String,
 
-    /// The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <host_intercept_bridge_name> bridge.
-    #[serde(default = "default_host_intercept_bridge_port")]
-    pub host_intercept_bridge_port: String,
-
     /// The SF used for internal routing of VF traffic.
     pub vf_intercept_bridge_sf: String,
+
+    /// The layout of host-owned representors that will have intermediary bridges.
+    /// E.g., [{"pf0hpf" => {bridge: "br-host", patch_port: "brh"}}]
+    #[serde(default)]
+    pub host_representor_intercept_bridging: HashMap<String, HostInterceptBridging>,
 }
 
-pub fn default_host_intercept_bridge_name() -> String {
-    "br-host".to_string()
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct HostInterceptBridging {
+    /// The name of the bridge (e.g., br-host) that will sit between host PF/VF and br-hbn.
+    /// It will be connected to br-hbn or br-sfc.
+    pub bridge: String,
+
+    /// The patch port on this bridge that connects it toward HBN or SFC.
+    pub patch_port: String,
+
+    /// Control whether this bridging should be created during DPU (re)provisioning or not.
+    /// By default, we expect to create these bridges.
+    #[serde(default)]
+    pub skip_create: bool,
+}
+
+impl TrafficInterceptBridging {
+    /// Formats host-owned representor bridge config for BlueField provisioning.
+    pub fn host_representor_intercept_bridging_provisioning_config(&self) -> Option<String> {
+        // Keep bf.cfg input stable and omit entries that should not be provisioned.
+        let config = self
+            .host_representor_intercept_bridging
+            .iter()
+            .filter(|(_, bridge)| !bridge.skip_create)
+            .sorted_by(|(left, _), (right, _)| left.cmp(right))
+            .map(|(representor, bridge)| {
+                format!("{representor}:{}:{}", bridge.bridge, bridge.patch_port)
+            })
+            .join(",");
+
+        // An empty map, or one with only skipped entries, means no provisioning config.
+        (!config.is_empty()).then_some(config)
+    }
+}
+
+pub fn default_hbn_bridge() -> String {
+    "br-hbn".to_string()
 }
 
 pub fn default_vf_intercept_bridge_name() -> String {
@@ -2176,10 +2231,6 @@ pub fn default_vf_intercept_bridge_name() -> String {
 
 pub fn default_vf_intercept_bridge_port() -> String {
     "patch-br-dpu-to-hbn".to_string()
-}
-
-pub fn default_host_intercept_bridge_port() -> String {
-    "patch-br-host-to-hbn".to_string()
 }
 
 #[cfg(test)]
@@ -3574,6 +3625,60 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 pool_type: resource_pool::ResourcePoolType::Integer,
                 delegate_prefix_len: None,
             }
+        );
+    }
+
+    #[test]
+    fn dpf_docker_image_pull_secret_overrides_non_excluded_services() {
+        let cfg = DpfConfig {
+            docker_image_pull_secret: Some("my-custom-secret".to_string()),
+            ..DpfConfig::default()
+        };
+
+        let services = cfg.resolved_mandatory_services();
+
+        // Override applies to every mandatory service ...
+        assert_eq!(
+            services.dpu_agent.docker_image_pull_secret,
+            "my-custom-secret"
+        );
+        assert_eq!(
+            services.dhcp_server.docker_image_pull_secret,
+            "my-custom-secret"
+        );
+        assert_eq!(services.fmds.docker_image_pull_secret, "my-custom-secret");
+        assert_eq!(services.otel.docker_image_pull_secret, "my-custom-secret");
+
+        // ... except dts and doca_hbn, which keep the default.
+        assert_eq!(
+            services.dts.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+        assert_eq!(
+            services.doca_hbn.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+    }
+
+    #[test]
+    fn dpf_docker_image_pull_secret_unset_keeps_per_service_secrets() {
+        // No global override -> services keep their own configured secret.
+        let cfg = DpfConfig::default();
+        assert!(cfg.docker_image_pull_secret.is_none());
+
+        let services = cfg.resolved_mandatory_services();
+
+        assert_eq!(
+            services.dpu_agent.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+        assert_eq!(
+            services.dts.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
+        );
+        assert_eq!(
+            services.doca_hbn.docker_image_pull_secret,
+            DEFAULT_DPF_IMAGE_PULL_SECRET
         );
     }
 }
