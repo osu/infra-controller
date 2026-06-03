@@ -20,11 +20,31 @@ use std::str::FromStr;
 
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::dpa_interface::{DpaInterface, NewDpaInterface};
+use model::dpa_interface::{DpaInterface, DpaInterfaceType, NewDpaInterface};
 use model::state_history::StateHistoryRecord;
 
 use crate as rpc;
 use crate::errors::RpcDataConversionError;
+
+impl TryFrom<rpc::forge::DpaInterfaceType> for DpaInterfaceType {
+    type Error = RpcDataConversionError;
+
+    fn try_from(value: rpc::forge::DpaInterfaceType) -> Result<Self, Self::Error> {
+        match value {
+            rpc::forge::DpaInterfaceType::Svpc => Ok(DpaInterfaceType::Svpc),
+            rpc::forge::DpaInterfaceType::Astra => Ok(DpaInterfaceType::Astra),
+        }
+    }
+}
+
+impl From<DpaInterfaceType> for rpc::forge::DpaInterfaceType {
+    fn from(value: DpaInterfaceType) -> Self {
+        match value {
+            DpaInterfaceType::Svpc => rpc::forge::DpaInterfaceType::Svpc,
+            DpaInterfaceType::Astra => rpc::forge::DpaInterfaceType::Astra,
+        }
+    }
+}
 
 impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
     type Error = RpcDataConversionError;
@@ -41,6 +61,14 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
             device_type: value.device_type,
             pci_name: value.pci_name,
             device_description: value.device_description,
+            interface_type: rpc::forge::DpaInterfaceType::try_from(value.interface_type)
+                .map_err(|_| {
+                    RpcDataConversionError::InvalidValue(
+                        "DpaInterfaceType".to_string(),
+                        value.interface_type.to_string(),
+                    )
+                })?
+                .try_into()?,
         })
     }
 }

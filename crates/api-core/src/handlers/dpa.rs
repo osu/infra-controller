@@ -25,7 +25,8 @@ use eyre::eyre;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::profile::serialization::SerializableProfile;
 use model::dpa_interface::{
-    CardState, DpaInterface, DpaInterfaceControllerState, DpaLockMode, NewDpaInterface,
+    CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceType, DpaLockMode,
+    NewDpaInterface,
 };
 use rpc::forge_agent_control_response as fac;
 use rpc::forge_agent_control_response::MlxDeviceAction;
@@ -613,12 +614,21 @@ pub(crate) async fn publish_mlx_device_report(
                 }
                 spx_nics += 1;
 
-                let Some(new_interface) =
-                    NewDpaInterface::from_device_info(machine_id, &device_info)
-                else {
+                let device_type = device_info.device_type.clone();
+                let pci_name = device_info.pci_name.clone();
+                let device_description = device_info.device_description.clone();
+
+                let Some(new_interface) = NewDpaInterface::from_device_info(
+                    machine_id,
+                    device_info.base_mac,
+                    device_type,
+                    pci_name.clone(),
+                    device_description,
+                    DpaInterfaceType::Svpc,
+                ) else {
                     tracing::warn!(
                         %machine_id,
-                        pci_name = %device_info.pci_name,
+                        pci_name = %pci_name,
                         "skipping interface: missing base_mac"
                     );
                     continue;

@@ -546,7 +546,7 @@ mod test {
     use carbide_libmlx_model::device::info::MlxDeviceInfo;
     use carbide_uuid::machine::MachineId;
     use mac_address::MacAddress;
-    use model::dpa_interface::NewDpaInterface;
+    use model::dpa_interface::{DpaInterfaceType, NewDpaInterface};
     use model::machine::ManagedHostState;
 
     use crate::machine;
@@ -566,6 +566,7 @@ mod test {
             device_type: "Bluefield 3".to_string(),
             pci_name: "5e:00.0".to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
 
         let intf = crate::dpa_interface::persist(new_intf, &mut txn).await?;
@@ -608,6 +609,7 @@ mod test {
             device_type: "BlueField3".to_string(),
             pci_name: "01:00.0".to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
 
         // First call should insert a new interface.
@@ -627,6 +629,7 @@ mod test {
             device_type: "BlueField3".to_string(),
             pci_name: "01:00.0".to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
         let second = crate::dpa_interface::ensure(second_intf, &mut txn).await?;
         assert_eq!(second.id, first.id);
@@ -666,6 +669,7 @@ mod test {
             device_type: "BlueField3".to_string(),
             pci_name: pci_name.to_string(),
             device_description: None,
+            interface_type: DpaInterfaceType::Svpc,
         };
 
         crate::dpa_interface::persist(new_intf, &mut txn).await?;

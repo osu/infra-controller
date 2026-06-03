@@ -6817,6 +6817,10 @@ message DpaInterface {
   optional string device_description = 20;
 }
 
+enum DpaInterfaceType {
+  Svpc = 0;
+  Astra = 1;
+}
 
 message DpaInterfaceCreationRequest {
   common.MachineId machine_id = 1;
@@ -6824,6 +6828,7 @@ message DpaInterfaceCreationRequest {
   string device_type = 3;
   string pci_name = 4;
   optional string device_description = 5;
+  DpaInterfaceType interface_type = 6;
 }
 
 message DpaInterfaceIdList {
