@@ -2220,6 +2220,7 @@ mod tests {
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
+    use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
     use model::expected_machine::DpuMode;
@@ -2788,8 +2789,8 @@ mod tests {
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
                 per_machine_metrics_for_classifications: vec![
-                    "Hardware".parse().unwrap(),
-                    "PreventAllocations".parse().unwrap(),
+                    HealthAlertClassification::hardware(),
+                    HealthAlertClassification::prevent_allocations(),
                 ],
             }
         );
@@ -3103,8 +3104,8 @@ mod tests {
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
                 per_machine_metrics_for_classifications: vec![
-                    "Hardware".parse().unwrap(),
-                    "PreventAllocations".parse().unwrap(),
+                    HealthAlertClassification::hardware(),
+                    HealthAlertClassification::prevent_allocations(),
                 ],
             }
         );
