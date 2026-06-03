@@ -76,6 +76,7 @@ urlencoding = { workspace = true }
 uuid = { workspace = true }
 x509-parser = { features = ["validate"], workspace = true }
 zip = { workspace = true, default-features = false, features = ["deflate"] }
+pandoc = "0.8.11"
 
 [build-dependencies]
 clap = { workspace = true }
