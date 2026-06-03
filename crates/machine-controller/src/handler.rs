@@ -554,14 +554,12 @@ impl MachineStateHandler {
             .site_config
             .host_health
             .per_machine_metrics_for_classifications;
-        if !per_machine_classifications.is_empty() {
-            ctx.metrics.per_machine_alert_classifications = state
-                .aggregate_health
-                .classifications()
-                .filter(|classification| per_machine_classifications.contains(classification))
-                .map(|classification| classification.to_string())
-                .collect();
-        }
+        ctx.metrics.per_machine_alert_classifications = state
+            .aggregate_health
+            .classifications()
+            .filter(|classification| per_machine_classifications.contains(classification))
+            .map(|classification| classification.to_string())
+            .collect();
     }
 
     fn record_health_history(
