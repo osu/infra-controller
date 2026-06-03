@@ -127,6 +127,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             overlay_ip: overlay,
             mlxconfig_profile: src.mlxconfig_profile,
             device_description: src.device_description,
+            interface_type: src.interface_type as i32,
         }
     }
 }
