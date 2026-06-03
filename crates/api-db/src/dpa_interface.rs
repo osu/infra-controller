@@ -45,7 +45,7 @@ pub async fn persist(
     let state = DpaInterfaceControllerState::Provisioning;
     let description = value.device_description.unwrap_or_default();
 
-    let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description)
+    let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description, interface_type)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING row_to_json(dpa_interfaces.*)";
 
     sqlx::query_as(query)
@@ -78,7 +78,7 @@ pub async fn ensure(
     let state = DpaInterfaceControllerState::Provisioning;
     let description = value.device_description.unwrap_or_default();
 
-    let insert_query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description)
+    let insert_query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description, interface_type)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (machine_id, mac_address) DO NOTHING RETURNING row_to_json(dpa_interfaces.*)";
 
     let result: Option<DpaInterface> = sqlx::query_as(insert_query)

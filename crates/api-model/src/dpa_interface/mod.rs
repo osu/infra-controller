@@ -42,9 +42,7 @@ mod slas;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "dpa_interface_type")]
 pub enum DpaInterfaceType {
-    #[sqlx(rename = "SVPC")]
     Svpc,
-    #[sqlx(rename = "ASTRA")]
     Astra,
 }
 
