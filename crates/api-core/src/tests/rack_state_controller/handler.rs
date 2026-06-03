@@ -3535,7 +3535,7 @@ async fn test_ready_with_all_healthy_components_waits(
     set_switch_state(
         pool.acquire().await?.as_mut(),
         &switch_id,
-        model::switch::SwitchControllerState::Ready,
+        model::switch::SwitchControllerState::ready(),
     )
     .await;
 
@@ -3578,7 +3578,7 @@ async fn test_error_recovers_to_ready_when_all_components_ready(
     set_switch_state(
         pool.acquire().await?.as_mut(),
         &switch_id,
-        model::switch::SwitchControllerState::Ready,
+        model::switch::SwitchControllerState::ready(),
     )
     .await;
     crate::tests::rack_state_controller::fixtures::rack::set_rack_controller_state(

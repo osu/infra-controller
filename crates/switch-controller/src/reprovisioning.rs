@@ -79,7 +79,7 @@ async fn rack_failed_abort_outcome(
     let mut txn = ctx.services.db_pool.begin().await?;
     db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id).await?;
     Ok(Some(
-        StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(txn),
+        StateHandlerOutcome::transition(SwitchControllerState::ready()).with_txn(txn),
     ))
 }
 
@@ -137,7 +137,10 @@ pub async fn handle_reprovisioning(
                     let mut txn = ctx.services.db_pool.begin().await?;
                     db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id)
                         .await?;
-                    Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(txn))
+                    Ok(
+                        StateHandlerOutcome::transition(SwitchControllerState::ready())
+                            .with_txn(txn),
+                    )
                 }
                 model::rack::RackFirmwareUpgradeState::Failed { cause } => {
                     let mut txn = ctx.services.db_pool.begin().await?;
@@ -225,7 +228,7 @@ pub async fn handle_reprovisioning(
                         db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id)
                             .await?;
                         return Ok(
-                            StateHandlerOutcome::transition(SwitchControllerState::Ready)
+                            StateHandlerOutcome::transition(SwitchControllerState::ready())
                                 .with_txn(txn),
                         );
                     }
@@ -234,7 +237,7 @@ pub async fn handle_reprovisioning(
             }
             let mut txn = ctx.services.db_pool.begin().await?;
             db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id).await?;
-            Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(txn))
+            Ok(StateHandlerOutcome::transition(SwitchControllerState::ready()).with_txn(txn))
         }
     }
 }

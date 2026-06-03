@@ -68,6 +68,25 @@ fn default_continue_after_firmware_upgrade() -> bool {
     true
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
+pub enum SwitchMaintenanceOperation {
+    /// Power on the switch.
+    PowerOn,
+    /// Power off the switch.
+    PowerOff,
+    /// Reset the switch (restart / AC power cycle).
+    Reset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitchMaintenanceRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub operation: SwitchMaintenanceOperation,
+}
+
 /// Set by an external entity to request switch reprovisioning. When the switch is in Ready state,
 /// the state controller checks this flag and transitions to ReProvisioning::Start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +147,9 @@ pub struct Switch {
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 
+    /// When set, the state controller (in Ready or Error) transitions to Maintenance.
+    pub switch_maintenance_requested: Option<SwitchMaintenanceRequest>,
+
     /// When set, the state controller (in Ready) transitions to ReProvisioning::Start.
     pub switch_reprovisioning_requested: Option<SwitchReprovisionRequest>,
 
@@ -161,6 +183,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
         let status: Option<sqlx::types::Json<SwitchStatus>> = row.try_get("status").ok();
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
+        let switch_maintenance_requested: Option<sqlx::types::Json<SwitchMaintenanceRequest>> =
+            row.try_get("switch_maintenance_requested").ok();
         let switch_reprovisioning_requested: Option<sqlx::types::Json<SwitchReprovisionRequest>> =
             row.try_get("switch_reprovisioning_requested").ok();
         let firmware_upgrade_status: Option<sqlx::types::Json<RackFirmwareUpgradeStatus>> =
@@ -191,6 +215,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            switch_maintenance_requested: switch_maintenance_requested.map(|j| j.0),
             switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             nvos_update_status: nvos_update_status.map(|j| j.0),
@@ -245,6 +270,34 @@ pub enum BomValidatingState {
     BomValidationComplete,
 }
 
+/// Sub-state for SwitchControllerState::Ready reflecting observed power state.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
+pub enum ReadyState {
+    #[default]
+    PowerOn,
+    PowerOff,
+}
+
+impl ReadyState {
+    pub fn is_power_on(self) -> bool {
+        matches!(self, Self::PowerOn)
+    }
+
+    fn skip_in_ready_json(state: &Self) -> bool {
+        state.is_power_on()
+    }
+
+    pub fn from_power_state(power_state: &str) -> Self {
+        if power_state.eq_ignore_ascii_case("off") {
+            Self::PowerOff
+        } else {
+            Self::PowerOn
+        }
+    }
+}
+
 /// Sub-state for SwitchControllerState::ReProvisioning
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
@@ -276,8 +329,18 @@ pub enum SwitchControllerState {
     BomValidating {
         bom_validating_state: BomValidatingState,
     },
-    /// The Switch is ready for use.
-    Ready,
+    /// The Switch is ready for use. When powered off, `ready_state` is `PowerOff`;
+    /// when powered on, `ready_state` is omitted from the serialized form.
+    Ready {
+        #[serde(default, skip_serializing_if = "ReadyState::skip_in_ready_json")]
+        ready_state: ReadyState,
+    },
+
+    /// The Switch is executing an operator-requested power operation.
+    Maintenance {
+        operation: SwitchMaintenanceOperation,
+    },
+
     // ReProvisioning
     ReProvisioning {
         reprovisioning_state: ReProvisioningState,
@@ -316,7 +379,11 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
             std::time::Duration::from_secs(slas::CONFIGURING),
             time_in_state,
         ),
-        SwitchControllerState::Ready => StateSla::no_sla(),
+        SwitchControllerState::Ready { .. } => StateSla::no_sla(),
+        SwitchControllerState::Maintenance { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::MAINTENANCE),
+            time_in_state,
+        ),
         SwitchControllerState::ReProvisioning { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::CONFIGURING),
             time_in_state,
@@ -326,6 +393,44 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
             std::time::Duration::from_secs(slas::DELETING),
             time_in_state,
         ),
+    }
+}
+
+impl SwitchControllerState {
+    pub fn ready() -> Self {
+        Self::Ready {
+            ready_state: ReadyState::PowerOn,
+        }
+    }
+
+    pub fn ready_on() -> Self {
+        Self::ready()
+    }
+
+    pub fn ready_off() -> Self {
+        Self::Ready {
+            ready_state: ReadyState::PowerOff,
+        }
+    }
+
+    pub fn ready_from_power_state(power_state: &str) -> Self {
+        match ReadyState::from_power_state(power_state) {
+            ReadyState::PowerOn => Self::ready(),
+            ReadyState::PowerOff => Self::ready_off(),
+        }
+    }
+
+    pub fn is_ready(&self) -> bool {
+        matches!(self, Self::Ready { .. })
+    }
+
+    pub fn is_ready_and_powered_on(&self) -> bool {
+        matches!(
+            self,
+            Self::Ready {
+                ready_state: ReadyState::PowerOn,
+            }
+        )
     }
 }
 
@@ -382,9 +487,41 @@ mod tests {
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
             state
         );
-        let state = SwitchControllerState::Ready;
+        let state = SwitchControllerState::ready();
         let serialized = serde_json::to_string(&state).unwrap();
-        assert_eq!(serialized, "{\"state\":\"ready\"}");
+        assert_eq!(serialized, r#"{"state":"ready"}"#);
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
+            state
+        );
+        let state = SwitchControllerState::ready_off();
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(serialized, r#"{"state":"ready","ready_state":"poweroff"}"#);
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
+            state
+        );
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(r#"{"state":"ready"}"#).unwrap(),
+            SwitchControllerState::ready(),
+            "legacy Ready JSON without ready_state defaults to simple Ready",
+        );
+        assert_eq!(
+            serde_json::from_str::<SwitchControllerState>(
+                r#"{"state":"ready","ready_state":"poweron"}"#
+            )
+            .unwrap(),
+            SwitchControllerState::ready(),
+            "Ready JSON with ready_state=poweron deserializes to simple Ready",
+        );
+        let state = SwitchControllerState::Maintenance {
+            operation: SwitchMaintenanceOperation::PowerOn,
+        };
+        let serialized = serde_json::to_string(&state).unwrap();
+        assert_eq!(
+            serialized,
+            r#"{"state":"maintenance","operation":{"operation":"poweron"}}"#
+        );
         assert_eq!(
             serde_json::from_str::<SwitchControllerState>(&serialized).unwrap(),
             state

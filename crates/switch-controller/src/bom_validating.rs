@@ -42,7 +42,7 @@ pub async fn handle_bom_validating(
         BomValidatingState::BomValidationComplete => {
             tracing::info!("BOM Validating Switch: BomValidationComplete, moving to Ready");
             Ok(StateHandlerOutcome::transition(
-                SwitchControllerState::Ready,
+                SwitchControllerState::ready(),
             ))
         }
     }

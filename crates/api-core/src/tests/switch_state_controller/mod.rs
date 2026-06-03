@@ -23,7 +23,7 @@ use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
 use db::switch as db_switch;
 use forge_secrets::test_support::credentials::TestCredentialManager;
-use model::switch::{ConfiguringState, SwitchControllerState};
+use model::switch::{ConfiguringState, ReadyState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
@@ -33,6 +33,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
 
 mod fixtures;
+mod maintenance;
 use fixtures::switch::{mark_switch_as_deleted, set_switch_controller_state};
 
 #[crate::sqlx_test]
@@ -64,7 +65,7 @@ async fn test_switch_state_transition_validation(
         SwitchControllerState::Configuring {
             config_state: ConfiguringState::RotateOsPassword,
         },
-        SwitchControllerState::Ready,
+        SwitchControllerState::ready(),
         SwitchControllerState::Error {
             cause: "Test error".to_string(),
         },
@@ -139,7 +140,7 @@ async fn test_switch_deletion_with_state_controller(
         .into_inner()
         .switches
         .remove(0);
-    assert_eq!(switch.controller_state, "{\"state\":\"ready\"}".to_string());
+    assert_eq!(switch.controller_state, r#"{"state":"ready"}"#.to_string());
 
     // Mark the switch as deleted
     mark_switch_as_deleted(pool.acquire().await?.as_mut(), &switch_id).await?;
@@ -233,7 +234,12 @@ async fn test_switch_entire_state_transition_flow(
     let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
     let switch = switch.expect("switch should exist");
     assert!(
-        matches!(switch.controller_state.value, SwitchControllerState::Ready),
+        matches!(
+            switch.controller_state.value,
+            SwitchControllerState::Ready {
+                ready_state: ReadyState::PowerOn,
+            }
+        ),
         "expected Ready, got {:?}",
         switch.controller_state.value
     );
@@ -409,7 +415,9 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_returns_ready_for_firmwar
         .expect("switch should exist");
     assert!(matches!(
         switch.controller_state.value,
-        SwitchControllerState::Ready,
+        SwitchControllerState::Ready {
+            ready_state: ReadyState::PowerOn,
+        },
     ));
     assert!(switch.switch_reprovisioning_requested.is_none());
 
@@ -490,7 +498,7 @@ async fn test_switch_ready_routes_rack_requests_to_waiting_for_rack_firmware_upg
         switch_id,
         switch.controller_state.version,
         switch.controller_state.version.increment(),
-        &SwitchControllerState::Ready,
+        &SwitchControllerState::ready(),
     )
     .await?;
     txn.commit().await?;
@@ -735,7 +743,9 @@ async fn test_switch_waiting_for_nmxc_configure_returns_ready_when_fm_is_running
         .expect("switch should exist");
     assert!(matches!(
         switch.controller_state.value,
-        SwitchControllerState::Ready
+        SwitchControllerState::Ready {
+            ready_state: ReadyState::PowerOn,
+        }
     ));
     assert!(switch.switch_reprovisioning_requested.is_none());
 

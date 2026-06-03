@@ -318,7 +318,7 @@ async fn test_switch_controller_state_transitions(
     assert!(matches!(initial_state, SwitchControllerState::Created));
 
     // Test updating controller state
-    let new_state = SwitchControllerState::Ready;
+    let new_state = SwitchControllerState::ready();
     let current_version = switch.controller_state.version;
 
     let next_version = current_version.increment();
@@ -343,7 +343,9 @@ async fn test_switch_controller_state_transitions(
     let updated_switch = &updated_switches[0];
     assert!(matches!(
         updated_switch.controller_state.value,
-        SwitchControllerState::Ready
+        SwitchControllerState::Ready {
+            ready_state: model::switch::ReadyState::PowerOn,
+        }
     ));
 
     // Version should have been incremented

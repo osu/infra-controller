@@ -25,6 +25,7 @@ authors.workspace = true
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-health-metrics = { path = "../health-metrics" }
+carbide-rack = { path = "../rack", default-features = false }
 # TODO: probably this dependency is not necessary. It is only use for
 # one function that ultimately calls rms client. Weird dep.
 carbide-site-explorer = { path = "../site-explorer" }

@@ -237,12 +237,13 @@ mod tests {
             deleted: None,
             bmc_mac_address: None,
             controller_state: Versioned::new(
-                SwitchControllerState::Ready,
+                SwitchControllerState::ready(),
                 config_version::ConfigVersion::initial(),
             ),
             controller_state_outcome: Some(PersistentStateHandlerOutcome::Transition {
                 source_ref: None,
             }),
+            switch_maintenance_requested: None,
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
             nvos_update_status: None,
@@ -305,6 +306,7 @@ mod tests {
                 reason: "waiting for something".to_string(),
                 source_ref: None,
             }),
+            switch_maintenance_requested: None,
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
             nvos_update_status: None,
