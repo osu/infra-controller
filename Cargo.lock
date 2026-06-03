@@ -1192,10 +1192,6 @@ dependencies = [
  "carbide-site-explorer",
  "carbide-sqlx-testing",
  "carbide-ssh",
-<<<<<<< HEAD
-=======
- "carbide-switch-controller",
->>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -1624,6 +1620,7 @@ dependencies = [
  "eyre",
  "hickory-resolver",
  "hickory-server",
+ "lru 0.18.0",
  "metrics-endpoint",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2631,31 +2628,6 @@ dependencies = [
 ]
 
 [[package]]
-<<<<<<< HEAD
-=======
-name = "carbide-switch-controller"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "carbide-api-db",
- "carbide-api-model",
- "carbide-health-metrics",
- "carbide-secrets",
- "carbide-site-explorer",
- "carbide-utils",
- "carbide-uuid",
- "config-version",
- "eyre",
- "librms",
- "mac_address",
- "opentelemetry",
- "sqlx",
- "state-controller",
- "tracing",
-]
-
-[[package]]
->>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "carbide-systemd"
 version = "0.0.0"
 dependencies = [
@@ -4175,6 +4147,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
+name = "enum-as-inner"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1e6a265c649f3f5979b601d26f1d05ada116434c87741c9493cb56218f76cbc"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "enum-ordinalize"
 version = "4.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4992,13 +4976,8 @@ dependencies = [
  "futures-channel",
  "futures-io",
  "futures-util",
-<<<<<<< HEAD
  "hickory-proto 0.26.1",
- "idna 1.1.0",
-=======
- "hickory-proto",
  "idna",
->>>>>>> e6402e01d (Migrate from trust-dns-server to hickory-server (#2093))
  "ipnet",
  "jni",
  "rand 0.10.1",
@@ -5021,7 +5000,7 @@ dependencies = [
  "enum-as-inner",
  "futures-channel",
  "futures-util",
- "idna 1.1.0",
+ "idna",
  "ipnet",
  "once_cell",
  "rand 0.9.4",
@@ -5090,7 +5069,7 @@ dependencies = [
  "data-encoding",
  "futures-util",
  "hickory-net",
- "hickory-proto",
+ "hickory-proto 0.26.1",
  "ipnet",
  "prefix-trie",
  "serde",
@@ -6275,20 +6254,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
-<<<<<<< HEAD
-name = "local-ip-address"
-version = "0.6.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7b0187df4e614e42405b49511b82ff7a1774fbd9a816060ee465067847cac22"
-dependencies = [
- "libc",
- "neli",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-=======
->>>>>>> 3ba26e854 (refactor(dns): consolidate to a single DNS server (#1967))
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
