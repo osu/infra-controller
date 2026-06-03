@@ -95,7 +95,22 @@ kubectl -n dpf-operator-system label secret dpf-pull-secret \
   dpu.nvidia.com/image-pull-secret=""
 ```
 
-#### 1.2.c. Argo CD repository Secrets for Helm charts
+#### 1.2.c. Secret to pull NICo docker service images
+
+Credentials for `nvcr.io`, used by the DPF operator to download NICo 
+service images. 
+
+```bash
+kubectl -n dpf-operator-system create secret docker-registry nico-pull-secret \
+  --docker-server=nvcr.io \
+  --docker-username='$oauthtoken' \
+  --docker-password="$NGC_API_KEY_WITH_NICO_DOCKER_IMAGE_ACCESS" \
+  || kubectl get secret nico-pull-secret -n dpf-operator-system
+
+kubectl -n dpf-operator-system label secret nico-pull-secret \
+  dpu.nvidia.com/image-pull-secret=""
+```
+#### 1.2.d. Argo CD repository Secrets for Helm charts
 
 DPF pulls several Helm charts via Argo CD. Apply the following Secrets so that
 Argo CD can authenticate to the NGC Helm repositories:
@@ -153,6 +168,8 @@ data:
 
 Each Secret is labelled `argocd.argoproj.io/secret-type: repository`, which is
 how Argo CD discovers Helm repositories.
+
+Important: the `url` field must not end with a `/`, as any difference in the `url` (including an extra slash) will prevent Argo CD from matching the repository to the correct Secret.
 
 | Secret name | Repo URL | Type | Used by |
 |---|---|---|---|
@@ -301,7 +318,7 @@ a `ClusterRoleBinding`:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: carbide-api-dpf
+  name: nico-api-dpf
   namespace: dpf-operator-system
 rules:
   - apiGroups: ["provisioning.dpu.nvidia.com"]
@@ -347,12 +364,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: carbide-api-dpf
+  name: nico-api-dpf
   namespace: dpf-operator-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: carbide-api-dpf
+  name: nico-api-dpf
 subjects:
   - kind: ServiceAccount
     name: carbide-api
@@ -452,6 +469,8 @@ This step exposes the Kamaji cluster IP so it is routable from the DPUs. It may 
 
 The Service uses a fixed `loadBalancerIP` matching the VIP set in the `DPUCluster` above. Replace the `loadBalancerIP` value before applying.
 
+> Note: It only applies for MetalLB-managed deployments.
+
 ```yaml
 apiVersion: v1
 kind: Service
@@ -459,7 +478,7 @@ metadata:
   name: dpu-cluster-vip-loadbalancer
   namespace: dpf-operator-system
   annotations:
-    metallb.io/address-pool: carbide
+    metallb.io/address-pool: 'REPLACE_ME'
 spec:
   allocateLoadBalancerNodePorts: true
   loadBalancerIP: "External IP used by the Kamaji cluster"
@@ -483,13 +502,13 @@ subsets:
 
 What this does and why it looks unusual:
 
-- The `Service` is type `LoadBalancer` with a fixed `loadBalancerIP` (the same VIP used by the `DPUCluster` keepalived). The `metallb.io/address-pool: carbide` annotation tells MetalLB to pull the IP from the `carbide` pool defined elsewhere.
+- The `Service` is type `LoadBalancer` with a fixed `loadBalancerIP` (the same VIP used by the `DPUCluster` keepalived). The `metallb.io/address-pool: REPLACE_ME` annotation should be updated with a correct pool name. It tells MetalLB to pull the IP from the updated pool defined elsewhere.
 - A **manually-created `Endpoints`** object with a single dummy RFC 5737 IP (`192.0.2.10`) is created **with the same name** as the Service. This is a Kubernetes idiom: when an `Endpoints` resource has the same name as a Service that has **no selector**, the kubelet uses those Endpoints verbatim.  Putting a dummy IP here means: *"reserve the VIP via MetalLB, but route nothing — keepalived is the actual front-end."*
 - Net effect: MetalLB advertises the VIP to the network so external machines (DPUs, BMCs) can reach it, while keepalived handles the actual TCP termination.
 
 If your environment uses a different LoadBalancer mechanism (kube-vip, a cloud-provider LB, etc.), use it to expose the VIP and point the `DPUCluster`'s `keepalived.vip` at the same address.
 
-### 3.5. Enable DPF in the carbide-api (NICo) site config
+### 3.5. Enable DPF in the NICo site config
 
 DPF integration is gated on a site-level switch in the carbide-api TOML config
 (the file mounted into the `carbide-api` deployment, typically via the
@@ -499,7 +518,10 @@ DPF integration is gated on a site-level switch in the carbide-api TOML config
 ```toml
 [dpf]
 enabled = true
+docker_image_pull_secret = "nico-pull-secret"
 ```
+
+`docker_image_pull_secret` is an optional parameter that specifies the name of the Kubernetes Secret used to pull service container images for NICo services. If this field is omitted, NICo defaults to using the `dpf-pull-secret` for image pulls. In this scenario, ensure that the `dpf-pull-secret` is configured with a legacy NGC API key for better compatibility.
 
 `[dpf].services.*` sub-tables can additionally override the Helm chart and
 container image of each mandatory DPUService that carbide-api deploys
