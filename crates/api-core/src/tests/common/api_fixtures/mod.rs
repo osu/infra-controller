@@ -1579,7 +1579,7 @@ pub async fn create_test_env_with_overrides(
         config.ib_fabrics.clone(),
         test_meter.meter(),
         ib_fabric_manager.clone(),
-        config.host_health,
+        config.host_health.clone(),
         work_lock_manager_handle.clone(),
     );
 
@@ -1588,7 +1588,7 @@ pub async fn create_test_env_with_overrides(
         nmxc_sim.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
-        config.host_health,
+        config.host_health.clone(),
         work_lock_manager_handle.clone(),
     );
 
@@ -1756,7 +1756,7 @@ pub async fn create_test_env_with_overrides(
         )
         .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
-            host_health: config.host_health,
+            host_health: config.host_health.clone(),
             sla_config: model::machine::slas::MachineSlaConfig::new(
                 config.machine_state_controller.failure_retry_time,
             ),

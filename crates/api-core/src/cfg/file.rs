@@ -680,7 +680,7 @@ impl CarbideConfig {
         MachineStateHandlerSiteConfig {
             firmware_global: self.firmware_global.clone(),
             machine_state_controller: self.machine_state_controller.clone(),
-            host_health: self.host_health,
+            host_health: self.host_health.clone(),
 
             selected_profile: self.selected_profile,
             bios_profiles: self.bios_profiles.clone(),
@@ -2787,6 +2787,10 @@ mod tests {
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
+                per_machine_metrics_for_classifications: vec![
+                    "Hardware".parse().unwrap(),
+                    "PreventAllocations".parse().unwrap(),
+                ],
             }
         );
         assert_eq!(
@@ -3098,6 +3102,10 @@ mod tests {
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,
                 suppress_external_alerting_on_scout_heartbeat_timeout: false,
+                per_machine_metrics_for_classifications: vec![
+                    "Hardware".parse().unwrap(),
+                    "PreventAllocations".parse().unwrap(),
+                ],
             }
         );
         assert_eq!(

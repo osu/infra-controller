@@ -1123,6 +1123,10 @@ pub async fn initialize_and_start_controllers<'a>(
                 suppress_external_alerting_on_scout_heartbeat_timeout: carbide_config
                     .host_health
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
+                per_machine_metrics_for_classifications: carbide_config
+                    .host_health
+                    .per_machine_metrics_for_classifications
+                    .clone(),
             },
             sla_config: model::machine::slas::MachineSlaConfig::new(
                 carbide_config.machine_state_controller.failure_retry_time,
@@ -1269,7 +1273,7 @@ pub async fn initialize_and_start_controllers<'a>(
         },
         meter.clone(),
         ib_fabric_manager.clone(),
-        carbide_config.host_health,
+        carbide_config.host_health.clone(),
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1279,7 +1283,7 @@ pub async fn initialize_and_start_controllers<'a>(
         api_service.nmxc_client_pool.clone(),
         meter.clone(),
         carbide_config.nvlink_config.clone().unwrap_or_default(),
-        carbide_config.host_health,
+        carbide_config.host_health.clone(),
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
@@ -1306,7 +1310,7 @@ pub async fn initialize_and_start_controllers<'a>(
             dpa_info,
             meter.clone(),
             carbide_config.dpa_config.clone().unwrap_or_default(),
-            carbide_config.host_health,
+            carbide_config.host_health.clone(),
             work_lock_manager_handle.clone(),
         )
         .start(join_set, cancel_token.clone())?;

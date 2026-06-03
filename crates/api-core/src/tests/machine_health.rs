@@ -781,6 +781,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             prevent_allocations_on_stale_dpu_agent_version: false,
             prevent_allocations_on_scout_heartbeat_timeout: false,
             suppress_external_alerting_on_scout_heartbeat_timeout: true,
+            per_machine_metrics_for_classifications: Vec::new(),
         },
     };
     let all_machines =
@@ -833,6 +834,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             prevent_allocations_on_stale_dpu_agent_version: false,
             prevent_allocations_on_scout_heartbeat_timeout: false,
             suppress_external_alerting_on_scout_heartbeat_timeout: true,
+            per_machine_metrics_for_classifications: Vec::new(),
         },
     };
     let all_machines =
@@ -897,6 +899,7 @@ async fn load_snapshot(
         prevent_allocations_on_stale_dpu_agent_version: false,
         prevent_allocations_on_scout_heartbeat_timeout: false,
         suppress_external_alerting_on_scout_heartbeat_timeout: true,
+        per_machine_metrics_for_classifications: Vec::new(),
     };
     let snapshot = db::managed_host::load_snapshot(
         &mut env.db_reader(),
