@@ -21,7 +21,7 @@ Ensure you have the following prerequisites met before ingesting machines:
     - The host BMC username (typically this is the factory default username)
     - The host BMC password (typically this is the factory default password)
 
-## Get client key and certificate needed for carbide-admin-cli
+## Get client key and certificate needed for nico-admin-cli
 These can be generated from site vault. Follow these steps to generate them.NICO_LB_IP
 ### Prerequisites
 
@@ -40,13 +40,13 @@ kubectl -n nico-system edit configmap nico-api-config-files
 kubectl rollout restart deployment/nico-api -n nico-system
 ```
 
-2. Get the CLI binary - You can skip this step you already have carbide-admin-cli binary.
+2. Get the CLI binary - You can skip this step you already have nico-admin-cli binary.
 ```bash
 POD=$(kubectl -n nico-system get pods -l app.kubernetes.io/name=nico-api -o jsonpath='{.items[0].metadata.name}')
-kubectl -n nico-system cp   "${POD}:/opt/carbide/carbide-admin-cli"   /usr/local/bin/carbide-admin-cli
-chmod +x /usr/local/bin/carbide-admin-cli
+kubectl -n nico-system cp   "${POD}:/opt/carbide/nico-admin-cli"   /usr/local/bin/nico-admin-cli
+chmod +x /usr/local/bin/nico-admin-cli
 # verify that it is working 
-carbide-admin-cli
+nico-admin-cli
 ```
 
 3. Issue a client cert from Vault
@@ -69,7 +69,7 @@ cat /tmp/issued.json | jq -r '.data.issuing_ca' >  /path/to/ca.crt
 
 You can run admin cli commands as
 ```bash
-carbide-admin-cli https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path /path/to/ca.crt --client-cert-path /path/to/client.crt  --client-key-path /path/to/client.key <command> ...
+nico-admin-cli https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path /path/to/ca.crt --client-cert-path /path/to/client.crt  --client-key-path /path/to/client.key <command> ...
 ```
 Alternatively to shorten the command line you can create a file named `carbide_api_cli.json` in folder `$HOME/.config` and add the following content:
 ```json
