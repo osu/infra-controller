@@ -46,7 +46,7 @@ pub async fn persist(
     let description = value.device_description.unwrap_or_default();
 
     let query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING row_to_json(dpa_interfaces.*)";
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING row_to_json(dpa_interfaces.*)";
 
     sqlx::query_as(query)
         .bind(value.machine_id.to_string())
@@ -58,6 +58,7 @@ pub async fn persist(
         .bind(value.device_type)
         .bind(value.pci_name)
         .bind(description)
+        .bind(value.interface_type)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -78,7 +79,7 @@ pub async fn ensure(
     let description = value.device_description.unwrap_or_default();
 
     let insert_query = "INSERT INTO dpa_interfaces (machine_id, mac_address, network_config_version, network_config, controller_state_version, controller_state, device_type, pci_name, device_description)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (machine_id, mac_address) DO NOTHING RETURNING row_to_json(dpa_interfaces.*)";
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (machine_id, mac_address) DO NOTHING RETURNING row_to_json(dpa_interfaces.*)";
 
     let result: Option<DpaInterface> = sqlx::query_as(insert_query)
         .bind(value.machine_id.to_string())
@@ -90,6 +91,7 @@ pub async fn ensure(
         .bind(value.device_type)
         .bind(value.pci_name)
         .bind(description)
+        .bind(value.interface_type)
         .fetch_optional(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(insert_query, e))?;
