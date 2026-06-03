@@ -146,7 +146,8 @@ pub(crate) async fn allocate(
     log_tenant_organization_id(request.config.tenant.tenant_organization_id.as_str());
 
     // Row-locking on Machine records happens in allocate_instance
-    let mh_snapshot = allocate_instance(api, request, api.runtime_config.host_health.clone()).await?;
+    let mh_snapshot =
+        allocate_instance(api, request, api.runtime_config.host_health.clone()).await?;
 
     Ok(Response::new(snapshot_to_instance(mh_snapshot)?))
 }
@@ -188,12 +189,15 @@ pub(crate) async fn batch_allocate(
     }
 
     // Call batch allocation logic
-    let snapshots =
-        crate::instance::batch_allocate_instances(api, requests, api.runtime_config.host_health.clone())
-            .await
-            .inspect_err(|e| {
-                tracing::error!(error = %e, "Batch instance allocation failed");
-            })?;
+    let snapshots = crate::instance::batch_allocate_instances(
+        api,
+        requests,
+        api.runtime_config.host_health.clone(),
+    )
+    .await
+    .inspect_err(|e| {
+        tracing::error!(error = %e, "Batch instance allocation failed");
+    })?;
 
     // Convert all snapshots to Instance responses
     let instances = snapshots

@@ -1205,9 +1205,12 @@ mod tests {
                     object_id: "machine-a".to_string(),
                     ..Default::default()
                 },
-                per_machine_alert_classifications: ["Hardware".to_string(), "PreventAllocations".to_string()]
-                    .into_iter()
-                    .collect(),
+                per_machine_alert_classifications: [
+                    "Hardware".to_string(),
+                    "PreventAllocations".to_string(),
+                ]
+                .into_iter()
+                .collect(),
                 ..Default::default()
             },
             // Not-in-use host carrying one opted-in classification.

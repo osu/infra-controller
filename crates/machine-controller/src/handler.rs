@@ -549,8 +549,11 @@ impl MachineStateHandler {
             &state.host_snapshot.health_reports,
         );
 
-        let per_machine_classifications =
-            &ctx.services.site_config.host_health.per_machine_metrics_for_classifications;
+        let per_machine_classifications = &ctx
+            .services
+            .site_config
+            .host_health
+            .per_machine_metrics_for_classifications;
         if !per_machine_classifications.is_empty() {
             ctx.metrics.per_machine_alert_classifications = state
                 .aggregate_health
