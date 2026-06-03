@@ -124,6 +124,8 @@ navigation:
 
     - section: Operations
       contents:
+        - page: Monitoring and Health
+          path: operations/monitoring-health.md
         - page: Network Isolation
           path: manuals/network_isolation.md
         - page: Network Security Groups
