@@ -1696,6 +1696,7 @@ dependencies = [
  "eyre",
  "hickory-resolver",
  "hickory-server",
+ "lru 0.18.0",
  "metrics-endpoint",
  "opentelemetry",
  "opentelemetry-otlp",
