@@ -43,6 +43,11 @@
 #                          deprecated alias.
 #   NICO_SITE_UUID          Stable REST site UUID. Used only when REST is
 #                          deployed. Default is a dev placeholder.
+#   NICO_MANAGE_DEFAULT_STORAGE_CLASS
+#                          Whether setup annotates local-path as the default
+#                          StorageClass. Default: true.
+#   NICO_STORAGE_CLASS     StorageClass for Postgres and Vault data and audit PVCs.
+#                          Default: local-path-persistent.
 #   VAULT_NS               Vault namespace. Default: vault
 #   CERT_MANAGER_NS        cert-manager namespace. Default: cert-manager
 #   PREFLIGHT_CHECK_IMAGE  Image for preflight per-node checks.
@@ -122,6 +127,8 @@ source "${SCRIPT_DIR}/preflight.sh"
 
 VAULT_NS="${VAULT_NS:-vault}"
 CERT_MANAGER_NS="${CERT_MANAGER_NS:-cert-manager}"
+NICO_MANAGE_DEFAULT_STORAGE_CLASS="${NICO_MANAGE_DEFAULT_STORAGE_CLASS:-true}"
+NICO_STORAGE_CLASS="${NICO_STORAGE_CLASS:-local-path-persistent}"
 
 # ---------------------------------------------------------------------------
 # Failure handler — offer to run clean.sh if setup exits with an error.
@@ -258,10 +265,15 @@ kubectl delete -f operators/storageclass-local-path-persistent.yaml \
     --ignore-not-found 2>/dev/null || true
 kubectl apply -f operators/storageclass-local-path-persistent.yaml
 kubectl rollout status deployment/local-path-provisioner -n local-path-storage --timeout=120s
-# Mark local-path as the cluster default StorageClass so workloads that don't
-# specify one (e.g. NICo REST postgres, Temporal) get a valid provisioner.
-kubectl annotate storageclass local-path \
-    storageclass.kubernetes.io/is-default-class=true --overwrite
+if [[ "${NICO_MANAGE_DEFAULT_STORAGE_CLASS}" == "true" ]]; then
+    # Mark local-path as the cluster default StorageClass so workloads that
+    # don't specify one (e.g. NICo REST postgres, Temporal) get a valid
+    # provisioner.
+    kubectl annotate storageclass local-path \
+        storageclass.kubernetes.io/is-default-class=true --overwrite
+else
+    echo "NICO_MANAGE_DEFAULT_STORAGE_CLASS=${NICO_MANAGE_DEFAULT_STORAGE_CLASS}; leaving default StorageClass unchanged"
+fi
 
 # ---------------------------------------------------------------------------
 # 1b. postgres-operator — Zalando operator must be up (CRD registered) before
@@ -336,7 +348,9 @@ echo "Vault TLS bootstrap complete"
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[3/6] vault install"
 echo "=== [3/6] vault ==="
-helmfile sync -l name=vault
+helmfile sync -l name=vault \
+    --set server.dataStorage.storageClass="${NICO_STORAGE_CLASS}" \
+    --set server.auditStorage.storageClass="${NICO_STORAGE_CLASS}"
 
 # ---------------------------------------------------------------------------
 # 4. Initialize + unseal vault
