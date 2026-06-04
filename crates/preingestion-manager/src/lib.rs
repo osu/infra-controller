@@ -1405,11 +1405,36 @@ impl PreingestionManagerStatic {
             }
             InitialBmcResetPhase::WaitForBmc => match redfish_client.get_service_root().await {
                 Ok(_) => {
+                    // BMC is back. Force a fresh exploration and wait for it
+                    // before running checks, so pairing/ingestion reads the
+                    // post-reset inventory (e.g. a DPU that reappeared), not the
+                    // stale pre-reset report.
+                    let address = endpoint.address;
+                    db.with_txn(|txn| {
+                        async move {
+                            db::explored_endpoints::set_preingestion_initial_bmc_reset(
+                                address,
+                                InitialBmcResetPhase::WaitForExplorerRefresh,
+                                txn,
+                            )
+                            .await?;
+                            db::explored_endpoints::request_exploration_for_addresses(
+                                &[address],
+                                txn,
+                            )
+                            .await?;
+                            db::explored_endpoints::set_waiting_for_explorer_refresh(address, txn)
+                                .await?;
+                            Ok::<_, DatabaseError>(())
+                        }
+                        .boxed()
+                    })
+                    .await??;
                     tracing::info!(
-                        "{} BMC came back after initial reset; running time-sync / firmware checks",
+                        "{} BMC came back after initial reset; awaiting fresh exploration report before continuing",
                         endpoint.address
                     );
-                    self.run_initial_checks(db, endpoint).await
+                    Ok(false)
                 }
                 Err(e) => {
                     // An unreachable BMC is never a reason to move on: keep
@@ -1421,6 +1446,15 @@ impl PreingestionManagerStatic {
                     Ok(false)
                 }
             },
+            InitialBmcResetPhase::WaitForExplorerRefresh => {
+                // Reached only once the refresh flag is cleared, i.e. site
+                // explorer re-reads the BMC post-reset.
+                tracing::info!(
+                    "{} fresh exploration report received after initial BMC reset; running time-sync / firmware checks",
+                    endpoint.address
+                );
+                self.run_initial_checks(db, endpoint).await
+            }
         }
     }
 
