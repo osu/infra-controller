@@ -4,16 +4,17 @@
 package builtin
 
 import (
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
-	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-	computenico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nico"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/mock"
-	nvswitchnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/nvswitch/nico"
-	powershelfnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/powershelf/nico"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
-	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
+	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
+	computenico "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/nico"
+	computenicolegacy "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/nicolegacy"
+	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/mock"
+	nvswitchnico "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/nvswitch/nico"
+	powershelfnico "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/powershelf/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providerapi"
+	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // This file is the Flow service component manager manifest. When adding a
@@ -25,7 +26,7 @@ import (
 // file. A configured file is authoritative and does not merge with this map.
 func defaultServiceComponentManagers() map[devicetypes.ComponentType]string {
 	return map[devicetypes.ComponentType]string{
-		devicetypes.ComponentTypeCompute:    computenico.ImplementationName,
+		devicetypes.ComponentTypeCompute:    computenicolegacy.ImplementationName,
 		devicetypes.ComponentTypeNVSwitch:   nvswitchnico.ImplementationName,
 		devicetypes.ComponentTypePowerShelf: powershelfnico.ImplementationName,
 	}
@@ -43,7 +44,7 @@ func serviceProviderConfigDecoders() []providerapi.ProviderConfigDecoder {
 // by the Flow service.
 func serviceManagerConfigDecoders() []cmconfig.ManagerConfigDecoder {
 	return []cmconfig.ManagerConfigDecoder{
-		computenico.ConfigDecoder{},
+		computenicolegacy.ConfigDecoder{},
 	}
 }
 
@@ -56,6 +57,7 @@ func serviceManagerConfigDecoders() []cmconfig.ManagerConfigDecoder {
 func serviceDescriptors() []cmcatalog.Descriptor {
 	descriptors := []cmcatalog.Descriptor{
 		computenico.Descriptor(),
+		computenicolegacy.Descriptor(),
 		nvswitchnico.Descriptor(),
 		powershelfnico.Descriptor(),
 	}
@@ -72,13 +74,14 @@ func serviceDescriptors() []cmcatalog.Descriptor {
 func serviceFactorySpecs(
 	config cmconfig.Config,
 ) ([]componentmanager.FactorySpec, error) {
-	computePowerDelay, err := nicoComputePowerDelay(config)
+	computePowerDelay, err := legacyComputePowerDelay(config)
 	if err != nil {
 		return nil, err
 	}
 
 	factorySpecs := []componentmanager.FactorySpec{
-		computenico.FactorySpec(computePowerDelay),
+		computenico.FactorySpec(),
+		computenicolegacy.FactorySpec(computePowerDelay),
 		nvswitchnico.FactorySpec(),
 		powershelfnico.FactorySpec(),
 	}

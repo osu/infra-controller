@@ -10,14 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 const (
@@ -104,14 +105,7 @@ func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 	}
 
 	if len(er.Labels) > 0 {
-		protoLabels := make([]*cwssaws.Label, 0, len(er.Labels))
-		for k, v := range er.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
-		proto.Metadata.Labels = protoLabels
+		proto.Metadata.Labels = er.Labels.ToProto()
 	}
 
 	return proto
@@ -352,7 +346,7 @@ func (erd ExpectedRackSQLDAO) setQueryWithFilter(filter ExpectedRackFilterInput,
 	}
 
 	if filter.SearchQuery != nil {
-		normalizedTokens := db.GetStrPtr(db.GetStringToTsQuery(*filter.SearchQuery))
+		normalizedTokens := cutil.GetPtr(db.GetStringToTsQuery(*filter.SearchQuery))
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
 			return q.
 				Where("to_tsvector('english', (coalesce(er.rack_id, ' ') || ' ' || coalesce(er.rack_profile_id, ' ') || ' ' || coalesce(er.name, ' ') || ' ' || coalesce(er.description, ' ') || ' ' || coalesce(er.labels::text, ' '))) @@ to_tsquery('english', ?)", *normalizedTokens).
