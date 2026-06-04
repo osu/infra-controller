@@ -1345,23 +1345,22 @@ impl PreingestionManagerStatic {
         endpoint: &ExploredEndpoint,
         phase: &InitialBmcResetPhase,
     ) -> PreingestionManagerResult<bool> {
-        let redfish_client = match self
-            .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, db)
-            .await
-        {
-            Ok(client) => client,
-            Err(e) => {
-                tracing::warn!(
-                    "Redfish connection to {} failed: {e}; will retry initial bmc reset",
-                    endpoint.address
-                );
-                return Ok(false);
-            }
-        };
-
         match phase {
             InitialBmcResetPhase::Start { attempts } => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(endpoint.address, db)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        tracing::warn!(
+                            "Redfish connection to {} failed: {e}; will retry initial bmc reset",
+                            endpoint.address
+                        );
+                        return Ok(false);
+                    }
+                };
                 if let Err(e) = redfish_client.bmc_reset().await {
                     let next = attempts + 1;
                     if next >= INITIAL_BMC_RESET_MAX_ATTEMPTS {
@@ -1403,49 +1402,67 @@ impl PreingestionManagerStatic {
                 .await??;
                 Ok(false)
             }
-            InitialBmcResetPhase::WaitForBmc => match redfish_client.get_service_root().await {
-                Ok(_) => {
-                    // BMC is back. Force a fresh exploration and wait for it
-                    // before running checks, so pairing/ingestion reads the
-                    // post-reset inventory (e.g. a DPU that reappeared), not the
-                    // stale pre-reset report.
-                    let address = endpoint.address;
-                    db.with_txn(|txn| {
-                        async move {
-                            db::explored_endpoints::set_preingestion_initial_bmc_reset(
-                                address,
-                                InitialBmcResetPhase::WaitForExplorerRefresh,
-                                txn,
-                            )
-                            .await?;
-                            db::explored_endpoints::request_exploration_for_addresses(
-                                &[address],
-                                txn,
-                            )
-                            .await?;
-                            db::explored_endpoints::set_waiting_for_explorer_refresh(address, txn)
+            InitialBmcResetPhase::WaitForBmc => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(endpoint.address, db)
+                    .await
+                {
+                    Ok(client) => client,
+                    Err(e) => {
+                        tracing::warn!(
+                            "Redfish connection to {} failed: {e}; will retry waiting for BMC",
+                            endpoint.address
+                        );
+                        return Ok(false);
+                    }
+                };
+                match redfish_client.get_service_root().await {
+                    Ok(_) => {
+                        // BMC is back. Force a fresh exploration and wait for it
+                        // before running checks, so pairing/ingestion reads the
+                        // post-reset inventory (e.g. a DPU that reappeared), not the
+                        // stale pre-reset report.
+                        let address = endpoint.address;
+                        db.with_txn(|txn| {
+                            async move {
+                                db::explored_endpoints::set_preingestion_initial_bmc_reset(
+                                    address,
+                                    InitialBmcResetPhase::WaitForExplorerRefresh,
+                                    txn,
+                                )
                                 .await?;
-                            Ok::<_, DatabaseError>(())
-                        }
-                        .boxed()
-                    })
-                    .await??;
-                    tracing::info!(
-                        "{} BMC came back after initial reset; awaiting fresh exploration report before continuing",
-                        endpoint.address
-                    );
-                    Ok(false)
+                                db::explored_endpoints::request_exploration_for_addresses(
+                                    &[address],
+                                    txn,
+                                )
+                                .await?;
+                                db::explored_endpoints::set_waiting_for_explorer_refresh(
+                                    address, txn,
+                                )
+                                .await?;
+                                Ok::<_, DatabaseError>(())
+                            }
+                            .boxed()
+                        })
+                        .await??;
+                        tracing::info!(
+                            "{} BMC came back after initial reset; awaiting fresh exploration report before continuing",
+                            endpoint.address
+                        );
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        // An unreachable BMC is never a reason to move on: keep
+                        // waiting and continue once it comes back.
+                        tracing::info!(
+                            "Waiting for {} BMC to return after initial reset: {e}",
+                            endpoint.address
+                        );
+                        Ok(false)
+                    }
                 }
-                Err(e) => {
-                    // An unreachable BMC is never a reason to move on: keep
-                    // waiting and continue once it comes back.
-                    tracing::info!(
-                        "Waiting for {} BMC to return after initial reset: {e}",
-                        endpoint.address
-                    );
-                    Ok(false)
-                }
-            },
+            }
             InitialBmcResetPhase::WaitForExplorerRefresh => {
                 // Reached only once the refresh flag is cleared, i.e. site
                 // explorer re-reads the BMC post-reset.
