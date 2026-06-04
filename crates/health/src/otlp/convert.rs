@@ -27,6 +27,7 @@ use super::metrics::{
     metric, number_data_point,
 };
 use super::resource::Resource;
+use crate::endpoint::SwitchEndpointRole;
 use crate::sink::{CollectorEvent, EventContext, SensorHealthData};
 
 fn severity_text_to_number(severity: &str) -> i32 {
@@ -67,17 +68,46 @@ fn int_kv(key: &str, value: i64) -> KeyValue {
     }
 }
 
+fn resource_group_key(context: &EventContext) -> String {
+    format!("{}|{}", context.endpoint_key, context.collector_type)
+}
+
 fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
-    let mut attrs = vec![
-        kv("bmc.endpoint", context.endpoint_key.clone()),
-        kv("bmc.ip", context.addr.ip.to_string()),
-        kv("collector.type", context.collector_type.to_string()),
-    ];
+    let mut attrs = Vec::new();
+    match context.switch_endpoint_role() {
+        Some(SwitchEndpointRole::Host) => {
+            attrs.push(kv("switch.endpoint", context.endpoint_key.clone()));
+            attrs.push(kv("switch.ip", context.addr.ip.to_string()));
+        }
+        _ => {
+            attrs.push(kv("bmc.endpoint", context.endpoint_key.clone()));
+            attrs.push(kv("bmc.ip", context.addr.ip.to_string()));
+        }
+    }
+    attrs.push(kv("collector.type", context.collector_type.to_string()));
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
     }
     if let Some(switch_id) = context.switch_id() {
         attrs.push(kv("switch.id", switch_id.to_string()));
+    }
+    if let Some(serial) = context.switch_serial() {
+        attrs.push(kv("switch.serial", serial.to_string()));
+    }
+    if let Some(role) = context.switch_endpoint_role() {
+        let endpoint_role = match role {
+            SwitchEndpointRole::Bmc => "bmc",
+            SwitchEndpointRole::Host => "host",
+        };
+        attrs.push(kv("switch.endpoint_role", endpoint_role.to_string()));
+    }
+    if let Some(is_primary) = context.switch_is_primary() {
+        attrs.push(KeyValue {
+            key: "switch.is_primary".to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::BoolValue(is_primary)),
+            }),
+        });
     }
     if let Some(rack_id) = context.rack_id() {
         attrs.push(kv("rack.id", rack_id.to_string()));
@@ -176,7 +206,7 @@ pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportL
             continue;
         };
         by_endpoint
-            .entry(context.endpoint_key.clone())
+            .entry(resource_group_key(context))
             .or_insert_with(|| (resource_attributes(context), Vec::new()))
             .1
             .push(record);
@@ -236,7 +266,7 @@ pub fn build_metrics_export_request(
         };
 
         by_endpoint
-            .entry(context.endpoint_key.clone())
+            .entry(resource_group_key(context))
             .or_insert_with(|| (resource_attributes(context), Vec::new()))
             .1
             .push(otlp_metric);
@@ -321,6 +351,17 @@ mod tests {
             })
     }
 
+    fn attr_bool_value(attrs: &[KeyValue], key: &str) -> Option<bool> {
+        attrs
+            .iter()
+            .find(|attr| attr.key == key)
+            .and_then(|attr| attr.value.as_ref())
+            .and_then(|value| match value.value.as_ref()? {
+                any_value::Value::BoolValue(value) => Some(*value),
+                _ => None,
+            })
+    }
+
     #[test]
     fn resource_attributes_include_machine_metadata_when_present() {
         let domain_uuid = NvLinkDomainId::nil();
@@ -388,6 +429,99 @@ mod tests {
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_2"));
         assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
         assert_eq!(attr_int_value(&attrs, "switch.tray_index"), Some(3));
+    }
+
+    #[test]
+    fn switch_host_resource_uses_switch_endpoint_identity() {
+        let switch_id = test_switch_id("switch-host");
+        let switch_id_attr = switch_id.to_string();
+        let context = EventContext {
+            endpoint_key: "11:22:33:44:55:66".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 1, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
+            },
+            collector_type: "nvue_gnmi",
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: Some(switch_id),
+                serial: "SN-SWITCH-001".to_string(),
+                slot_number: Some(7),
+                tray_index: Some(3),
+                endpoint_role: SwitchEndpointRole::Host,
+                is_primary: true,
+                nmxt_enabled: true,
+            })),
+            rack_id: Some(RackId::new("RACK_2")),
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(attr_value(&attrs, "bmc.endpoint"), None);
+        assert_eq!(attr_value(&attrs, "bmc.ip"), None);
+        assert_eq!(
+            attr_value(&attrs, "switch.endpoint"),
+            Some("11:22:33:44:55:66")
+        );
+        assert_eq!(attr_value(&attrs, "switch.ip"), Some("10.0.1.1"));
+        assert_eq!(
+            attr_value(&attrs, "switch.id"),
+            Some(switch_id_attr.as_str())
+        );
+        assert_eq!(attr_value(&attrs, "switch.serial"), Some("SN-SWITCH-001"));
+        assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("host"));
+        assert_eq!(attr_bool_value(&attrs, "switch.is_primary"), Some(true));
+        assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
+        assert_eq!(attr_int_value(&attrs, "switch.tray_index"), Some(3));
+        assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
+        assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_2"));
+        assert_eq!(attr_value(&attrs, "collector.type"), Some("nvue_gnmi"));
+    }
+
+    #[test]
+    fn switch_bmc_resource_keeps_bmc_endpoint_identity_and_switch_metadata() {
+        let switch_id = test_switch_id("switch-bmc");
+        let switch_id_attr = switch_id.to_string();
+        let context = EventContext {
+            endpoint_key: "22:33:44:55:66:77".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 2, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("22:33:44:55:66:77").expect("valid mac"),
+            },
+            collector_type: "sensor_collector",
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: Some(switch_id),
+                serial: "SN-SWITCH-BMC-001".to_string(),
+                slot_number: Some(8),
+                tray_index: Some(4),
+                endpoint_role: SwitchEndpointRole::Bmc,
+                is_primary: false,
+                nmxt_enabled: false,
+            })),
+            rack_id: Some(RackId::new("RACK_3")),
+        };
+
+        let attrs = resource_attributes(&context);
+
+        assert_eq!(
+            attr_value(&attrs, "bmc.endpoint"),
+            Some("22:33:44:55:66:77")
+        );
+        assert_eq!(attr_value(&attrs, "bmc.ip"), Some("10.0.2.1"));
+        assert_eq!(attr_value(&attrs, "switch.endpoint"), None);
+        assert_eq!(attr_value(&attrs, "switch.ip"), None);
+        assert_eq!(
+            attr_value(&attrs, "switch.id"),
+            Some(switch_id_attr.as_str())
+        );
+        assert_eq!(
+            attr_value(&attrs, "switch.serial"),
+            Some("SN-SWITCH-BMC-001")
+        );
+        assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("bmc"));
+        assert_eq!(attr_bool_value(&attrs, "switch.is_primary"), Some(false));
+        assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
     }
 
     #[test]
@@ -483,5 +617,64 @@ mod tests {
             .map(|sl| sl.log_records.len())
             .sum();
         assert_eq!(total_records, 3);
+    }
+
+    #[test]
+    fn metric_resources_are_grouped_by_endpoint_and_collector() {
+        let base_ctx = test_context();
+        let rest_ctx = EventContext {
+            collector_type: "nvue_rest",
+            ..base_ctx.clone()
+        };
+        let gnmi_ctx = EventContext {
+            collector_type: "nvue_gnmi",
+            ..base_ctx
+        };
+        let sample = |name: &str| SensorHealthData {
+            key: "status:swp1".to_string(),
+            name: name.to_string(),
+            metric_type: "interface_oper_status".to_string(),
+            unit: "state".to_string(),
+            value: 1.0,
+            labels: vec![(Cow::Borrowed("interface_name"), "swp1".to_string())],
+            context: None,
+        };
+
+        let request = build_metrics_export_request(&[
+            (rest_ctx, sample("nvue_rest")),
+            (gnmi_ctx, sample("nvue_gnmi")),
+        ]);
+
+        let collector_types: std::collections::HashSet<_> = request
+            .resource_metrics
+            .iter()
+            .filter_map(|resource_metrics| resource_metrics.resource.as_ref())
+            .filter_map(|resource| attr_value(&resource.attributes, "collector.type"))
+            .collect();
+
+        assert_eq!(request.resource_metrics.len(), 2);
+        assert!(collector_types.contains("nvue_rest"));
+        assert!(collector_types.contains("nvue_gnmi"));
+    }
+
+    #[test]
+    fn metric_export_name_uses_metric_type() {
+        let ctx = test_context();
+        let sample = SensorHealthData {
+            key: "asic0/oper_status".to_string(),
+            name: "nvue_gnmi".to_string(),
+            metric_type: "interface_oper_status".to_string(),
+            unit: "state".to_string(),
+            value: 1.0,
+            labels: vec![(Cow::Borrowed("path"), "/system/state".to_string())],
+            context: None,
+        };
+
+        let request = build_metrics_export_request(&[(ctx, sample)]);
+        let metrics = &request.resource_metrics[0].scope_metrics[0].metrics;
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].name, "interface_oper_status");
+        assert_eq!(metrics[0].unit, "state");
     }
 }
