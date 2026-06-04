@@ -19,21 +19,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -362,19 +360,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 				}
 
-				createOsRequest := &cwssaws.OsImageAttributes{
-					Id:                   &cwssaws.UUID{Value: common.GetSiteOperatingSystemtID(os).String()},
-					Name:                 &os.Name,
-					TenantOrganizationId: tenant.Org,
-					Description:          os.Description,
-					SourceUrl:            *os.ImageURL,
-					Digest:               *os.ImageSHA,
-					CreateVolume:         os.EnableBlockStorage,
-					AuthType:             os.ImageAuthType,
-					AuthToken:            os.ImageAuthToken,
-					RootfsId:             os.RootFsID,
-					RootfsLabel:          os.RootFsLabel,
-				}
+				createOsRequest := apiRequest.ToProto(os, tenant.Org)
 
 				workflowOptions := temporalClient.StartWorkflowOptions{
 					ID:                       "image-os-create-" + ossa.SiteID.String() + "-" + os.ID.String() + "-" + *ossa.Version,
@@ -1224,19 +1210,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 				}
 
-				updateOsRequest := &cwssaws.OsImageAttributes{
-					Id:                   &cwssaws.UUID{Value: common.GetSiteOperatingSystemtID(uos).String()},
-					Name:                 &uos.Name,
-					Description:          uos.Description,
-					TenantOrganizationId: tenant.Org,
-					SourceUrl:            *uos.ImageURL,
-					Digest:               *uos.ImageSHA,
-					CreateVolume:         uos.EnableBlockStorage,
-					AuthType:             uos.ImageAuthType,
-					AuthToken:            uos.ImageAuthToken,
-					RootfsId:             uos.RootFsID,
-					RootfsLabel:          uos.RootFsLabel,
-				}
+				updateOsRequest := apiRequest.ToProto(uos, tenant.Org)
 
 				workflowOptions := temporalClient.StartWorkflowOptions{
 					ID:                       "image-os-update-" + updatedOssa.SiteID.String() + "-" + uos.ID.String() + "-" + *updatedOssa.Version,
@@ -1537,10 +1511,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					}
 
 					// Prepare the delete/release request workflow object
-					deleteOsRequest := &cwssaws.DeleteOsImageRequest{
-						Id:                   &cwssaws.UUID{Value: common.GetSiteOperatingSystemtID(os).String()},
-						TenantOrganizationId: tenant.Org,
-					}
+					deleteOsRequest := os.ToDeletionRequestProto(tenant.Org)
 
 					workflowOptions := temporalClient.StartWorkflowOptions{
 						ID:                       "image-os-delete-" + ossa.SiteID.String() + "-" + os.ID.String() + "-" + *ossa.Version,

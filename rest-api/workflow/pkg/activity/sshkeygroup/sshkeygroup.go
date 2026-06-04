@@ -19,17 +19,17 @@ import (
 
 	tsdk "go.temporal.io/sdk/temporal"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 const (
@@ -101,10 +101,6 @@ func (mskg ManageSSHKeyGroup) SyncSSHKeyGroupViaSiteAgent(ctx context.Context, s
 	}
 
 	// Sync SSHKeyGroup request
-	keysetIdentifier := &cwssaws.TenantKeysetIdentifier{
-		KeysetId:       skgsa.SSHKeyGroupID.String(),
-		OrganizationId: skgsa.SSHKeyGroup.Org,
-	}
 	keysetContent := &cwssaws.TenantKeysetContent{}
 
 	tx, terr := cdb.BeginTx(ctx, mskg.dbSession, &sql.TxOptions{})
@@ -169,11 +165,7 @@ func (mskg ManageSSHKeyGroup) SyncSSHKeyGroupViaSiteAgent(ctx context.Context, s
 		// Set the workflow ID and KeysetIdentifier for the create request
 		workflowOptions.ID = "site-ssh-key-group-create-" + sshKeyGroupID.String() + "-" + *skgsa.Version
 
-		createSSHKeyGroupRequest := &cwssaws.CreateTenantKeysetRequest{
-			KeysetIdentifier: keysetIdentifier,
-			KeysetContent:    keysetContent,
-			Version:          *skgsa.Version,
-		}
+		createSSHKeyGroupRequest := skgsa.ToCreateRequestProto(keysetContent)
 
 		// Trigger Site create SSHKeyGroup workflow
 		we, err = stc.ExecuteWorkflow(ctx, workflowOptions, "CreateSSHKeyGroupV2", createSSHKeyGroupRequest)
@@ -182,11 +174,7 @@ func (mskg ManageSSHKeyGroup) SyncSSHKeyGroupViaSiteAgent(ctx context.Context, s
 		// Set the workflow ID and KeysetIdentifier for the update request
 		workflowOptions.ID = "site-ssh-key-group-update-" + sshKeyGroupID.String() + "-" + *skgsa.Version
 
-		updateSSHKeyGroupRequest := &cwssaws.UpdateTenantKeysetRequest{
-			KeysetIdentifier: keysetIdentifier,
-			KeysetContent:    keysetContent,
-			Version:          *skgsa.Version,
-		}
+		updateSSHKeyGroupRequest := skgsa.ToUpdateRequestProto(keysetContent)
 
 		// Trigger Site update SSHKeyGroup workflow
 		we, err = stc.ExecuteWorkflow(ctx, workflowOptions, "UpdateSSHKeyGroupV2", updateSSHKeyGroupRequest)
@@ -478,12 +466,10 @@ func (mskg ManageSSHKeyGroup) DeleteSSHKeyGroupViaSiteAgent(ctx context.Context,
 		WorkflowIDReusePolicy: temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
 
-	deleteSSHKeyGroupRequest := &cwssaws.DeleteTenantKeysetRequest{
-		KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
-			KeysetId:       sshKeyGroupID.String(),
-			OrganizationId: skgsa.SSHKeyGroup.Org,
-		},
-	}
+	// skgsa.SSHKeyGroupID is authoritative here -- it was loaded above via
+	// GetBySSHKeyGroupIDAndSiteID(sshKeyGroupID, siteID), so the deletion
+	// request keys off the same group we just resolved.
+	deleteSSHKeyGroupRequest := skgsa.ToDeletionRequestProto()
 
 	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "DeleteSSHKeyGroupV2", deleteSSHKeyGroupRequest)
 	if err != nil {

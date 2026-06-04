@@ -10,17 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
-
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 const (
@@ -107,14 +105,7 @@ func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 	}
 
 	if len(er.Labels) > 0 {
-		protoLabels := make([]*cwssaws.Label, 0, len(er.Labels))
-		for k, v := range er.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
-		proto.Metadata.Labels = protoLabels
+		proto.Metadata.Labels = er.Labels.ToProto()
 	}
 
 	return proto

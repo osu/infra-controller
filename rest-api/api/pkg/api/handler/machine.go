@@ -26,24 +26,24 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 )
 
 const MachineMissingDelayThreshold = 24 * time.Hour
@@ -1200,12 +1200,11 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusBadRequest, "Machine is currently not in maintenance mode, cannot remove maintenance mode", nil)
 			}
 
-			wfReq := &cwssaws.MaintenanceRequest{HostId: &cwssaws.MachineId{Id: machine.ID}}
+			var wfReq *cwssaws.MaintenanceRequest
 			if *apiRequest.SetMaintenanceMode {
-				wfReq.Operation = cwssaws.MaintenanceOperation_Enable
-				wfReq.Reference = apiRequest.MaintenanceMessage
+				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, apiRequest.MaintenanceMessage)
 			} else {
-				wfReq.Operation = cwssaws.MaintenanceOperation_Disable
+				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
 			}
 
 			// Add context deadlines
@@ -1297,21 +1296,10 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 			}
 
 			labels := util.ProtobufLabelsFromAPILabels(apiRequest.Labels)
-
-			machineName := machine.ID
-			if machine.Metadata != nil && machine.Metadata.Metadata != nil {
-				machineName = machine.Metadata.Metadata.Name
-			}
-
-			wfReq := &cwssaws.MachineMetadataUpdateRequest{
-				MachineId: &cwssaws.MachineId{
-					Id: machine.ID,
-				},
-				Metadata: &cwssaws.Metadata{
-					Name:   machineName, // Site Controller sets Machine ID as name and it must be specified to update labels
-					Labels: labels,
-				},
-			}
+			// Site Controller sets Machine ID as the metadata Name and requires it
+			// on every update; ToMetadataUpdateRequestProto reads the current name
+			// from the machine's stored metadata, with a fallback to the Machine ID.
+			wfReq := machine.ToMetadataUpdateRequestProto(labels)
 
 			// Add context deadlines
 			wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)

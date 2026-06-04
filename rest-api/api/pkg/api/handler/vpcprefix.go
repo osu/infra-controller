@@ -21,23 +21,22 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 
-	cip "github.com/NVIDIA/infra-controller-rest/ipam"
+	cip "github.com/NVIDIA/infra-controller/rest-api/ipam"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -252,16 +251,7 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		createVpcPrefixRequest := &cwssaws.VpcPrefixCreationRequest{
-			Id:    &cwssaws.VpcPrefixId{Value: vpcPrefix.ID.String()},
-			VpcId: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
-			Config: &cwssaws.VpcPrefixConfig{
-				Prefix: vpcPrefix.Prefix,
-			},
-			Metadata: &cwssaws.Metadata{
-				Name: vpcPrefix.Name,
-			},
-		}
+		createVpcPrefixRequest := apiRequest.ToProto(vpcPrefix, vpc)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "vpc-prefix-create-" + vpcPrefix.ID.String(),
@@ -865,12 +855,7 @@ func (ush UpdateVpcPrefixHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		updateVpcPrefixRequest := &cwssaws.VpcPrefixUpdateRequest{
-			Id: &cwssaws.VpcPrefixId{Value: updated.ID.String()},
-			Metadata: &cwssaws.Metadata{
-				Name: updated.Name,
-			},
-		}
+		updateVpcPrefixRequest := apiRequest.ToProto(updated)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "vpc-prefix-update-" + updated.ID.String(),
@@ -1095,9 +1080,7 @@ func (dsh DeleteVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// Prepare the delete/release request workflow object
-		deleteVpcPrefixRequest := &cwssaws.VpcPrefixDeletionRequest{
-			Id: &cwssaws.VpcPrefixId{Value: vpcPrefix.ID.String()},
-		}
+		deleteVpcPrefixRequest := vpcPrefix.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:        "vpc-prefix-delete-" + vpcPrefix.ID.String(),
