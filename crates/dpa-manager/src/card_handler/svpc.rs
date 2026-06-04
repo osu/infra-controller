@@ -1,0 +1,554 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use carbide_dpa::DpaInfo;
+use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
+use chrono::TimeDelta;
+use db::{self, ObjectColumnFilter};
+use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
+use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
+use model::instance::snapshot::InstanceSnapshot;
+use model::machine::Machine;
+use model::machine::ManagedHostStateSnapshot;
+use mqttea::client::MqtteaClient;
+use sqlx::{PgPool, PgTransaction};
+
+use super::DpaInterfaceStateHandler;
+use crate::errors::{DpaManagerError, DpaManagerResult};
+use crate::metrics::DpaMonitorMetrics;
+use crate::{DpaMonitor, HandlerResult};
+
+pub struct SvpcInterfaceHandler;
+
+impl SvpcInterfaceHandler {
+    #[allow(clippy::too_many_arguments)]
+    async fn reconcile_assigned_state<'a>(
+        db_pool: &PgPool,
+        monitor: &mut DpaMonitor,
+        dpa_interface: &mut DpaInterface,
+        machine: &Machine,
+        instance: &InstanceSnapshot,
+        client: Arc<MqtteaClient>,
+        dpa_info: &Arc<DpaInfo>,
+        hb_interval: TimeDelta,
+        metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
+        let this_mac = dpa_interface.mac_address;
+
+        let spx_config = instance.config.spxconfig.clone();
+
+        let instance_version = instance.spx_config_version;
+        let nic_version = dpa_interface.network_config.version.to_string();
+
+        let mut need_creation = false;
+        let mut need_deletion = false;
+        let mut need_heartbeat = false;
+
+        let mut vni = 0_u32;
+
+        let mut this_nic_configured_attachments = spx_config
+            .spx_attachments
+            .iter()
+            .filter(|a| a.mac_address == Some(this_mac.to_string()))
+            .collect::<Vec<_>>();
+
+        if this_nic_configured_attachments.len() > 1 {
+            tracing::error!(
+                "reconcile_assigned_state: this_nic_configured_attachments length is greater than 1"
+            );
+            return Err(DpaManagerError::InvalidArgument(
+                "reconcile_assigned_state this_nic_configured_attachments length is greater than 1"
+                    .to_string(),
+            ));
+        }
+
+        let mut this_nic_observed_attachments = Vec::new();
+
+        let observed = machine.spx_status_observation.clone();
+        if let Some(observed) = observed {
+            this_nic_observed_attachments = observed
+                .spx_attachments
+                .into_iter()
+                .filter(|a| a.mac_address == this_mac)
+                .collect::<Vec<_>>();
+        }
+
+        if this_nic_observed_attachments.len() > 1 {
+            tracing::error!(
+                "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
+            );
+            return Err(DpaManagerError::InvalidArgument(
+                "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
+                    .to_string(),
+            ));
+        }
+
+        if this_nic_configured_attachments.is_empty() {
+            if !this_nic_observed_attachments.is_empty() {
+                need_deletion = true;
+            }
+        } else {
+            let mut txn = db_pool.begin().await.map_err(|e| {
+                db::AnnotatedSqlxError::new("reconcile_assigned_state begin txn", e)
+            })?;
+            let partition_id = this_nic_configured_attachments.remove(0).spx_partition_id;
+            let partition = db::spx_partition::find_by(
+                txn.as_mut(),
+                ObjectColumnFilter::List(db::spx_partition::IdColumn, &[partition_id]),
+            )
+            .await?;
+
+            txn.commit().await.map_err(|e| {
+                db::AnnotatedSqlxError::new("reconcile_assigned_state commit txn", e)
+            })?;
+
+            if partition.len() != 1 {
+                tracing::error!(
+                    "reconcile_assigned_state SPX partition {partition_id} is not found"
+                );
+                return Err(DpaManagerError::InvalidArgument(format!(
+                    "SPX partition {partition_id} is not found",
+                )));
+            }
+
+            vni = partition[0].vni.unwrap_or(0) as u32;
+            debug_assert_ne!(vni, 0, "VNI in SPX partition {partition_id} is 0");
+
+            if !this_nic_observed_attachments.is_empty() {
+                let observed_attachment = this_nic_observed_attachments.remove(0);
+
+                if (observed_attachment.partition_id != Some(partition_id))
+                    || (observed_attachment.config_version != Some(instance_version))
+                {
+                    need_creation = true;
+                } else {
+                    need_heartbeat = true;
+                }
+            } else {
+                need_creation = true;
+            }
+        }
+
+        if !need_creation && !need_deletion && !need_heartbeat {
+            return Ok(None);
+        }
+
+        debug_assert_eq!(
+            (need_creation as u8) + (need_deletion as u8) + (need_heartbeat as u8),
+            1,
+            "reconcile_assigned_state: at most one of need_creation, need_deletion, need_heartbeat should be set"
+        );
+
+        tracing::debug!(
+            "[{}] reconcile_assigned_state: need_creation {need_creation}, need_deletion {need_deletion}, need_heartbeat {need_heartbeat}",
+            chrono::Utc::now()
+        );
+
+        if need_creation {
+            let txn = monitor
+                .send_set_vni_command(
+                    dpa_interface,
+                    client,
+                    dpa_info,
+                    vni,
+                    false,
+                    instance_version.to_string(),
+                )
+                .await?;
+            return Ok(txn);
+        } else if need_deletion {
+            let txn = monitor
+                .send_set_vni_command(dpa_interface, client, dpa_info, 0_u32, false, nic_version)
+                .await?;
+            return Ok(txn);
+        } else if need_heartbeat {
+            let txn = monitor
+                .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, vni, metrics)
+                .await?;
+            return Ok(txn);
+        }
+
+        Ok(None)
+    }
+
+    async fn reconcile_ready_state<'a>(
+        monitor: &mut DpaMonitor,
+        machine: &Machine,
+        dpa_interface: &mut DpaInterface,
+        client: Arc<MqtteaClient>,
+        dpa_info: &Arc<DpaInfo>,
+        hb_interval: TimeDelta,
+        metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
+        let nic_version = dpa_interface.network_config.version;
+        let nic_version_str = nic_version.to_string();
+
+        let mut need_deletion = false;
+        let mut need_heartbeat = false;
+
+        let this_mac = dpa_interface.mac_address;
+
+        let observed = machine.spx_status_observation.clone();
+
+        let mut this_nic_observed_attachments = Vec::new();
+
+        if let Some(observed) = observed {
+            this_nic_observed_attachments = observed
+                .spx_attachments
+                .into_iter()
+                .filter(|a| a.mac_address == this_mac)
+                .collect::<Vec<_>>();
+        }
+
+        if this_nic_observed_attachments.len() > 1 {
+            tracing::error!(
+                "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
+            );
+            return Err(DpaManagerError::InvalidArgument(
+                "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
+                    .to_string(),
+            ));
+        }
+
+        if this_nic_observed_attachments.is_empty() {
+            return Ok(None);
+        }
+
+        let observed_attachment = this_nic_observed_attachments.remove(0).clone();
+
+        if (observed_attachment.partition_id != Some(NULL_SPX_PARTITION_ID))
+            || (observed_attachment.config_version != Some(nic_version))
+        {
+            need_deletion = true;
+        } else {
+            need_heartbeat = true;
+        }
+
+        tracing::debug!(
+            "[{}] reconcile_ready_state: need_deletion {need_deletion}, need_heartbeat {need_heartbeat}",
+            chrono::Utc::now()
+        );
+
+        if need_deletion {
+            let txn = monitor
+                .send_set_vni_command(
+                    dpa_interface,
+                    client,
+                    dpa_info,
+                    0_u32,
+                    false,
+                    nic_version_str,
+                )
+                .await?;
+            return Ok(txn);
+        } else if need_heartbeat {
+            let txn = monitor
+                .do_heartbeat(dpa_interface, client, dpa_info, hb_interval, 0_u32, metrics)
+                .await?;
+            return Ok(txn);
+        }
+
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
+    #[allow(clippy::unused_async)]
+    async fn handle_provisioning(
+        &self,
+        _monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+        if host_use_admin_network {
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let new_state = DpaInterfaceControllerState::Ready;
+        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+        Ok(HandlerResult {
+            new_state: Some(new_state),
+            txn: None,
+        })
+    }
+
+    async fn handle_ready(
+        &self,
+        monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+        if !host_use_admin_network {
+            let new_state = DpaInterfaceControllerState::Unlocking;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        let dpa_info = monitor.dpa_info.clone().unwrap();
+        let hb_interval = monitor.config.hb_interval;
+        let client = dpa_info
+            .mqtt_client
+            .clone()
+            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+
+        let txn = Self::reconcile_ready_state(
+            monitor,
+            &mh.host_snapshot,
+            dpa_interface,
+            client,
+            &dpa_info,
+            hb_interval,
+            metrics,
+        )
+        .await?;
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn,
+        })
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn handle_unlocking(
+        &self,
+        _monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        if dpa_interface.card_state.is_none() {
+            tracing::info!("card_state none for dpa: {:#?}", dpa_interface.id);
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        if let Some(ref mut cs) = dpa_interface.card_state
+            && cs.lockmode == Some(Unlocked)
+        {
+            let new_state = DpaInterfaceControllerState::ApplyFirmware;
+            tracing::info!(state = ?new_state, "Interface unlocked. Transitioning to next state");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn handle_apply_firmware(
+        &self,
+        _monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let Some(ref card_state) = dpa_interface.card_state else {
+            tracing::info!(
+                "no firmware report, because card_state none for dpa: {:#?}, waiting for retry",
+                dpa_interface.id
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        if let Some(ref firmware_report) = card_state.firmware_report {
+            let reset_ok = firmware_report.reset.unwrap_or(true);
+            if firmware_report.flashed && reset_ok {
+                let new_state = DpaInterfaceControllerState::ApplyProfile;
+                tracing::info!(
+                    state = ?new_state,
+                    observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
+                    "firmware report received and successfully applied, transitioning"
+                );
+                return Ok(HandlerResult {
+                    new_state: Some(new_state),
+                    txn: None,
+                });
+            }
+            tracing::warn!(
+                flashed = firmware_report.flashed,
+                reset = ?firmware_report.reset,
+                observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
+                "firmware report received but not successful, waiting for retry"
+            );
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn handle_apply_profile(
+        &self,
+        _monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        handle_apply_profile(&mh.dpa_interface_snapshots[idx])
+    }
+
+    #[allow(clippy::unused_async)]
+    async fn handle_locking(
+        &self,
+        _monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        _metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let Some(ref cs) = dpa_interface.card_state else {
+            tracing::error!(
+                "Unexpected - card_state none for dpa: {:#?}",
+                dpa_interface.id
+            );
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        };
+
+        if cs.lockmode == Some(Locked) {
+            let new_state = DpaInterfaceControllerState::Assigned;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
+    }
+
+    async fn handle_assigned(
+        &self,
+        monitor: &mut DpaMonitor,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
+        metrics: &mut DpaMonitorMetrics,
+    ) -> DpaManagerResult<HandlerResult> {
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+
+        if host_use_admin_network {
+            let new_state = DpaInterfaceControllerState::Ready;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        let dpa_info = monitor.dpa_info.clone().unwrap();
+        let hb_interval = monitor.config.hb_interval;
+        let client = dpa_info
+            .mqtt_client
+            .clone()
+            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+
+        let instance = mh.instance.as_ref().ok_or_else(|| {
+            tracing::error!("reconcile_assigned_state instance is missing");
+            eyre::eyre!("reconcile_assigned_state instance is missing")
+        })?;
+        let db_pool = monitor.db_services.db_pool.clone();
+        let txn = Self::reconcile_assigned_state(
+            &db_pool,
+            monitor,
+            dpa_interface,
+            &mh.host_snapshot,
+            instance,
+            client,
+            &dpa_info,
+            hb_interval,
+            metrics,
+        )
+        .await?;
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn,
+        })
+    }
+}
+
+fn handle_apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
+    let Some(ref cs) = state.card_state else {
+        tracing::info!(
+            "no profile report, because card_state none for dpa: {:#?}, waiting for retry",
+            state.id
+        );
+        return Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        });
+    };
+    if cs.profile_synced == Some(true) {
+        let new_state = DpaInterfaceControllerState::Locking;
+        tracing::info!(
+            state = ?new_state,
+            profile = cs.profile.as_deref().unwrap_or("none"),
+            "profile applied successfully, transitioning"
+        );
+        return Ok(HandlerResult {
+            new_state: Some(new_state),
+            txn: None,
+        });
+    }
+    Ok(HandlerResult {
+        new_state: None,
+        txn: None,
+    })
+}
