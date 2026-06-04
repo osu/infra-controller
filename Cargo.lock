@@ -1998,6 +1998,8 @@ dependencies = [
  "prost-types",
  "rand 0.10.1",
  "reqwest 0.13.4",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_with",

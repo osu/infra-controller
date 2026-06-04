@@ -90,6 +90,9 @@ pub enum HealthError {
 
     #[error("gNMI error: {0}")]
     GnmiError(String),
+
+    #[error("gNMI RPC failed: {0}")]
+    GnmiStatus(tonic::Status),
 }
 
 impl From<String> for HealthError {

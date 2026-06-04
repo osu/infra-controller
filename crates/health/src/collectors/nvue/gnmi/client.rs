@@ -168,12 +168,10 @@ impl GnmiClient {
         let stream = tokio_stream::once(subscribe_request);
         let request = Request::from_parts(auth, Extensions::default(), stream);
 
-        let response = client.subscribe(request).await.map_err(|e| {
-            HealthError::GnmiError(format!(
-                "switch {}: subscribe_sample RPC failed: {e}",
-                self.switch_id
-            ))
-        })?;
+        let response = client
+            .subscribe(request)
+            .await
+            .map_err(HealthError::GnmiStatus)?;
 
         tracing::debug!(
             switch_id = %self.switch_id,
@@ -198,12 +196,10 @@ impl GnmiClient {
         let stream = tokio_stream::once(subscribe_request);
         let request = Request::from_parts(auth, Extensions::default(), stream);
 
-        let response = client.subscribe(request).await.map_err(|e| {
-            HealthError::GnmiError(format!(
-                "switch {}: subscribe_on_change RPC failed: {e}",
-                self.switch_id
-            ))
-        })?;
+        let response = client
+            .subscribe(request)
+            .await
+            .map_err(HealthError::GnmiStatus)?;
 
         tracing::debug!(
             switch_id = %self.switch_id,
