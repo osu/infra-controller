@@ -29,6 +29,7 @@ use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayVe
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
+use component_manager::types::FirmwareUpdateOptions;
 use db::{self, WithTransaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
@@ -389,7 +390,17 @@ fn normalize_access_token(access_token: Option<String>) -> Option<String> {
 fn validate_firmware_object_json_request(target_version: &str) -> Result<(), Status> {
     if target_version.trim().is_empty() {
         return Err(Status::invalid_argument(
-            "target_version must contain SOT JSON for firmware updates routed through rack maintenance",
+            "target_version must contain SOT JSON for firmware updates",
+        ));
+    }
+    let value: serde_json::Value = serde_json::from_str(target_version).map_err(|e| {
+        Status::invalid_argument(format!(
+            "target_version must contain valid SOT JSON for firmware updates: {e}"
+        ))
+    })?;
+    if !value.is_object() {
+        return Err(Status::invalid_argument(
+            "target_version must contain a SOT JSON object for firmware updates",
         ));
     }
     Ok(())
@@ -422,6 +433,25 @@ fn require_firmware_object_json_for_rack_maintenance(
 
     validate_firmware_object_json_request(target_version)?;
     Ok(token)
+}
+
+fn require_firmware_object_json_for_direct_rms(
+    target: &str,
+    access_token: &Option<String>,
+    target_version: &str,
+    force_update: bool,
+) -> Result<FirmwareUpdateOptions, Status> {
+    let Some(token) = access_token.clone() else {
+        return Err(Status::invalid_argument(format!(
+            "access_token is required for {target} firmware updates routed directly to RMS"
+        )));
+    };
+
+    validate_firmware_object_json_request(target_version)?;
+    Ok(FirmwareUpdateOptions {
+        access_token: Some(token),
+        force_update,
+    })
 }
 
 fn reject_firmware_object_json_for_direct_dispatch(
@@ -1488,7 +1518,12 @@ pub(crate) async fn update_component_firmware(
                 return Err(Status::invalid_argument("switch_ids must not be empty"));
             }
 
-            if access_token.is_some() {
+            let cm = require_component_manager(api)?;
+            let route_through_state_controller = cm.nv_switch_use_state_controller;
+            let use_direct_rms_json =
+                !route_through_state_controller && cm.nv_switch.supports_firmware_object_json();
+
+            if route_through_state_controller {
                 let token = require_firmware_object_json_for_rack_maintenance(
                     "switch",
                     &access_token,
@@ -1503,54 +1538,48 @@ pub(crate) async fn update_component_firmware(
                 );
                 rack_maintenance_targets = group_switch_ids_by_rack(api, &list.ids).await?;
             } else {
-                let cm = require_component_manager(api)?;
-                if cm.nv_switch_use_state_controller {
-                    let token = require_firmware_object_json_for_rack_maintenance(
+                let options = if use_direct_rms_json {
+                    require_firmware_object_json_for_direct_rms(
                         "switch",
                         &access_token,
                         &req.target_version,
-                    )?;
-                    let components = map_nv_switch_components(&t.components)?;
-                    maintenance_activities = switch_firmware_maintenance_activities(
-                        &req.target_version,
-                        &token,
-                        &components,
                         force_update,
-                    );
-                    rack_maintenance_targets = group_switch_ids_by_rack(api, &list.ids).await?;
+                    )?
                 } else {
                     reject_firmware_object_json_for_direct_dispatch("switch", &access_token)?;
-                    let components = map_nv_switch_components(&t.components)?;
-                    let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+                    FirmwareUpdateOptions::default()
+                };
+                let components = map_nv_switch_components(&t.components)?;
+                let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
-                    let mut results: Vec<_> = endpoints
-                        .unresolved
-                        .iter()
-                        .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                        .collect();
+                let mut results: Vec<_> = endpoints
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
 
-                    let backend_results = cm
-                        .nv_switch
-                        .queue_firmware_updates(
-                            &endpoints.resolved.endpoints,
-                            &req.target_version,
-                            &components,
-                        )
-                        .await
-                        .map_err(component_manager_error_to_status)?;
-                    results.extend(backend_results.into_iter().map(|r| {
-                        let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
-                        if r.success {
-                            success_result(&id)
-                        } else {
-                            error_result(&id, r.error.unwrap_or_default())
-                        }
-                    }));
+                let backend_results = cm
+                    .nv_switch
+                    .queue_firmware_updates(
+                        &endpoints.resolved.endpoints,
+                        &req.target_version,
+                        &components,
+                        &options,
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
+                    if r.success {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, r.error.unwrap_or_default())
+                    }
+                }));
 
-                    return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                        results,
-                    }));
-                }
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
             }
         }
         rpc::update_component_firmware_request::Target::ComputeTrays(t) => {
@@ -1561,7 +1590,8 @@ pub(crate) async fn update_component_firmware(
                 return Err(Status::invalid_argument("machine_ids must not be empty"));
             }
 
-            if access_token.is_some() {
+            let cm = require_component_manager(api)?;
+            if cm.compute_tray_use_state_controller {
                 let token = require_firmware_object_json_for_rack_maintenance(
                     "compute tray",
                     &access_token,
@@ -1577,54 +1607,37 @@ pub(crate) async fn update_component_firmware(
                 rack_maintenance_targets =
                     group_machine_ids_by_rack(api, &list.machine_ids).await?;
             } else {
-                let cm = require_component_manager(api)?;
-                if cm.compute_tray_use_state_controller {
-                    let token = require_firmware_object_json_for_rack_maintenance(
-                        "compute tray",
-                        &access_token,
+                reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
+                let components = map_compute_tray_components(&t.components)?;
+                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+
+                let mut results: Vec<_> = resolved
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let backend_results = cm
+                    .compute_tray
+                    .update_firmware(
+                        &resolved.resolved.endpoints,
                         &req.target_version,
-                    )?;
-                    let component_names = map_compute_tray_component_names(&t.components)?;
-                    maintenance_activities = vec![firmware_upgrade_activity(
-                        req.target_version.clone(),
-                        component_names,
-                        Some(token),
-                        force_update,
-                    )];
-                    rack_maintenance_targets =
-                        group_machine_ids_by_rack(api, &list.machine_ids).await?;
-                } else {
-                    reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
-                    let components = map_compute_tray_components(&t.components)?;
-                    let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+                        &components,
+                        &FirmwareUpdateOptions::default(),
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    if r.success {
+                        success_result(&r.bmc_ip.to_string())
+                    } else {
+                        error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
+                    }
+                }));
 
-                    let mut results: Vec<_> = resolved
-                        .unresolved
-                        .iter()
-                        .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                        .collect();
-
-                    let backend_results = cm
-                        .compute_tray
-                        .update_firmware(
-                            &resolved.resolved.endpoints,
-                            &req.target_version,
-                            &components,
-                        )
-                        .await
-                        .map_err(component_manager_error_to_status)?;
-                    results.extend(backend_results.into_iter().map(|r| {
-                        if r.success {
-                            success_result(&r.bmc_ip.to_string())
-                        } else {
-                            error_result(&r.bmc_ip.to_string(), r.error.unwrap_or_default())
-                        }
-                    }));
-
-                    return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
-                        results,
-                    }));
-                }
+                return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+                    results,
+                }));
             }
         }
         rpc::update_component_firmware_request::Target::PowerShelves(t) => {
@@ -1637,8 +1650,29 @@ pub(crate) async fn update_component_firmware(
                 ));
             }
 
-            reject_power_shelf_firmware_object_json(&access_token)?;
             let cm = require_component_manager(api)?;
+            let route_through_state_controller = cm.power_shelf_use_state_controller;
+            if route_through_state_controller {
+                // TODO: implement state controller path for power shelf firmware control
+                return Err(Status::unimplemented(
+                    "power shelf firmware control through the state controller is not yet supported",
+                ));
+            }
+
+            let options = if cm.power_shelf.supports_firmware_object_json() {
+                require_firmware_object_json_for_direct_rms(
+                    "power shelf",
+                    &access_token,
+                    &req.target_version,
+                    force_update,
+                )?
+            } else {
+                reject_power_shelf_firmware_object_json(&access_token)?;
+                FirmwareUpdateOptions {
+                    force_update,
+                    ..FirmwareUpdateOptions::default()
+                }
+            };
             let components = map_power_shelf_components(&t.components)?;
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
 
@@ -1654,6 +1688,7 @@ pub(crate) async fn update_component_firmware(
                     &endpoints.resolved.endpoints,
                     &req.target_version,
                     &components,
+                    &options,
                 )
                 .await
                 .map_err(component_manager_error_to_status)?;
@@ -2104,6 +2139,14 @@ mod tests {
         assert_eq!(err.code(), Code::InvalidArgument);
         assert!(err.message().contains("target_version"));
 
+        let err = validate_firmware_object_json_request("fw-1.0.0").unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert!(err.message().contains("valid SOT JSON"));
+
+        let err = validate_firmware_object_json_request(r#""fw-1.0.0""#).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert!(err.message().contains("SOT JSON object"));
+
         validate_firmware_object_json_request("{}").unwrap();
     }
 
@@ -2197,7 +2240,31 @@ mod tests {
     }
 
     #[test]
-    fn direct_firmware_update_rejects_access_token() {
+    fn direct_rms_firmware_update_requires_access_token() {
+        let err =
+            require_firmware_object_json_for_direct_rms("switch", &None, "{}", false).unwrap_err();
+
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert!(err.message().contains("access_token"));
+        assert!(err.message().contains("directly to RMS"));
+    }
+
+    #[test]
+    fn direct_rms_firmware_update_returns_options_when_valid() {
+        let options = require_firmware_object_json_for_direct_rms(
+            "switch",
+            &Some("token".to_string()),
+            "{}",
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(options.access_token.as_deref(), Some("token"));
+        assert!(options.force_update);
+    }
+
+    #[test]
+    fn non_rms_direct_firmware_update_rejects_access_token() {
         let err =
             reject_firmware_object_json_for_direct_dispatch("switch", &Some("token".to_string()))
                 .unwrap_err();

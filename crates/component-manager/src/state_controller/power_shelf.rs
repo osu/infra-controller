@@ -27,6 +27,7 @@ use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
     PowerShelfFirmwareVersions, PowerShelfManager,
 };
+use crate::types::FirmwareUpdateOptions;
 
 const UNKNOWN_MAC_ERROR: &str = "no power shelf row found for this BMC MAC address";
 const DEVICE_KIND: &str = "power shelves";
@@ -285,6 +286,7 @@ impl PowerShelfManager for StateControllerPowerShelf {
         endpoints: &[PowerShelfEndpoint],
         target_version: &str,
         _components: &[PowerShelfComponent],
+        options: &FirmwareUpdateOptions,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         let firmware_version = if target_version.is_empty() {
             None
@@ -296,7 +298,7 @@ impl PowerShelfManager for StateControllerPowerShelf {
             MaintenanceActivity::FirmwareUpgrade {
                 firmware_version,
                 components: vec![],
-                force_update: false,
+                force_update: options.force_update,
             },
         )
         .await
@@ -375,6 +377,7 @@ mod tests {
             _endpoints: &[PowerShelfEndpoint],
             _target_version: &str,
             _components: &[PowerShelfComponent],
+            _options: &FirmwareUpdateOptions,
         ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
             *self.update_firmware_calls.lock().unwrap() += 1;
             Ok(vec![])
@@ -556,7 +559,12 @@ mod tests {
 
         let eps = vec![make_ep(PS_MAC_1)];
         let results = wrapper
-            .update_firmware(&eps, "fw-2.0.0", &[PowerShelfComponent::Pmc])
+            .update_firmware(
+                &eps,
+                "fw-2.0.0",
+                &[PowerShelfComponent::Pmc],
+                &FirmwareUpdateOptions::default(),
+            )
             .await
             .unwrap();
 
@@ -584,7 +592,10 @@ mod tests {
         let wrapper = StateControllerPowerShelf::new(pool.clone(), direct);
 
         let eps = vec![make_ep(PS_MAC_1)];
-        wrapper.update_firmware(&eps, "", &[]).await.unwrap();
+        wrapper
+            .update_firmware(&eps, "", &[], &FirmwareUpdateOptions::default())
+            .await
+            .unwrap();
 
         let scope = load_maintenance_scope(&pool, &rack_id)
             .await

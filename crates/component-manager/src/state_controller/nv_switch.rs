@@ -23,6 +23,7 @@ use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
 };
+use crate::types::FirmwareUpdateOptions;
 
 const UNKNOWN_MAC_ERROR: &str = "no switch row found for this BMC MAC address";
 const DEVICE_KIND: &str = "switches";
@@ -175,6 +176,7 @@ impl NvSwitchManager for StateControllerNvSwitch {
         endpoints: &[SwitchEndpoint],
         bundle_version: &str,
         _components: &[NvSwitchComponent],
+        options: &FirmwareUpdateOptions,
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         let firmware_version = if bundle_version.is_empty() {
             None
@@ -186,7 +188,7 @@ impl NvSwitchManager for StateControllerNvSwitch {
             MaintenanceActivity::FirmwareUpgrade {
                 firmware_version,
                 components: vec![],
-                force_update: false,
+                force_update: options.force_update,
             },
         )
         .await
@@ -249,6 +251,7 @@ mod tests {
             _endpoints: &[SwitchEndpoint],
             _bundle_version: &str,
             _components: &[NvSwitchComponent],
+            _options: &FirmwareUpdateOptions,
         ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
             *self.queue_firmware_updates_calls.lock().unwrap() += 1;
             Ok(vec![])
@@ -345,7 +348,12 @@ mod tests {
 
         let eps = vec![make_ep(SW_MAC_1)];
         let results = wrapper
-            .queue_firmware_updates(&eps, "nvos-3.0", &[NvSwitchComponent::Bmc])
+            .queue_firmware_updates(
+                &eps,
+                "nvos-3.0",
+                &[NvSwitchComponent::Bmc],
+                &FirmwareUpdateOptions::default(),
+            )
             .await
             .unwrap();
 

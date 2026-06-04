@@ -482,6 +482,7 @@ fn from_component_integrity(
     }
 }
 #[cfg(not(feature = "linux-build"))]
+#[allow(clippy::unused_async)]
 pub(crate) async fn attest_quote(
     _api: &Api,
     _request: Request<rpc::AttestQuoteRequest>,
