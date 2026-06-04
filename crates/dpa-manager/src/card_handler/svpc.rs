@@ -25,8 +25,7 @@ use db::{self, ObjectColumnFilter};
 use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use model::instance::snapshot::InstanceSnapshot;
-use model::machine::Machine;
-use model::machine::ManagedHostStateSnapshot;
+use model::machine::{Machine, ManagedHostStateSnapshot};
 use mqttea::client::MqtteaClient;
 use sqlx::{PgPool, PgTransaction};
 

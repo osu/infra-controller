@@ -16,6 +16,7 @@
  */
 
 use async_trait::async_trait;
+use model::dpa_interface::DpaInterfaceControllerState;
 use model::machine::ManagedHostStateSnapshot;
 
 use super::DpaInterfaceStateHandler;
@@ -25,88 +26,153 @@ use crate::{DpaMonitor, HandlerResult};
 
 pub struct AstraInterfaceHandler;
 
-macro_rules! astra_todo {
-    ($state:expr) => {{
-        tracing::warn!(
-            state = $state,
-            "Astra DPA interface state handler not yet implemented"
-        );
-        Ok(HandlerResult {
-            new_state: None,
-            txn: None,
-        })
-    }};
-}
-
 #[async_trait]
 impl DpaInterfaceStateHandler for AstraInterfaceHandler {
     async fn handle_provisioning(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("provisioning")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+        if host_use_admin_network {
+            return Ok(HandlerResult {
+                new_state: None,
+                txn: None,
+            });
+        }
+
+        let new_state = DpaInterfaceControllerState::Ready;
+        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+        Ok(HandlerResult {
+            new_state: Some(new_state),
+            txn: None,
+        })
     }
 
     async fn handle_ready(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("ready")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        let host_use_admin_network = dpa_interface.use_admin_network();
+        if !host_use_admin_network {
+            let new_state = DpaInterfaceControllerState::Assigned;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        })
     }
 
     async fn handle_unlocking(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("unlocking")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        tracing::warn!(
+            "Astra DPA interface state unexpcted state: {:#?}",
+            dpa_interface.id
+        );
+        return Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        });
     }
 
     async fn handle_apply_firmware(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("apply_firmware")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        tracing::warn!(
+            "Astra DPA interface state unexpcted state: {:#?}",
+            dpa_interface.id
+        );
+        return Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        });
     }
 
     async fn handle_apply_profile(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("apply_profile")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        tracing::warn!(
+            "Astra DPA interface state unexpcted state: {:#?}",
+            dpa_interface.id
+        );
+        return Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        });
     }
 
     async fn handle_locking(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("locking")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+        tracing::warn!(
+            "Astra DPA interface state unexpcted state: {:#?}",
+            dpa_interface.id
+        );
+        return Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        });
     }
 
     async fn handle_assigned(
         &self,
         _monitor: &mut DpaMonitor,
-        _mh: &mut ManagedHostStateSnapshot,
-        _idx: usize,
+        mh: &mut ManagedHostStateSnapshot,
+        idx: usize,
         _metrics: &mut DpaMonitorMetrics,
     ) -> DpaManagerResult<HandlerResult> {
-        astra_todo!("assigned")
+        let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
+
+        let host_use_admin_network = dpa_interface.use_admin_network();
+
+        if host_use_admin_network {
+            let new_state = DpaInterfaceControllerState::Ready;
+            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            return Ok(HandlerResult {
+                new_state: Some(new_state),
+                txn: None,
+            });
+        }
+
+        return Ok(HandlerResult {
+            new_state: None,
+            txn: None,
+        });
     }
 }
