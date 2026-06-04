@@ -372,6 +372,7 @@ pub(crate) async fn attest_quote(
 }
 
 #[cfg(not(feature = "linux-build"))]
+#[allow(clippy::unused_async)]
 pub(crate) async fn attest_quote(
     _api: &Api,
     _request: Request<rpc::AttestQuoteRequest>,
