@@ -67,6 +67,7 @@ fn parse_ensure_args() {
         "00:11:22:33:44:55",
         "BlueField3",
         "01:00.0",
+        "0",
     ])
     .expect("should parse ensure");
 
