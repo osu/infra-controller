@@ -23,6 +23,7 @@ use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
@@ -288,16 +289,29 @@ impl DpaInterface {
         instance: &Option<InstanceSnapshot>,
         spx_status_observation: &Option<MachineSpxStatusObservation>,
     ) -> bool {
-        let dpa_expected_version = match instance {
-            Some(instance) if !instance.config.spxconfig.spx_attachments.is_empty() => {
-                instance.spx_config_version
-            }
-            _ => self.network_config.version,
-        };
+        let mut dpa_expected_version = self.network_config.version;
 
+        // If we haven't yet seen any observations, we are not synced
         let Some(spx_status_observation) = spx_status_observation else {
             return false;
         };
+
+        // If there is an instance, and the instance has SPX attachments,
+        // and one of the attachments matches our mac address and has a non-zero partition ID,
+        // then the DPA expected version should be the instance's SPX config version.
+        if let Some(instance) = instance {
+            if !instance.config.spxconfig.spx_attachments.is_empty() {
+                for attachment in instance.config.spxconfig.spx_attachments.iter() {
+                    if attachment.mac_address.as_deref().unwrap_or_default()
+                        == self.mac_address.to_string()
+                        && attachment.spx_partition_id != NULL_SPX_PARTITION_ID
+                    {
+                        dpa_expected_version = instance.spx_config_version;
+                        break;
+                    }
+                }
+            }
+        }
 
         for obs in spx_status_observation.spx_attachments.iter() {
             if obs.mac_address == self.mac_address

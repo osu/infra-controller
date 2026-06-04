@@ -209,6 +209,8 @@ pub(crate) async fn process_scout_req(
         let cstate = &sn.controller_state.value;
         let pci_name = &sn.pci_name;
 
+        assert_eq!(sn.interface_type, DpaInterfaceType::Svpc);
+
         let dpa_cmd = match cstate {
             DpaInterfaceControllerState::Provisioning
             | DpaInterfaceControllerState::Ready
@@ -514,6 +516,8 @@ async fn process_mlx_observation(
                 continue;
             }
         };
+
+        assert_eq!(dpa.interface_type, DpaInterfaceType::Svpc);
 
         // Use the latest CardState we pulled from the database. If there
         // isn't one, then initialize an empty one, for which we will now
