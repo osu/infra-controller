@@ -34,6 +34,24 @@ func (s ComponentStatus) Blocks(op OperationType) bool {
 	return false
 }
 
+// Equal reports whether two ComponentStatus values are identical. Needed
+// because BlockedOperations is a slice and ComponentStatus is therefore
+// not comparable with ==.
+func (s ComponentStatus) Equal(other ComponentStatus) bool {
+	if s.Phase != other.Phase || s.Reason != other.Reason {
+		return false
+	}
+	if len(s.BlockedOperations) != len(other.BlockedOperations) {
+		return false
+	}
+	for i := range s.BlockedOperations {
+		if s.BlockedOperations[i] != other.BlockedOperations[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // MapComponentStatus translates a raw core controller_state string into
 // a ComponentStatus for the given component type. The raw form differs
 // per type:
