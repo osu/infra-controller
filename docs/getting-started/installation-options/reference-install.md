@@ -256,7 +256,7 @@ kubectl exec -n temporal deploy/temporal-admintools -- \
 _ncx_docker_cfg="$(printf '{"auths":{"nvcr.io":{"username":"$oauthtoken","password":"%s"}}}' \
     "${REGISTRY_PULL_SECRET}" | base64 | tr -d '\n')"
 
-helm upgrade --install nico-rest "${NCX_REPO}/helm/rest/nico-rest" \
+helm upgrade --install nico-rest "${NCX_REPO}/../helm/rest/nico-rest" \
     --namespace nico-rest \
     -f values/ncx-rest.yaml \
     --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
@@ -271,7 +271,7 @@ The deployment order is critical — do not skip steps.
 
 ```bash
 NCX_SITE_UUID="${NCX_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"
-NCX_SITE_AGENT_CHART="${NCX_REPO}/helm/rest/nico-rest-site-agent"
+NCX_SITE_AGENT_CHART="${NCX_REPO}/../helm/rest/nico-rest-site-agent"
 
 # Step 1 - pre-apply the gRPC client cert so it exists before the pod starts
 helm template nico-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
