@@ -154,3 +154,60 @@ impl NvueRevision {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::*;
+
+    #[test]
+    fn test_header_parse() {
+        let header_yaml =
+            "model: VX\nnvue-api-version: nvue_v1\nrev-id: 1.0\nversion: Cumulus Linux 5.6.0\n";
+        let _parsed: NvueConfigHeader =
+            serde_yaml::from_str(header_yaml).expect("Failed to parse header YAML");
+    }
+
+    // At some point this should probably be moved to the agent's tests once
+    // we're reasonably sure the types in here are correct.
+    #[test]
+    fn test_parse_agent_nvue_configs() {
+        let paths = enumerate_agent_configs();
+        paths.into_iter().for_each(|path| {
+            eprintln!("Attempting to parse {path}", path = path.display());
+            let contents = std::fs::read_to_string(&path).expect("Couldn't read NVUE file");
+            let _parsed: NvueConfigWithHeader =
+                serde_yaml::from_str(&contents).expect("Couldn't parse NVUE file");
+        });
+    }
+
+    // Enumerate the startup config files from the agent crate's directory.
+    fn enumerate_agent_configs() -> Vec<PathBuf> {
+        let repo_root = Path::new(std::env!("REPO_ROOT"));
+        let agent_templates_tests_dir = {
+            let mut buf = repo_root.to_path_buf();
+            buf.extend(["crates", "agent", "templates", "tests"]);
+            buf
+        };
+        if !agent_templates_tests_dir.is_dir() {
+            panic!(
+                "Couldn't find the agent's template tests directory at {location}",
+                location = agent_templates_tests_dir.display()
+            );
+        }
+
+        let pattern = {
+            let mut buf = agent_templates_tests_dir;
+            buf.push("nvue_*.yaml.expected");
+            buf
+        };
+
+        let pattern = pattern.to_string_lossy();
+        let paths = glob::glob(pattern.as_ref()).expect("Failed to glob agent NVUE files");
+        paths
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Failed to iterate agent NVUE paths")
+    }
+}
