@@ -98,11 +98,6 @@ impl GnmiSampleProcessor {
             } else if let Some(comp) = find_elem_key_ref(&combined, "component", "name") {
                 entities.insert(("component", comp));
                 self.process_component_metric(&combined, comp, val);
-            } else if let Some(sensor_id) = find_elem_key_ref(&combined, "leak-sensor", "id")
-                && leaf_matches(&combined, &["state", "state"])
-            {
-                entities.insert(("sensor", sensor_id));
-                self.process_leak_sensor_metric(val, sensor_id);
             }
         }
 
@@ -215,18 +210,6 @@ impl GnmiSampleProcessor {
         }
     }
 
-    fn process_leak_sensor_metric(&self, val: &proto::TypedValue, sensor_id: &str) {
-        let v = leak_sensor_to_f64(typed_value_to_string(val).as_deref());
-        self.emit_data_metric(
-            "leak_sensor_state",
-            sensor_id,
-            v,
-            "state",
-            "sensor_id",
-            sensor_id,
-        );
-    }
-
     fn emit_data_metric(
         &self,
         metric_type: &str,
@@ -298,18 +281,6 @@ fn component_health_to_f64(status: Option<&str>) -> f64 {
     match status {
         Some(s) if s.eq_ignore_ascii_case("healthy") => 1.0,
         Some(s) if s.eq_ignore_ascii_case("unhealthy") => 2.0,
-        _ => 0.0,
-    }
-}
-
-// /platform-general/leak-sensors/leak-sensor[id=X]/state/state
-// NVOS values from nvidia-platform-general-ext LeakSensors type:
-//   "OK"    -> 0.0  (no leak)
-//   "LEAK"  -> 1.0  (leak detected)
-//   "UNSET" -> 0.0  (default / unmapped internal value)
-fn leak_sensor_to_f64(status: Option<&str>) -> f64 {
-    match status {
-        Some(s) if s.eq_ignore_ascii_case("LEAK") => 1.0,
         _ => 0.0,
     }
 }
@@ -402,17 +373,6 @@ mod tests {
         assert_eq!(component_health_to_f64(Some("HEALTHY")), 1.0);
         assert_eq!(component_health_to_f64(Some("unhealthy")), 2.0);
         assert_eq!(component_health_to_f64(None), 0.0);
-    }
-
-    #[test]
-    fn test_leak_sensor_mapping() {
-        assert_eq!(leak_sensor_to_f64(Some("OK")), 0.0);
-        assert_eq!(leak_sensor_to_f64(Some("ok")), 0.0);
-        assert_eq!(leak_sensor_to_f64(Some("LEAK")), 1.0);
-        assert_eq!(leak_sensor_to_f64(Some("leak")), 1.0);
-        assert_eq!(leak_sensor_to_f64(Some("Leak")), 1.0);
-        assert_eq!(leak_sensor_to_f64(Some("UNSET")), 0.0);
-        assert_eq!(leak_sensor_to_f64(None), 0.0);
     }
 
     fn make_path_elem(name: &str, keys: &[(&str, &str)]) -> PathElem {
@@ -689,62 +649,6 @@ mod tests {
 
         let count = proc.process_notification(&notification);
         assert_eq!(count, 2);
-    }
-
-    #[test]
-    fn test_process_notification_leak_sensor() {
-        let proc = test_processor();
-        let notification = proto::Notification {
-            timestamp: 0,
-            prefix: Some(proto::Path {
-                elem: vec![
-                    make_path_elem("platform-general", &[]),
-                    make_path_elem("leak-sensors", &[]),
-                    make_path_elem("leak-sensor", &[("id", "1")]),
-                ],
-                ..Default::default()
-            }),
-            update: vec![proto::Update {
-                path: Some(proto::Path {
-                    elem: vec![make_path_elem("state", &[]), make_path_elem("state", &[])],
-                    ..Default::default()
-                }),
-                val: Some(make_typed_value_string("LEAK")),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-
-        let count = proc.process_notification(&notification);
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn test_process_notification_leak_sensor_ok() {
-        let proc = test_processor();
-        let notification = proto::Notification {
-            timestamp: 0,
-            prefix: Some(proto::Path {
-                elem: vec![
-                    make_path_elem("platform-general", &[]),
-                    make_path_elem("leak-sensors", &[]),
-                    make_path_elem("leak-sensor", &[("id", "2")]),
-                ],
-                ..Default::default()
-            }),
-            update: vec![proto::Update {
-                path: Some(proto::Path {
-                    elem: vec![make_path_elem("state", &[]), make_path_elem("state", &[])],
-                    ..Default::default()
-                }),
-                val: Some(make_typed_value_string("OK")),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-
-        let count = proc.process_notification(&notification);
-        assert_eq!(count, 1);
     }
 
     #[test]

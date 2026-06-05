@@ -31,7 +31,7 @@ use crate::HealthError;
 use crate::config::NvueGnmiPaths;
 
 pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
-    let mut paths = Vec::with_capacity(3);
+    let mut paths = Vec::with_capacity(2);
     if paths_config.components_enabled {
         paths.push(Path {
             elem: vec![
@@ -56,21 +56,6 @@ pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
                 },
                 PathElem {
                     name: "interface".into(),
-                    key: Default::default(),
-                },
-            ],
-            ..Default::default()
-        });
-    }
-    if paths_config.leak_sensors_enabled {
-        paths.push(Path {
-            elem: vec![
-                PathElem {
-                    name: "platform-general".into(),
-                    key: Default::default(),
-                },
-                PathElem {
-                    name: "leak-sensors".into(),
                     key: Default::default(),
                 },
             ],
@@ -456,7 +441,7 @@ mod tests {
     #[test]
     fn test_nvue_subscribe_paths_all_enabled() {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths::default());
-        assert_eq!(paths.len(), 3);
+        assert_eq!(paths.len(), 2);
 
         assert_eq!(paths[0].elem.len(), 2);
         assert_eq!(paths[0].elem[0].name, "components");
@@ -465,10 +450,6 @@ mod tests {
         assert_eq!(paths[1].elem.len(), 2);
         assert_eq!(paths[1].elem[0].name, "interfaces");
         assert_eq!(paths[1].elem[1].name, "interface");
-
-        assert_eq!(paths[2].elem.len(), 2);
-        assert_eq!(paths[2].elem[0].name, "platform-general");
-        assert_eq!(paths[2].elem[1].name, "leak-sensors");
     }
 
     #[test]
@@ -476,7 +457,6 @@ mod tests {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths {
             components_enabled: false,
             interfaces_enabled: true,
-            leak_sensors_enabled: false,
         });
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].elem.len(), 2);
@@ -489,7 +469,6 @@ mod tests {
         let paths = nvue_subscribe_paths(&NvueGnmiPaths {
             components_enabled: false,
             interfaces_enabled: false,
-            leak_sensors_enabled: false,
         });
         assert!(paths.is_empty());
     }
@@ -520,7 +499,7 @@ mod tests {
         let prefix = sub_list.prefix.expect("prefix must be set");
         assert_eq!(prefix.target, "nvos", "target must be nvos");
 
-        assert_eq!(sub_list.subscription.len(), 3);
+        assert_eq!(sub_list.subscription.len(), 2);
         for sub in &sub_list.subscription {
             assert_eq!(
                 sub.mode,

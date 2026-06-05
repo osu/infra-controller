@@ -211,7 +211,6 @@ system_events_enabled = true
 [collectors.nvue.gnmi.paths]
 components_enabled = true
 interfaces_enabled = true
-leak_sensors_enabled = true
 
 # ==============================================================================
 # Processors

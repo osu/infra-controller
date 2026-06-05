@@ -881,7 +881,6 @@ impl Default for NvueGnmiConfig {
 pub struct NvueGnmiPaths {
     pub components_enabled: bool,
     pub interfaces_enabled: bool,
-    pub leak_sensors_enabled: bool,
 }
 
 impl Default for NvueGnmiPaths {
@@ -889,7 +888,6 @@ impl Default for NvueGnmiPaths {
         Self {
             components_enabled: true,
             interfaces_enabled: true,
-            leak_sensors_enabled: true,
         }
     }
 }
