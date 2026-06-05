@@ -215,6 +215,10 @@ navigation:
           path: release-notes.md
         - page: FAQs
           path: faq.md
+        - section: Design Documents
+          contents:
+          - page: Machine Validation Reliability and Control Redesign
+            path: ‎designs/machine-validation/machine-validation-reliability-control-redesign.md
         - page: Glossary
           path: glossary.md
 
