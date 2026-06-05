@@ -76,7 +76,8 @@ use model::machine::{
     MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
     MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
     NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
-    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
+    PowerState, ReprovisionState, ResetBossConfigContext, ResetBossConfigState, RetryInfo,
+    SecureEraseBossContext, SecureEraseBossState,
     SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
     UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
     dpf_based_dpu_provisioning_possible, get_display_ids,
@@ -1095,22 +1096,147 @@ impl MachineStateHandler {
                         .await?;
 
                         let next_state = match boss_controller_id {
-                            Some(boss_controller_id) => waiting_for_cleanup_state(
-                                CleanupState::CreateBossVolume {
-                                    create_boss_volume_context: CreateBossVolumeContext {
-                                        boss_controller_id: boss_controller_id.to_string(),
-                                        create_boss_volume_jid: None,
-                                        create_boss_volume_state:
-                                            CreateBossVolumeState::CreateBossVolume,
-                                        iteration: Some(0),
-                                    },
-                                },
-                                *cleanup_context,
-                            ),
+                            Some(boss_controller_id) => {
+                                // TEMPORARY WORKAROUND (Dell PowerEdge R770 / iDRAC10): reset the
+                                // BOSS controller config via DellRaidService.ResetConfig before
+                                // recreating the volume, to work around STOR060 failures during
+                                // volume creation. Other Dells keep the existing flow.
+                                // Remove once Dell ships a fixed iDRAC firmware.
+                                if is_dell_r770(&mh_snapshot.host_snapshot, ctx).await? {
+                                    waiting_for_cleanup_state(
+                                        CleanupState::ResetBossConfig {
+                                            reset_boss_config_context: ResetBossConfigContext {
+                                                boss_controller_id: boss_controller_id.to_string(),
+                                                reset_boss_config_jid: None,
+                                                reset_boss_config_state:
+                                                    ResetBossConfigState::ResetConfig,
+                                                iteration: Some(0),
+                                            },
+                                        },
+                                        *cleanup_context,
+                                    )
+                                } else {
+                                    waiting_for_cleanup_state(
+                                        CleanupState::CreateBossVolume {
+                                            create_boss_volume_context: CreateBossVolumeContext {
+                                                boss_controller_id: boss_controller_id.to_string(),
+                                                create_boss_volume_jid: None,
+                                                create_boss_volume_state:
+                                                    CreateBossVolumeState::CreateBossVolume,
+                                                iteration: Some(0),
+                                            },
+                                        },
+                                        *cleanup_context,
+                                    )
+                                }
+                            }
                             None => post_cleanup_state(*cleanup_context),
                         };
 
                         Ok(StateHandlerOutcome::transition(next_state))
+                    }
+                    CleanupState::ResetBossConfig {
+                        reset_boss_config_context,
+                    } => {
+                        let boss_controller_id =
+                            reset_boss_config_context.boss_controller_id.clone();
+                        match reset_boss_config_context.reset_boss_config_state {
+                            ResetBossConfigState::ResetConfig => {
+                                let jid = redfish_client
+                                    .reset_storage_config(
+                                        &reset_boss_config_context.boss_controller_id,
+                                    )
+                                    .await
+                                    .map_err(|e| redfish_error("reset_storage_config", e))?;
+
+                                let next_state = waiting_for_cleanup_state(
+                                    CleanupState::ResetBossConfig {
+                                        reset_boss_config_context: ResetBossConfigContext {
+                                            boss_controller_id,
+                                            reset_boss_config_jid: jid,
+                                            reset_boss_config_state:
+                                                ResetBossConfigState::WaitForJobScheduled,
+                                            iteration: reset_boss_config_context.iteration,
+                                        },
+                                    },
+                                    *cleanup_context,
+                                );
+
+                                Ok(StateHandlerOutcome::transition(next_state))
+                            }
+                            ResetBossConfigState::WaitForJobScheduled => {
+                                let job_id = reset_boss_config_context
+                                    .reset_boss_config_jid
+                                    .clone()
+                                    .ok_or_else(|| {
+                                        StateHandlerError::GenericError(eyre::eyre!(
+                                            "could not find job ID in the Reset BOSS Config Context"
+                                        ))
+                                    })?;
+
+                                wait_for_reset_boss_config_job_to_scheduled(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                    boss_controller_id,
+                                    job_id,
+                                    reset_boss_config_context.iteration,
+                                )
+                                .await
+                            }
+                            ResetBossConfigState::RebootHost => {
+                                redfish_client
+                                    .power(SystemPowerControl::ForceRestart)
+                                    .await
+                                    .map_err(|e| redfish_error("ForceRestart", e))?;
+
+                                let next_state = waiting_for_cleanup_state(
+                                    CleanupState::ResetBossConfig {
+                                        reset_boss_config_context: ResetBossConfigContext {
+                                            boss_controller_id,
+                                            reset_boss_config_jid: reset_boss_config_context
+                                                .reset_boss_config_jid
+                                                .clone(),
+                                            reset_boss_config_state:
+                                                ResetBossConfigState::WaitForJobCompletion,
+                                            iteration: reset_boss_config_context.iteration,
+                                        },
+                                    },
+                                    *cleanup_context,
+                                );
+
+                                Ok(StateHandlerOutcome::transition(next_state))
+                            }
+                            ResetBossConfigState::WaitForJobCompletion => {
+                                let job_id = reset_boss_config_context
+                                    .reset_boss_config_jid
+                                    .clone()
+                                    .ok_or_else(|| {
+                                        StateHandlerError::GenericError(eyre::eyre!(
+                                            "could not find job ID in the Reset BOSS Config Context"
+                                        ))
+                                    })?;
+
+                                wait_for_reset_boss_config_job_to_complete(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                    boss_controller_id,
+                                    job_id,
+                                    reset_boss_config_context.iteration,
+                                )
+                                .await
+                            }
+                            ResetBossConfigState::HandleJobFailure {
+                                failure: _,
+                                power_state: _,
+                            } => {
+                                handle_reset_boss_config_job_failure(
+                                    redfish_client.as_ref(),
+                                    mh_snapshot,
+                                    ctx,
+                                )
+                                .await
+                            }
+                        }
                     }
                     CleanupState::CreateBossVolume {
                         create_boss_volume_context,
@@ -8942,6 +9068,363 @@ fn get_next_state_boss_job_failure(
         }
     };
     Ok((next_state, expected_power_state))
+}
+
+// ---------------------------------------------------------------------------
+// TEMPORARY WORKAROUND (Dell PowerEdge R770 / iDRAC10, FW 1.30.10.50):
+// On these hosts, BOSS volume creation fails with STOR060 after a
+// ControllerDrivesDecommission. We issue a DellRaidService.ResetConfig (plus a
+// reboot) before recreating the volume to clear the condition. Everything in
+// this section can be removed once Dell ships a fixed iDRAC firmware (delete
+// these helpers, the ResetBossConfig cleanup state, and the is_dell_r770 gate
+// in CleanupState::HostCleanup).
+// ---------------------------------------------------------------------------
+
+/// Returns true if this host is a Dell PowerEdge R770, which needs the
+/// DellRaidService.ResetConfig workaround before BOSS volume creation.
+async fn is_dell_r770(
+    machine: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    if !machine.bmc_vendor().is_dell() {
+        return Ok(false);
+    }
+
+    let addr = machine
+        .bmc_info
+        .ip_addr()
+        .map_err(StateHandlerError::GenericError)?;
+    let endpoints =
+        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr]).await?;
+    let Some(ep) = endpoints.first() else {
+        return Ok(false);
+    };
+
+    Ok(ep
+        .report
+        .model
+        .as_deref()
+        .map(|model| model.contains("R770"))
+        .unwrap_or(false))
+}
+
+/// Poll the ResetConfig job until it is scheduled, then reboot so it applies.
+async fn wait_for_reset_boss_config_job_to_scheduled(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    boss_controller_id: String,
+    job_id: String,
+    iteration: Option<u32>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let cleanup_context = current_cleanup_context(mh_snapshot)?;
+    let job_state = match redfish_client.get_job_state(&job_id).await {
+        Ok(state) => state,
+        Err(e) => {
+            return handle_reset_boss_config_job_error(
+                boss_controller_id,
+                iteration.unwrap_or_default(),
+                cleanup_context,
+                redfish_error("get_job_state", e),
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            );
+        }
+    };
+
+    let next_state = match job_state {
+        libredfish::JobState::Scheduled => waiting_for_cleanup_state(
+            CleanupState::ResetBossConfig {
+                reset_boss_config_context: ResetBossConfigContext {
+                    boss_controller_id,
+                    reset_boss_config_jid: Some(job_id),
+                    reset_boss_config_state: ResetBossConfigState::RebootHost,
+                    iteration,
+                },
+            },
+            cleanup_context,
+        ),
+        libredfish::JobState::Completed => {
+            tracing::warn!(
+                "ResetBossConfig: job {} for {} completed before being scheduled, skipping reboot",
+                job_id,
+                mh_snapshot.host_snapshot.id,
+            );
+
+            waiting_for_cleanup_state(
+                CleanupState::ResetBossConfig {
+                    reset_boss_config_context: ResetBossConfigContext {
+                        boss_controller_id,
+                        reset_boss_config_jid: Some(job_id),
+                        reset_boss_config_state: ResetBossConfigState::WaitForJobCompletion,
+                        iteration,
+                    },
+                },
+                cleanup_context,
+            )
+        }
+        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+            return handle_reset_boss_config_job_error(
+                boss_controller_id,
+                iteration.unwrap_or_default(),
+                cleanup_context,
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "ResetBossConfig: job {} failed for {} with state {job_state:#?}",
+                    job_id,
+                    mh_snapshot.host_snapshot.id,
+                )),
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            );
+        }
+        _ => {
+            return Ok(StateHandlerOutcome::wait(format!(
+                "waiting for job {job_id:#?} to be scheduled; current state: {job_state:#?}"
+            )));
+        }
+    };
+
+    Ok(StateHandlerOutcome::transition(next_state))
+}
+
+/// Poll the ResetConfig job until it completes, then proceed to volume creation.
+async fn wait_for_reset_boss_config_job_to_complete(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    boss_controller_id: String,
+    job_id: String,
+    iteration: Option<u32>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let cleanup_context = current_cleanup_context(mh_snapshot)?;
+
+    let job_state = match redfish_client.get_job_state(&job_id).await {
+        Ok(state) => state,
+        Err(e) => {
+            return handle_reset_boss_config_job_error(
+                boss_controller_id,
+                iteration.unwrap_or_default(),
+                cleanup_context,
+                redfish_error("get_job_state", e),
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            );
+        }
+    };
+
+    match job_state {
+        // The controller config has been reset; proceed to (re)create the BOSS volume.
+        libredfish::JobState::Completed => {
+            let next_state = waiting_for_cleanup_state(
+                CleanupState::CreateBossVolume {
+                    create_boss_volume_context: CreateBossVolumeContext {
+                        boss_controller_id,
+                        create_boss_volume_jid: None,
+                        create_boss_volume_state: CreateBossVolumeState::CreateBossVolume,
+                        iteration: Some(0),
+                    },
+                },
+                cleanup_context,
+            );
+            Ok(StateHandlerOutcome::transition(next_state))
+        }
+        libredfish::JobState::ScheduledWithErrors | libredfish::JobState::CompletedWithErrors => {
+            handle_reset_boss_config_job_error(
+                boss_controller_id,
+                iteration.unwrap_or_default(),
+                cleanup_context,
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "ResetBossConfig: job {job_id} will not complete because it is in a failure state: {job_state:#?}",
+                )),
+                mh_snapshot.host_snapshot.state.version.since_state_change(),
+            )
+        }
+        _ => Ok(StateHandlerOutcome::wait(format!(
+            "waiting for job {job_id} to complete; current state: {job_state:#?}"
+        ))),
+    }
+}
+
+/// Error/retry handling for the ResetConfig job, mirroring
+/// handle_boss_controller_job_error: ride out transient errors for 5 minutes,
+/// retry up to 3 times, then hand off to the power-cycle recovery path.
+fn handle_reset_boss_config_job_error(
+    boss_controller_id: String,
+    iterations: u32,
+    cleanup_context: CleanupContext,
+    err: StateHandlerError,
+    time_since_state_change: chrono::TimeDelta,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    if time_since_state_change.num_minutes() < 5 {
+        return Err(err);
+    }
+
+    if iterations > 3 {
+        return Err(StateHandlerError::GenericError(eyre::eyre!(
+            "We have gone through {iterations} iterations of trying to reset the config of the BOSS controller; Waiting for manual intervention: {err}",
+        )));
+    }
+
+    let next_state = waiting_for_cleanup_state(
+        CleanupState::ResetBossConfig {
+            reset_boss_config_context: ResetBossConfigContext {
+                boss_controller_id,
+                reset_boss_config_jid: None,
+                reset_boss_config_state: ResetBossConfigState::HandleJobFailure {
+                    failure: err.to_string(),
+                    power_state: PowerState::Off,
+                },
+                iteration: Some(iterations),
+            },
+        },
+        cleanup_context,
+    );
+
+    Ok(StateHandlerOutcome::transition(next_state))
+}
+
+/// Power-cycle recovery for a failed ResetConfig job, mirroring
+/// handle_boss_job_failure: power off, reset the BMC, power back on, then retry.
+async fn handle_reset_boss_config_job_failure(
+    redfish_client: &dyn Redfish,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let (next_state, expected_power_state) =
+        get_next_state_reset_boss_config_job_failure(mh_snapshot)?;
+
+    let current_power_state = redfish_client
+        .get_power_state()
+        .await
+        .map_err(|e| redfish_error("get_power_state", e))?;
+
+    match expected_power_state {
+        PowerState::Off => {
+            if current_power_state != libredfish::PowerState::Off {
+                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff).await?;
+
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "waiting for {} to power down; current power state: {current_power_state}",
+                    mh_snapshot.host_snapshot.id
+                )));
+            }
+
+            redfish_client
+                .bmc_reset()
+                .await
+                .map_err(|e| redfish_error("bmc_reset", e))?;
+
+            Ok(StateHandlerOutcome::transition(next_state))
+        }
+        PowerState::On => {
+            let basetime = mh_snapshot
+                .host_snapshot
+                .last_reboot_requested
+                .as_ref()
+                .map(|x| x.time)
+                .unwrap_or(mh_snapshot.host_snapshot.state.version.timestamp());
+
+            if wait(
+                &basetime,
+                ctx.services
+                    .site_config
+                    .machine_state_controller
+                    .power_down_wait,
+            ) {
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "waiting for {} to power down; power_down_wait: {}",
+                    mh_snapshot.host_snapshot.id,
+                    ctx.services
+                        .site_config
+                        .machine_state_controller
+                        .power_down_wait
+                )));
+            }
+
+            if current_power_state != libredfish::PowerState::On {
+                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::On).await?;
+
+                return Ok(StateHandlerOutcome::wait(format!(
+                    "waiting for {} to power on; current power state: {current_power_state}",
+                    mh_snapshot.host_snapshot.id,
+                )));
+            }
+
+            Ok(StateHandlerOutcome::transition(next_state))
+        }
+        _ => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "unexpected expected_power_state while handling a reset boss config job failure: {expected_power_state}"
+        ))),
+    }
+}
+
+/// Computes the next state for the ResetConfig power-cycle recovery, mirroring
+/// get_next_state_boss_job_failure.
+fn get_next_state_reset_boss_config_job_failure(
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<(ManagedHostState, PowerState), StateHandlerError> {
+    match &mh_snapshot.host_snapshot.state.value {
+        ManagedHostState::WaitingForCleanup {
+            cleanup_state:
+                CleanupState::ResetBossConfig {
+                    reset_boss_config_context,
+                },
+            cleanup_context,
+        } => match &reset_boss_config_context.reset_boss_config_state {
+            ResetBossConfigState::HandleJobFailure {
+                failure,
+                power_state,
+            } => match power_state {
+                PowerState::Off => Ok((
+                    waiting_for_cleanup_state(
+                        CleanupState::ResetBossConfig {
+                            reset_boss_config_context: ResetBossConfigContext {
+                                boss_controller_id: reset_boss_config_context
+                                    .boss_controller_id
+                                    .clone(),
+                                reset_boss_config_jid: None,
+                                iteration: reset_boss_config_context.iteration,
+                                reset_boss_config_state: ResetBossConfigState::HandleJobFailure {
+                                    failure: failure.to_string(),
+                                    power_state: PowerState::On,
+                                },
+                            },
+                        },
+                        *cleanup_context,
+                    ),
+                    PowerState::Off,
+                )),
+                PowerState::On => Ok((
+                    waiting_for_cleanup_state(
+                        CleanupState::ResetBossConfig {
+                            reset_boss_config_context: ResetBossConfigContext {
+                                boss_controller_id: reset_boss_config_context
+                                    .boss_controller_id
+                                    .clone(),
+                                reset_boss_config_jid: None,
+                                iteration: Some(
+                                    reset_boss_config_context.iteration.unwrap_or_default() + 1,
+                                ),
+                                reset_boss_config_state: ResetBossConfigState::ResetConfig,
+                            },
+                        },
+                        *cleanup_context,
+                    ),
+                    PowerState::On,
+                )),
+                _ => Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "unexpected ResetBossConfigState::HandleJobFailure power_state for {}: {:#?}",
+                    mh_snapshot.host_snapshot.id,
+                    mh_snapshot.host_snapshot.state,
+                ))),
+            },
+            _ => Err(StateHandlerError::GenericError(eyre::eyre!(
+                "unexpected ResetBossConfig state for {}: {:#?}",
+                mh_snapshot.host_snapshot.id,
+                mh_snapshot.host_snapshot.state,
+            ))),
+        },
+        _ => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "unexpected host state for {}: {:#?}",
+            mh_snapshot.host_snapshot.id,
+            mh_snapshot.host_snapshot.state,
+        ))),
+    }
 }
 
 fn handle_boss_controller_job_error(

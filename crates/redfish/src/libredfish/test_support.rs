@@ -1338,6 +1338,13 @@ impl Redfish for RedfishSimClient {
         Box::pin(async move { Ok(None) })
     }
 
+    fn reset_storage_config<'a>(
+        &'a self,
+        _controller_id: &'a str,
+    ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
+        Box::pin(async move { Ok(None) })
+    }
+
     fn is_boot_order_setup<'a>(
         &'a self,
         boot_interface_mac: &'a str,

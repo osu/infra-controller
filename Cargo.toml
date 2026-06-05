@@ -26,7 +26,12 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.44.4" }
+# TEMPORARY: pinned to a fork branch that adds Dell reset_storage_config
+# (DellRaidService.ResetConfig) as a workaround for STOR060 on Dell R770 (iDRAC10).
+# The branch is v0.44.4 + that single additive commit. Swap back to an upstream
+# NVIDIA/libredfish tag once the change is released (and remove once Dell ships a
+# fixed iDRAC firmware). See https://github.com/kdhulipala-wq/libredfish/tree/kcd-r770-fix-volume
+libredfish = { git = "https://github.com/kdhulipala-wq/libredfish.git", branch = "kcd-r770-fix-volume" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.0.12-rc4" }
 ansi-to-html = "0.2.2"
 

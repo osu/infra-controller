@@ -1829,6 +1829,36 @@ pub enum CreateBossVolumeState {
     LockHost,
 }
 
+// TEMPORARY WORKAROUND (Dell PowerEdge R770 / iDRAC10, FW 1.30.10.50):
+// volume creation on a BOSS controller fails with STOR060 after a
+// ControllerDrivesDecommission. Resetting the controller config via
+// DellRaidService.ResetConfig (followed by a reboot) clears the condition.
+// Remove this context/state once Dell ships a fixed iDRAC firmware.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub struct ResetBossConfigContext {
+    pub boss_controller_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_boss_config_jid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iteration: Option<u32>,
+    pub reset_boss_config_state: ResetBossConfigState,
+}
+
+// TEMPORARY WORKAROUND (Dell PowerEdge R770 / iDRAC10): see ResetBossConfigContext.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum ResetBossConfigState {
+    ResetConfig,
+    WaitForJobScheduled,
+    RebootHost,
+    WaitForJobCompletion,
+    HandleJobFailure {
+        failure: String,
+        power_state: PowerState,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum CleanupState {
@@ -1840,6 +1870,12 @@ pub enum CleanupState {
     HostCleanup {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         boss_controller_id: Option<String>,
+    },
+    // TEMPORARY WORKAROUND (Dell PowerEdge R770 / iDRAC10): reset the BOSS
+    // controller config via DellRaidService.ResetConfig before recreating the
+    // volume, to work around STOR060. Remove once Dell ships a fixed iDRAC firmware.
+    ResetBossConfig {
+        reset_boss_config_context: ResetBossConfigContext,
     },
     // Only for Dells with BOSS drives (currently on Dell XE9860s)
     CreateBossVolume {

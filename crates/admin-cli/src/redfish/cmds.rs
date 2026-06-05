@@ -589,6 +589,13 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
                 tracing::info!("No JID");
             }
         }
+        ResetConfig(args) => {
+            if let Some(jid) = redfish.reset_storage_config(&args.controller_id).await? {
+                tracing::info!("JID: {}", jid);
+            } else {
+                tracing::info!("No JID");
+            }
+        }
         IsBootOrderSetup(args) => {
             let setup = redfish
                 .is_boot_order_setup(&args.boot_interface_mac)

@@ -246,6 +246,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 CleanupState::Init => "init",
                 CleanupState::SecureEraseBoss { .. } => "secureeraseboss",
                 CleanupState::HostCleanup { .. } => "hostcleanup",
+                CleanupState::ResetBossConfig { .. } => "resetbossconfig",
                 CleanupState::CreateBossVolume { .. } => "createbossvolume",
                 CleanupState::DisableBIOSBMCLockdown => "disablebmclockdown",
             }

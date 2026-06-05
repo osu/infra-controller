@@ -176,6 +176,9 @@ pub enum Cmd {
     GetBossController,
     DecomissionController(DecomissionControllerArgs),
     CreateVolume(CreateVolumeArgs),
+    // TEMPORARY WORKAROUND (Dell R770 / iDRAC10): reset a storage controller's
+    // config via DellRaidService.ResetConfig. Remove once Dell ships a fixed iDRAC firmware.
+    ResetConfig(ResetConfigArgs),
     IsBootOrderSetup(SetBootOrderDpuFirstArgs),
 }
 
@@ -319,6 +322,13 @@ pub struct CreateVolumeArgs {
     pub controller_id: String,
     #[clap(long, help = "volume_name")]
     pub volume_name: String,
+}
+
+// TEMPORARY WORKAROUND (Dell R770 / iDRAC10): see RedfishCommands::ResetConfig.
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct ResetConfigArgs {
+    #[clap(long, help = "controller_id")]
+    pub controller_id: String,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]

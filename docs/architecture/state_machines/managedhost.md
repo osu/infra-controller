@@ -689,6 +689,13 @@ stateDiagram-v2
         state "HandleJobFailure" as C_SEB_HandleJobFailure
     }
     state C_HostCleanup
+    state "ResetBossConfig (Dell R770 workaround)" as C_ResetBossConfig {
+        state "ResetConfig" as C_RBC_ResetConfig
+        state "WaitForJobScheduled" as C_RBC_WaitForJobScheduled
+        state "RebootHost" as C_RBC_RebootHost
+        state "WaitForJobCompletion" as C_RBC_WaitForJobCompletion
+        state "HandleJobFailure" as C_RBC_HandleJobFailure
+    }
     state C_CreateBossVolume {
         state "CreateBossVolume" as C_SBV_CreateBossVolume
         state "WaitForJobScheduled" as C_SBV_WaitForJobScheduled
@@ -715,8 +722,18 @@ stateDiagram-v2
     C_SEB_HandleJobFailure --> C_SEB_SecureEraseBoss : Retry
     C_SEB_HandleJobFailure --> C_SEB_HandleJobFailure : Power cycle (Off / On)
     C_HostCleanup --> C_HostCleanup : Wait for cleanup
-    C_HostCleanup --> C_SBV_CreateBossVolume : if Boss controller present
+    C_HostCleanup --> C_RBC_ResetConfig : if Boss controller present AND Dell R770 (workaround)
+    C_HostCleanup --> C_SBV_CreateBossVolume : if Boss controller present AND not R770
     C_HostCleanup --> BomValidating_BV_UpdatingInventory : if Boss controller not present
+
+    C_RBC_ResetConfig --> C_RBC_WaitForJobScheduled
+    C_RBC_WaitForJobScheduled --> C_RBC_RebootHost
+    C_RBC_RebootHost --> C_RBC_WaitForJobCompletion
+    C_RBC_WaitForJobCompletion --> C_RBC_HandleJobFailure : Job fail
+    C_RBC_WaitForJobCompletion --> C_SBV_CreateBossVolume : Job success
+    C_RBC_WaitForJobCompletion --> C_RBC_WaitForJobCompletion : Wait job to complete
+    C_RBC_HandleJobFailure --> C_RBC_ResetConfig : Retry
+    C_RBC_HandleJobFailure --> C_RBC_HandleJobFailure : Power cycle (Off / On)
 
     C_SBV_CreateBossVolume --> C_SBV_WaitForJobScheduled
     C_SBV_WaitForJobScheduled --> C_SBV_RebootHost
