@@ -3940,6 +3940,7 @@ async fn test_site_explorer_creates_power_shelf(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        boot_interface_id: None,
         pause_ingestion_and_poweron: false,
     };
 
@@ -4119,6 +4120,7 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        boot_interface_id: None,
         pause_ingestion_and_poweron: false,
     };
 
@@ -4349,6 +4351,7 @@ async fn test_power_shelf_state_history_multiple(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        boot_interface_id: None,
         pause_ingestion_and_poweron: false,
     };
 
@@ -4365,6 +4368,7 @@ async fn test_power_shelf_state_history_multiple(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        boot_interface_id: None,
         pause_ingestion_and_poweron: false,
     };
 
@@ -4584,6 +4588,7 @@ async fn test_power_shelf_state_history_error_handling(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        boot_interface_id: None,
         pause_ingestion_and_poweron: false,
     };
 
@@ -5512,6 +5517,7 @@ async fn power_shelf_skips_creation_when_bmc_mac_already_used(
         last_redfish_powercycle: None,
         pause_remediation: false,
         boot_interface_mac: None,
+        boot_interface_id: None,
         pause_ingestion_and_poweron: false,
     };
 
