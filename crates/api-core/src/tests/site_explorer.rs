@@ -1662,6 +1662,52 @@ async fn test_site_explorer_clear_last_known_error(
     Ok(())
 }
 
+/// Clearing the site exploration error should also lift a terminal preingestion
+/// `Failed` state back to `Initial`, so an operator can retry preingestion
+/// without force-deleting and rediscovering the endpoint.
+#[sqlx_test]
+async fn test_clear_error_resets_failed_preingestion(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+    let mut txn = db::Transaction::begin(&env.pool).await?;
+    let ip_address = "192.168.1.2";
+    let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
+
+    let mut report: EndpointExplorationReport = DpuConfig::default().into();
+    report.generate_machine_id(false)?;
+    db::explored_endpoints::insert(bmc_ip, &report, false, &mut txn).await?;
+
+    // Put the endpoint in the terminal Failed preingestion state, as a failed
+    // BMC time sync would.
+    db::explored_endpoints::set_preingestion_failed(
+        bmc_ip,
+        "BMC time synchronization failed after 3 reset attempts. Time difference exceeds 5 minutes threshold.".to_string(),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.api
+        .clear_site_exploration_error(Request::new(rpc::forge::ClearSiteExplorationErrorRequest {
+            ip_address: ip_address.to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let mut txn = db::Transaction::begin(&env.pool).await?;
+    let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(
+        nodes.first().unwrap().preingestion_state,
+        PreingestionState::Initial,
+        "clearing the error should reset a Failed preingestion to Initial"
+    );
+
+    Ok(())
+}
+
 // Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
 #[sqlx_test]
 async fn test_disable_machine_creation_outside_site_explorer(
