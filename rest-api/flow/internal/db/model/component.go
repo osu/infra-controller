@@ -37,6 +37,7 @@ type Component struct {
 	TrayIndex   int                    `bun:"tray_index"`
 	HostID      int                    `bun:"host_id"`
 	IngestedAt  *time.Time             `bun:"ingested_at"`
+	UpdatedAt   time.Time              `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
 	DeletedAt   *time.Time             `bun:"deleted_at,soft_delete"`
 	Rack        *Rack                  `bun:"rel:belongs-to,join:rack_id=id"`
 	BMCs        []BMC                  `bun:"rel:has-many,join:id=component_id"`
