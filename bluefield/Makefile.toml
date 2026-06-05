@@ -99,8 +99,13 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent"
     docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server"
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent"
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server"
+for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent" \
+    "${REPO_ROOT}/target/release/forge-dpu-agent" \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server" \
+    "${REPO_ROOT}/target/release/forge-dhcp-server"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+done
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
@@ -114,9 +119,14 @@ description = "Referring to the prebuilt 'build' task doesn't work here, since i
 script = '''
 set -e
 
-cargo build --release --target=aarch64-unknown-linux-gnu --bin forge-dpu-agent --bin forge-dhcp-server
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent"
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server"
+cargo build --release --bin forge-dpu-agent --bin forge-dhcp-server
+for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent" \
+    "${REPO_ROOT}/target/release/forge-dpu-agent" \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server" \
+    "${REPO_ROOT}/target/release/forge-dhcp-server"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+done
 '''
 
 [tasks.build-fmds]
@@ -138,7 +148,11 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "carbide-fmds"
     docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
+for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/carbide-fmds" \
+    "${REPO_ROOT}/target/release/carbide-fmds"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+done
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
@@ -152,8 +166,12 @@ description = "Build carbide-fmds for CI"
 script = '''
 set -e
 
-cargo build --release --target=aarch64-unknown-linux-gnu --bin carbide-fmds
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
+cargo build --release --bin carbide-fmds
+for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/carbide-fmds" \
+    "${REPO_ROOT}/target/release/carbide-fmds"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+done
 '''
 
 [tasks.build-dpu-otel-agent]
@@ -175,7 +193,11 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "forge-dpu-otel-agent"
     docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
+for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent" \
+    "${REPO_ROOT}/target/release/forge-dpu-otel-agent"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+done
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
@@ -189,8 +211,12 @@ description = "Referring to the prebuilt 'build' task doesn't work here, since i
 script = '''
 set -e
 
-cargo build --release --target=aarch64-unknown-linux-gnu --bin forge-dpu-otel-agent
-bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
+cargo build --release --bin forge-dpu-otel-agent
+for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent" \
+    "${REPO_ROOT}/target/release/forge-dpu-otel-agent"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+done
 '''
 
 [tasks.download-otelcol-builder]

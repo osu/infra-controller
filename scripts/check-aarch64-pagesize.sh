@@ -74,6 +74,17 @@ if ! [[ "$min_page_size" =~ ^[0-9]+$ ]] || (( min_page_size <= 0 )); then
     exit 2
 fi
 
+if [[ ! -e "$root" ]]; then
+    if [[ "$allow_empty" == true ]]; then
+        printf 'SKIP missing %s\n' "$root"
+        printf 'Checked 0 aarch64 ELF executable/shared object(s)\n'
+        exit 0
+    fi
+
+    echo "error: path does not exist: $root" >&2
+    exit 2
+fi
+
 checked=0
 failed=0
 

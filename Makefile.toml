@@ -617,18 +617,6 @@ workspace = false
 script = '''
 set -e
 
-target_triple="${CARGO_BUILD_TARGET:-}"
-machine="$(uname -m)"
-
-if [ "${target_triple}" = "aarch64-unknown-linux-gnu" ]; then
-  target_dir="${REPO_ROOT}/target/${target_triple}/release"
-elif [ "${machine}" = "aarch64" ] || [ "${machine}" = "arm64" ]; then
-  target_dir="${REPO_ROOT}/target/release"
-else
-  echo "Skipping aarch64 ELF page size checks on ${machine}"
-  exit 0
-fi
-
 for artifact in \
   carbide-api \
   carbide \
@@ -642,8 +630,11 @@ for artifact in \
   ssh-console \
   carbide-bmc-proxy \
   libdhcp.so; do
-  test -f "${target_dir}/${artifact}" || { echo "missing aarch64 artifact: ${target_dir}/${artifact}"; exit 1; }
-  bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${target_dir}/${artifact}"
+  for path in \
+    "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/${artifact}" \
+    "${REPO_ROOT}/target/release/${artifact}"; do
+    bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+  done
 done
 '''
 

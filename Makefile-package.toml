@@ -70,7 +70,11 @@ script = '''
     mkdir -p "${WORKING_DIR}${INSTALL_DIR}"
     if [ "${CARBIDE_ARCH}" = "aarch64" ]
     then
-        bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}"
+        for path in \
+            "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}" \
+            "${REPO_ROOT}/target/${CARBIDE_PROFILE}/${PACKAGE_BIN}"; do
+            bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" --allow-empty "${path}"
+        done
     fi
     cp "${REPO_ROOT}/target/${CARBIDE_ARCH}-unknown-linux-gnu/${CARBIDE_PROFILE}/${PACKAGE_BIN}" "${WORKING_DIR}${INSTALL_DIR}"
     cp ${MISC_DIR}/*.service "${WORKING_DIR}/lib/systemd/system/"
