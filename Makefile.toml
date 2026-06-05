@@ -612,6 +612,41 @@ args = [
   "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
 ]
 
+[tasks.check-aarch64-release-container-services-page-size]
+workspace = false
+script = '''
+set -e
+
+target_triple="${CARGO_BUILD_TARGET:-}"
+machine="$(uname -m)"
+
+if [ "${target_triple}" = "aarch64-unknown-linux-gnu" ]; then
+  target_dir="${REPO_ROOT}/target/${target_triple}/release"
+elif [ "${machine}" = "aarch64" ] || [ "${machine}" = "arm64" ]; then
+  target_dir="${REPO_ROOT}/target/release"
+else
+  echo "Skipping aarch64 ELF page size checks on ${machine}"
+  exit 0
+fi
+
+for artifact in \
+  carbide-api \
+  carbide \
+  carbide-dns \
+  carbide-admin-cli \
+  carbide-dsx-exchange-consumer \
+  forge-dpu-agent \
+  forge-dhcp-server \
+  forge-hw-health \
+  forge-log-parser \
+  ssh-console \
+  carbide-bmc-proxy \
+  libdhcp.so; do
+  test -f "${target_dir}/${artifact}" || { echo "missing aarch64 artifact: ${target_dir}/${artifact}"; exit 1; }
+  bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${target_dir}/${artifact}"
+done
+'''
+
 [tasks.build-and-test-release-container-services]
 workspace = false
 # Important: We only build perform a single build task here since every additional
@@ -623,6 +658,7 @@ workspace = false
 dependencies = [
   "build-release", # Start with release builds, since some artifacts are used in integration tests
   "test-flow",     # Then run all tests
+  "check-aarch64-release-container-services-page-size",
 ]
 
 [tasks.clippy-ci-flow]

@@ -16,6 +16,9 @@
 #
 
 [env]
+REPO_ROOT = { script = [
+  "dirname $(cargo locate-project --message-format plain --workspace)",
+] }
 # e.g. 2024.05.24-rc1-0-0-g786e94757
 DPU_AGENT_PKG_VERSION = { script = [
   "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
@@ -78,6 +81,8 @@ category = "Build"
 description = "cross compile forge-dpu-agent and dhcp server locally"
 workspace = false
 script = '''
+set -e
+
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     --env CARGO_HOME=/cargo \
     -v $CARGO_HOME:/cargo \
@@ -94,6 +99,8 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent"
     docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server"
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent"
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server"
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
@@ -104,21 +111,21 @@ dependencies = [
 category = "Build"
 workspace = false
 description = "Referring to the prebuilt 'build' task doesn't work here, since it always tries to build the full workspace - including targets that are not aarch64 compatible"
-command = "cargo"
-args = [
-  "build",
-  "--release",
-  "--bin",
-  "forge-dpu-agent",
-  "--bin",
-  "forge-dhcp-server",
-]
+script = '''
+set -e
+
+cargo build --release --target=aarch64-unknown-linux-gnu --bin forge-dpu-agent --bin forge-dhcp-server
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-agent"
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dhcp-server"
+'''
 
 [tasks.build-fmds]
 category = "Build"
 description = "cross compile carbide-fmds locally"
 workspace = false
 script = '''
+set -e
+
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     --env CARGO_HOME=/cargo \
     -v $CARGO_HOME:/cargo \
@@ -131,6 +138,7 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "carbide-fmds"
     docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
@@ -141,14 +149,20 @@ dependencies = [
 category = "Build"
 workspace = false
 description = "Build carbide-fmds for CI"
-command = "cargo"
-args = ["build", "--release", "--bin", "carbide-fmds"]
+script = '''
+set -e
+
+cargo build --release --target=aarch64-unknown-linux-gnu --bin carbide-fmds
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/carbide-fmds"
+'''
 
 [tasks.build-dpu-otel-agent]
 category = "Build"
 description = "cross compile forge-dpu-otel-agent locally"
 workspace = false
 script = '''
+set -e
+
 docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     --env CARGO_HOME=/cargo \
     -v $CARGO_HOME:/cargo \
@@ -161,6 +175,7 @@ docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) \
     "forge-dpu-otel-agent"
     docker run --rm -v $REPO_ROOT:/carbide --user $(id -u):$(id -g) build-artifacts-container-cross-aarch64:latest "aarch64-linux-gnu-strip" \
     "/carbide/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
 '''
 dependencies = [
   { name = "build-cross-docker-image", path = "${REPO_ROOT}" },
@@ -171,8 +186,12 @@ dependencies = [
 category = "Build"
 workspace = false
 description = "Referring to the prebuilt 'build' task doesn't work here, since it always tries to build the full workspace - including targets that are not aarch64 compatible"
-command = "cargo"
-args = ["build", "--release", "--bin", "forge-dpu-otel-agent"]
+script = '''
+set -e
+
+cargo build --release --target=aarch64-unknown-linux-gnu --bin forge-dpu-otel-agent
+bash "${REPO_ROOT}/scripts/check-aarch64-pagesize.sh" "${REPO_ROOT}/target/aarch64-unknown-linux-gnu/release/forge-dpu-otel-agent"
+'''
 
 [tasks.download-otelcol-builder]
 category = "Build"
