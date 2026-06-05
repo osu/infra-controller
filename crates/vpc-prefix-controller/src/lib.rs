@@ -15,25 +15,8 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
+//! State controller implementation for VPC prefixes.
 
-use component_manager::component_manager::ComponentManager;
-use forge_secrets::credentials::CredentialManager;
-use sqlx::PgPool;
-use state_controller::state_handler::StateHandlerContextObjects;
-
-use crate::metrics::SwitchMetrics;
-
-pub struct SwitchStateHandlerContextObjects {}
-
-#[derive(Clone)]
-pub struct SwitchStateHandlerServices {
-    pub db_pool: PgPool,
-    pub component_manager: Option<Arc<ComponentManager>>,
-    pub credential_manager: Arc<dyn CredentialManager>,
-}
-
-impl StateHandlerContextObjects for SwitchStateHandlerContextObjects {
-    type ObjectMetrics = SwitchMetrics;
-    type Services = SwitchStateHandlerServices;
-}
+pub mod context;
+pub mod handler;
+pub mod io;

@@ -22,8 +22,6 @@ use std::sync::Arc;
 
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_site_explorer::{SiteExplorer, endpoint_exploration_work_key};
-use carbide_utils::test_support::test_meter::TestMeter;
-use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
@@ -49,8 +47,10 @@ use rpc::site_explorer::{
     ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use sqlx::PgPool;
 use tonic::Request;
 
+use crate::sqlx_test;
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
@@ -67,16 +67,28 @@ use crate::tests::common::rpc_builder::DhcpDiscovery;
 struct FakeMachine {
     pub mac: MacAddress,
     pub dhcp_vendor: String,
-    pub segment: NetworkSegmentId,
+    pub relay_address: &'static str,
     pub ip: String,
 }
 
+const UNDERLAY_RELAY: &str = "192.0.1.1";
+const ADMIN_RELAY: &str = "192.0.2.1";
+
 impl FakeMachine {
-    fn new(mac: &str, vendor: &str, segment: NetworkSegmentId) -> Self {
+    fn new_admin(mac: &str, vendor: &str) -> Self {
         Self {
             mac: mac.parse().unwrap(),
             dhcp_vendor: vendor.to_string(),
-            segment,
+            relay_address: ADMIN_RELAY,
+            ip: String::new(),
+        }
+    }
+
+    fn new(mac: &str, vendor: &str) -> Self {
+        Self {
+            mac: mac.parse().unwrap(),
+            dhcp_vendor: vendor.to_string(),
+            relay_address: UNDERLAY_RELAY,
             ip: String::new(),
         }
     }
@@ -103,14 +115,10 @@ trait DiscoverDhcp {
 
 impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
-        let relay_address = match self.segment {
-            s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-            _ => "192.0.2.1".to_string(),
-        };
         let response = env
             .api
             .discover_dhcp(
-                DhcpDiscovery::builder(self.mac, relay_address)
+                DhcpDiscovery::builder(self.mac, self.relay_address)
                     .vendor_string(&self.dhcp_vendor)
                     .tonic_request(),
             )
@@ -135,35 +143,52 @@ impl DiscoverDhcp for Vec<FakeMachine> {
     }
 }
 
+trait SiteExplorerConstructor {
+    fn new_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+        endpoint_explorer: &Arc<MockEndpointExplorer>,
+    ) -> SiteExplorer;
+}
+
+impl SiteExplorerConstructor for TestEnv {
+    fn new_site_explorer(
+        &self,
+        explorer_config: SiteExplorerConfig,
+        endpoint_explorer: &Arc<MockEndpointExplorer>,
+    ) -> SiteExplorer {
+        SiteExplorer::new(
+            self.pool.clone(),
+            explorer_config,
+            self.test_meter.meter(),
+            endpoint_explorer.clone(),
+            Arc::new(self.config.get_firmware_config()),
+            self.common_pools.clone(),
+            self.api.work_lock_manager_handle.clone(),
+            self.rms_sim.as_rms_client(),
+            self.test_credential_manager.clone(),
+        )
+    }
+}
+
 struct FakePowerShelf {
     pub bmc_mac_address: MacAddress,
     pub serial_number: String,
-    pub bmc_username: String,
-    pub bmc_password: String,
-    #[allow(dead_code)]
-    pub dhcp_vendor: String,
-    pub segment: NetworkSegmentId,
+    pub bmc_username: &'static str,
+    pub bmc_password: &'static str,
+    pub relay_address: &'static str,
     pub ip: String, // DHCP assigned IP (may be different from ip_address)
 }
 
 impl FakePowerShelf {
-    fn new(
-        bmc_mac_address: MacAddress,
-        ip: String,
-        serial_number: String,
-        bmc_username: String,
-        bmc_password: String,
-        dhcp_vendor: String,
-        segment: NetworkSegmentId,
-    ) -> Self {
+    fn new(bmc_mac_address: &str, ip: &str, serial_number: &str) -> Self {
         Self {
-            bmc_mac_address,
-            ip,
-            serial_number,
-            bmc_username,
-            bmc_password,
-            dhcp_vendor,
-            segment,
+            bmc_mac_address: bmc_mac_address.parse().unwrap(),
+            ip: ip.to_string(),
+            serial_number: serial_number.to_string(),
+            bmc_username: "admin",
+            bmc_password: "password",
+            relay_address: UNDERLAY_RELAY,
         }
     }
 
@@ -173,8 +198,8 @@ impl FakePowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: self.bmc_mac_address,
-            bmc_username: self.bmc_username.clone(),
-            bmc_password: self.bmc_password.clone(),
+            bmc_username: self.bmc_username.to_string(),
+            bmc_password: self.bmc_password.to_string(),
             serial_number: self.serial_number.clone(),
             bmc_ip_address: Some(self.ip.parse().unwrap()),
             metadata: Metadata {
@@ -188,11 +213,12 @@ impl FakePowerShelf {
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_default_pause_ingestion_and_poweron(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
     let bmc_mac_address = "6a:6b:6c:6d:6e:6f".parse().unwrap();
     let mut txn = pool.begin().await?;
@@ -215,16 +241,12 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     .unwrap();
     txn.commit().await?;
 
-    let mut machines = vec![FakeMachine::new(
-        &bmc_mac_address.to_string(),
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    )];
+    let mut machines = vec![FakeMachine::new(&bmc_mac_address.to_string(), "Vendor1")];
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         1
@@ -246,18 +268,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // check the ingestion state of the machine
     let response = env
@@ -361,17 +372,13 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_handle_redfish_error_powers_on_machine(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine::new(
-        "6a:6b:6c:6d:6e:70",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
+    let mut machine = FakeMachine::new("6a:6b:6c:6d:6e:70", "Vendor1");
     machine.discover_dhcp(&env).await?;
     let bmc_ip: IpAddr = machine.ip.parse()?;
 
@@ -413,18 +420,7 @@ async fn test_handle_redfish_error_powers_on_machine(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await?;
 
@@ -449,9 +445,10 @@ async fn test_handle_redfish_error_powers_on_machine(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
     // Let's create 3 machines on the underlay, and 1 on the admin network
     // The 1 on the admin network is not supposed to be searched. This is verified
@@ -459,35 +456,19 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // to a panic if the machine is queried
     let mut machines = vec![
         // machines[0] is a DPU belonging to machines[1]
-        FakeMachine::new(
-            "B8:3F:D2:90:97:A6",
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1"),
         // machines[1] has 1 dpu (machines[0])
-        FakeMachine::new(
-            "AA:AB:AC:AD:AA:02",
-            "Vendor2",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2"),
         // machines[2] has no DPUs
-        FakeMachine::new(
-            "AA:AB:AC:AD:AA:03",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("AA:AB:AC:AD:AA:03", "Vendor3"),
         // machines[3] is not on the underlay network and should not be searched.
-        FakeMachine::new(
-            "AA:AB:AC:AD:BB:01",
-            "VendorInvalidSegment",
-            env.admin_segment(),
-        ),
+        FakeMachine::new_admin("AA:AB:AC:AD:BB:01", "VendorInvalidSegment"),
     ];
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         3
@@ -587,18 +568,8 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -807,7 +778,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     addresses.sort();
     let mut expected_addresses: Vec<String> = machines
         .iter()
-        .filter(|m| m.segment == env.underlay_segment.unwrap())
+        .filter(|m| m.relay_address == UNDERLAY_RELAY)
         .map(|m| m.ip.to_string())
         .collect();
     expected_addresses.sort();
@@ -866,17 +837,13 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 /// and whose `ExpectedMachine` does not declare `NoDpu` is skipped (with
 /// a warning + a `NoDpuReportedByHost` pairing-blocker metric) rather
 /// than ingested. Operators must explicitly opt in to zero-DPU.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_skips_unexpected_zero_dpu_host(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine::new(
-        "AA:AB:AC:AD:AA:11",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
+    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:11", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     // expected_machine WITHOUT a NoDpu declaration -- the host is
@@ -920,18 +887,8 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // First iteration populates `explored_endpoints`; second runs
     // `identify_managed_hosts` after preingestion is complete.
@@ -949,6 +906,7 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
         "strict gate should refuse to ingest a zero-DPU host without a `NoDpu` declaration, got {:?}",
         explored_managed_hosts,
     );
+
     assert_eq!(
         test_meter
             .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
@@ -974,17 +932,13 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
 /// BlueField has been stripped as "DPU in NIC mode") should be ingested as
 /// a zero-DPU managed host -- the operator has already opted into "treat
 /// as zero-DPU" semantics by declaring NicMode.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine::new(
-        "AA:AB:AC:AD:AA:22",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
+    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:22", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -1025,18 +979,7 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -1064,17 +1007,13 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
 /// declared `dpu_mode = "no_dpu"` ingests as a zero-DPU managed host. The
 /// `NoDpu` fast-path in `identify_managed_hosts` short-circuits before any
 /// DPU PCIe enumeration, so this holds regardless of what the BMC reports.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_ingests_no_dpu_host(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut machine = FakeMachine::new(
-        "AA:AB:AC:AD:AA:33",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
+    let mut machine = FakeMachine::new("AA:AB:AC:AD:AA:33", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
@@ -1115,18 +1054,7 @@ async fn test_site_explorer_ingests_no_dpu_host(
         create_machines: Arc::new(true.into()),
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -1149,11 +1077,12 @@ async fn test_site_explorer_ingests_no_dpu_host(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_audit_exploration_results(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
     let mut txn = pool.begin().await?;
     for (bmc_mac_address, serial_number, fallback_dpu_serial_numbers) in [
@@ -1194,55 +1123,27 @@ async fn test_site_explorer_audit_exploration_results(
         // This will be our expected DPU, and it will have the
         // expected serial number, but we assume no DPUs are expected,
         // should it still shouldn't be counted as `expected`        .
-        FakeMachine::new(
-            "5a:5b:5c:5d:5e:5f",
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("5a:5b:5c:5d:5e:5f", "Vendor1"),
         // This will be expected but unauthorized, and the serial is mismatched
-        FakeMachine::new(
-            "0a:0b:0c:0d:0e:0f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("0a:0b:0c:0d:0e:0f", "Vendor3"),
         // This host will be expected but missing credentials, and the serial is mismatched
-        FakeMachine::new(
-            "1a:1b:1c:1d:1e:1f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("1a:1b:1c:1d:1e:1f", "Vendor3"),
         // This host will be expected, but the serial number will be mismatched.
-        FakeMachine::new(
-            "2a:2b:2c:2d:2e:2f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("2a:2b:2c:2d:2e:2f", "Vendor3"),
         // This will be expected, with a good serial number.
         // It will also have associated DPUs and should get a managed host.
-        FakeMachine::new(
-            "3a:3b:3c:3d:3e:3f",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("3a:3b:3c:3d:3e:3f", "Vendor3"),
         // This host is not expected.
-        FakeMachine::new(
-            "ab:cd:ef:ab:cd:ef",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("ab:cd:ef:ab:cd:ef", "Vendor3"),
         // This DPU is really not expected. (i.e. no DB entry)
-        FakeMachine::new(
-            "ef:cd:ab:ef:cd:ab",
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("ef:cd:ab:ef:cd:ab", "Vendor3"),
     ];
 
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         7
@@ -1405,18 +1306,8 @@ async fn test_site_explorer_audit_exploration_results(
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     // carbide_endpoint_exploration_preingestions_incomplete_overall_count
@@ -1560,30 +1451,21 @@ async fn test_site_explorer_audit_exploration_results(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_reexplore(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
     let mut machines = vec![
-        FakeMachine::new(
-            "B8:3F:D2:90:97:A6",
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
-        FakeMachine::new(
-            "AA:AB:AC:AD:AA:02",
-            "Vendor2",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new("B8:3F:D2:90:97:A6", "Vendor1"),
+        FakeMachine::new("AA:AB:AC:AD:AA:02", "Vendor2"),
     ];
 
     machines.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         2
@@ -1620,18 +1502,7 @@ async fn test_site_explorer_reexplore(
         ..Default::default()
     };
 
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 1 entries, we should have 1 results now
@@ -1747,9 +1618,9 @@ async fn test_site_explorer_reexplore(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_clear_last_known_error(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
     let mut txn = db::Transaction::begin(&env.pool).await?;
@@ -1792,9 +1663,9 @@ async fn test_site_explorer_clear_last_known_error(
 }
 
 // Test that discover_machines will reject request of machine that was not created by site-explorer when create_machines = true
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_disable_machine_creation_outside_site_explorer(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
     config.site_explorer = SiteExplorerConfig {
@@ -1848,21 +1719,17 @@ async fn test_disable_machine_creation_outside_site_explorer(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu_bmc = FakeMachine::new(
-        HOST1_DPU_BMC_MAC,
-        "NVIDIA/BF/BMC",
-        env.underlay_segment.unwrap(),
-    );
+    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC");
 
-    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2");
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
@@ -1902,18 +1769,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
@@ -2052,10 +1908,8 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_health_report(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (host_machine_id, dpu_machine_id) =
         common::api_fixtures::create_managed_host(&env).await.into();
@@ -2130,17 +1984,7 @@ async fn test_site_explorer_health_report(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        env.test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Run site explorer and check the health state of the Machine
     explorer.run_single_iteration().await.unwrap();
@@ -2198,9 +2042,9 @@ async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExpl
         .into_inner()
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_fetch_host_primary_interface_mac(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut mock_dpus = (0..NUM_DPUS).map(|_| DpuConfig::default()).collect_vec();
 
@@ -2264,9 +2108,9 @@ async fn test_fetch_host_primary_interface_mac(
 
 /// Test the [`api_fixtures::site_explorer::new_host`] factory with various configurations and make
 /// sure they work.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_new_host_fixture(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -2306,9 +2150,9 @@ async fn test_site_explorer_new_host_fixture(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_singledpu(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
 
@@ -2375,9 +2219,9 @@ async fn test_site_explorer_fixtures_singledpu(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_multidpu(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
 
@@ -2452,9 +2296,9 @@ async fn test_site_explorer_fixtures_multidpu(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -2541,9 +2385,9 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
 /// chance to run (and a machine_interface is created for its MAC with no machine-id), that
 /// site-explorer can "repair" the situation when it discovers the machine, by migrating the machine
 /// interface to the new managed host.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
@@ -2664,22 +2508,17 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_site_explorer_unknown_vendor(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let underlay_segment = env.underlay_segment.unwrap();
 
-    let mut machine = FakeMachine::new(
-        "B8:3F:D2:90:97:A7",
-        "Vendor1",
-        env.underlay_segment.unwrap(),
-    );
+    let mut machine = FakeMachine::new("B8:3F:D2:90:97:A7", "Vendor1");
     machine.discover_dhcp(&env).await?;
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
+        db::machine_interface::count_by_segment_id(&mut txn, &underlay_segment)
             .await
             .unwrap(),
         1
@@ -2709,18 +2548,7 @@ async fn test_site_explorer_unknown_vendor(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
@@ -2750,10 +2578,8 @@ async fn test_site_explorer_unknown_vendor(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_delete_explored_endpoint(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Delete an endpoint that doesn't exist
@@ -2880,23 +2706,17 @@ async fn test_delete_explored_endpoint(
     Ok(())
 }
 
-#[crate::sqlx_test]
-async fn test_machine_creation_with_sku(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     const HOST1_DPU_BMC_MAC: &str = "B8:3F:D2:90:97:A6";
     const HOST1_BMC_MAC: &str = "AA:AB:AC:AD:AA:02";
     const HOST1_DPU_SERIAL_NUMBER: &str = "host1_dpu_serial_number";
 
-    let mut host1_dpu_bmc = FakeMachine::new(
-        HOST1_DPU_BMC_MAC,
-        "NVIDIA/BF/BMC",
-        env.underlay_segment.unwrap(),
-    );
+    let mut host1_dpu_bmc = FakeMachine::new(HOST1_DPU_BMC_MAC, "NVIDIA/BF/BMC");
 
-    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2", env.underlay_segment.unwrap());
+    let mut host1_bmc = FakeMachine::new(HOST1_BMC_MAC, "Vendor2");
 
     // Create dhcp entries and machine_interface entries for the machines
     for machine in [&mut host1_dpu_bmc, &mut host1_bmc] {
@@ -2936,18 +2756,8 @@ async fn test_machine_creation_with_sku(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
     let mut txn = env.pool.begin().await?;
@@ -3043,9 +2853,9 @@ async fn test_machine_creation_with_sku(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_expected_machine_device_type_metrics(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -3057,21 +2867,9 @@ async fn test_expected_machine_device_type_metrics(
 
     // Create fake machines with network interfaces so they can be discovered
     let mut machines = vec![
-        FakeMachine::new(
-            EXPECTED_MACHINE_1_MAC,
-            "Vendor1",
-            env.underlay_segment.unwrap(),
-        ),
-        FakeMachine::new(
-            EXPECTED_MACHINE_2_MAC,
-            "Vendor2",
-            env.underlay_segment.unwrap(),
-        ),
-        FakeMachine::new(
-            EXPECTED_MACHINE_3_MAC,
-            "Vendor3",
-            env.underlay_segment.unwrap(),
-        ),
+        FakeMachine::new(EXPECTED_MACHINE_1_MAC, "Vendor1"),
+        FakeMachine::new(EXPECTED_MACHINE_2_MAC, "Vendor2"),
+        FakeMachine::new(EXPECTED_MACHINE_3_MAC, "Vendor3"),
     ];
     machines.discover_dhcp(&env).await?;
 
@@ -3283,7 +3081,6 @@ async fn test_expected_machine_device_type_metrics(
         ),
     ]);
 
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 3, // Explore our 3 machines
@@ -3299,17 +3096,8 @@ async fn test_expected_machine_device_type_metrics(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer,
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     // Run site explorer to collect metrics
     explorer.run_single_iteration().await.unwrap();
@@ -3354,31 +3142,20 @@ async fn test_expected_machine_device_type_metrics(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_power_shelf_discovery(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -3446,18 +3223,8 @@ async fn test_site_explorer_power_shelf_discovery(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -3501,9 +3268,9 @@ async fn test_site_explorer_power_shelf_discovery(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_switch_discovery(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -3511,20 +3278,10 @@ async fn test_site_explorer_switch_discovery(
     let serial_number = "SW-SN-001".to_string();
     let bmc_username = "ADMIN".to_string();
     let bmc_password = "Pwd2023".to_string();
-    let segment = env.underlay_segment.unwrap();
 
     let response = env
         .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(
-                bmc_mac.to_string(),
-                match segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
-            )
-            .tonic_request(),
-        )
+        .discover_dhcp(DhcpDiscovery::builder(bmc_mac.to_string(), UNDERLAY_RELAY).tonic_request())
         .await?
         .into_inner();
     tracing::info!("DHCP with mac {} assigned ip {}", bmc_mac, response.address);
@@ -3601,18 +3358,8 @@ async fn test_site_explorer_switch_discovery(
         switches_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -3656,32 +3403,21 @@ async fn test_site_explorer_switch_discovery(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_power_shelf_with_expected_config(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Create a power shelf using the new FakePowerShelf struct
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B1".parse().unwrap(),
-        "192.168.1.100".parse().unwrap(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B1", "192.168.1.100", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -3750,18 +3486,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -3786,41 +3511,17 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_power_shelf_creation_limit(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Create multiple power shelf machines using FakePowerShelf
     let mut power_shelves = vec![
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B2".parse().unwrap(),
-            "".to_string(),
-            "PS123456790".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor1".to_string(),
-            env.underlay_segment.unwrap(),
-        ),
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B3".parse().unwrap(),
-            "".to_string(),
-            "PS123456791".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor2".to_string(),
-            env.underlay_segment.unwrap(),
-        ),
-        FakePowerShelf::new(
-            "B8:3F:D2:90:97:B4".parse().unwrap(),
-            "".to_string(),
-            "PS123456792".to_string(),
-            "admin".to_string(),
-            "password".to_string(),
-            "PowerShelfVendor3".to_string(),
-            env.underlay_segment.unwrap(),
-        ),
+        FakePowerShelf::new("B8:3F:D2:90:97:B2", "", "PS123456790"),
+        FakePowerShelf::new("B8:3F:D2:90:97:B3", "", "PS123456791"),
+        FakePowerShelf::new("B8:3F:D2:90:97:B4", "", "PS123456792"),
     ];
     for power_shelf in &mut power_shelves {
         let response = env
@@ -3828,10 +3529,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
             .discover_dhcp(
                 DhcpDiscovery::builder(
                     power_shelf.bmc_mac_address.to_string(),
-                    match power_shelf.segment {
-                        s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                        _ => "192.0.2.1".to_string(),
-                    },
+                    power_shelf.relay_address.to_string(),
                 )
                 .tonic_request(),
             )
@@ -3904,18 +3602,8 @@ async fn test_site_explorer_power_shelf_creation_limit(
         power_shelves_created_per_run: 2, // Limit to 2 per run
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
@@ -3949,31 +3637,20 @@ async fn test_site_explorer_power_shelf_creation_limit(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_power_shelf_disabled(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Create a power shelf machine using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B5".parse().unwrap(),
-        "".to_string(),
-        "PS123456793".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B5", "", "PS123456793");
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4038,18 +3715,8 @@ async fn test_site_explorer_power_shelf_disabled(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -4075,32 +3742,21 @@ async fn test_site_explorer_power_shelf_disabled(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_power_shelf_error_handling(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
     // Create a power shelf machine using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B6".parse().unwrap(),
-        "".to_string(),
-        "PS123456794".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B6", "", "PS123456794");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4141,18 +3797,8 @@ async fn test_site_explorer_power_shelf_error_handling(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -4183,9 +3829,9 @@ async fn test_site_explorer_power_shelf_error_handling(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_creates_power_shelf(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
     config.dpu_config.dpu_models = HashMap::new();
@@ -4196,7 +3842,6 @@ async fn test_site_explorer_creates_power_shelf(
     .await;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4209,38 +3854,17 @@ async fn test_site_explorer_creates_power_shelf(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4400,10 +4024,8 @@ async fn test_site_explorer_creates_power_shelf(
 }
 
 /// Test power shelf state history functionality
-#[crate::sqlx_test]
-async fn test_power_shelf_state_history(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
     config.dpu_config.dpu_models = HashMap::new();
     let env = common::api_fixtures::create_test_env_with_overrides(
@@ -4413,25 +4035,14 @@ async fn test_power_shelf_state_history(
     .await;
 
     // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS123456789");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -4496,7 +4107,6 @@ async fn test_power_shelf_state_history(
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4509,17 +4119,7 @@ async fn test_power_shelf_state_history(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create the power shelf using site explorer
     assert!(
@@ -4633,9 +4233,9 @@ async fn test_power_shelf_state_history(
 }
 
 /// Test power shelf state history with multiple power shelves
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_power_shelf_state_history_multiple(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
     config.dpu_config.dpu_models = HashMap::new();
@@ -4646,25 +4246,9 @@ async fn test_power_shelf_state_history_multiple(
     .await;
 
     // Create multiple power shelves
-    let power_shelf1 = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.1.2".parse().unwrap(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor1".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let power_shelf1 = FakePowerShelf::new("B8:3F:D2:90:97:B0", "192.0.1.2", "PS123456789");
 
-    let power_shelf2 = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B1".parse().unwrap(),
-        "192.0.1.3".parse().unwrap(),
-        "PS987654321".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor2".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let power_shelf2 = FakePowerShelf::new("B8:3F:D2:90:97:B1", "192.0.1.3", "PS987654321");
 
     // Create expected power shelf entries in the database
     let mut txn = env.pool.begin().await?;
@@ -4767,7 +4351,6 @@ async fn test_power_shelf_state_history_multiple(
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -4780,17 +4363,7 @@ async fn test_power_shelf_state_history_multiple(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create the power shelves using site explorer
     assert!(
@@ -4911,9 +4484,9 @@ async fn test_power_shelf_state_history_multiple(
 }
 
 /// Test power shelf state history error handling
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_power_shelf_state_history_error_handling(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = common::api_fixtures::get_config();
     config.dpu_config.dpu_models = HashMap::new();
@@ -4924,25 +4497,14 @@ async fn test_power_shelf_state_history_error_handling(
     .await;
 
     // Create a power shelf using FakePowerShelf
-    let mut power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "".to_string(),
-        "PS999999999".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "TestVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let mut power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "", "PS999999999");
 
     let response = env
         .api
         .discover_dhcp(
             DhcpDiscovery::builder(
                 power_shelf.bmc_mac_address.to_string(),
-                match power_shelf.segment {
-                    s if s == env.underlay_segment.unwrap() => "192.0.1.1".to_string(),
-                    _ => "192.0.2.1".to_string(),
-                },
+                power_shelf.relay_address.to_string(),
             )
             .tonic_request(),
         )
@@ -5007,7 +4569,6 @@ async fn test_power_shelf_state_history_error_handling(
     };
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
     let explorer_config = SiteExplorerConfig {
         enabled: Arc::new(true.into()),
         explorations_per_run: 2,
@@ -5020,17 +4581,7 @@ async fn test_power_shelf_state_history_error_handling(
         ..Default::default()
     };
 
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
 
     // Create the power shelf using site explorer
     assert!(
@@ -5131,21 +4682,13 @@ async fn test_power_shelf_state_history_error_handling(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_power_shelf_discovery_with_static_ip(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
-    let power_shelf = FakePowerShelf::new(
-        "B8:3F:D2:90:97:B0".parse().unwrap(),
-        "192.0.1.180".to_string(),
-        "PS123456789".to_string(),
-        "admin".to_string(),
-        "password".to_string(),
-        "PowerShelfVendor".to_string(),
-        env.underlay_segment.unwrap(),
-    );
+    let power_shelf = FakePowerShelf::new("B8:3F:D2:90:97:B0", "192.0.1.180", "PS123456789");
 
     tracing::info!(
         "Static ip {} assigned to power shelf mac {}",
@@ -5210,18 +4753,8 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
-        explorer_config,
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
-    );
+    let explorer = env.new_site_explorer(explorer_config, &endpoint_explorer);
+    let test_meter = &env.test_meter;
 
     explorer.run_single_iteration().await.unwrap();
 
@@ -5262,10 +4795,8 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
 }
 
 /// Test the get_machine_position_info API endpoint
-#[crate::sqlx_test]
-async fn test_get_machine_position_info(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
+#[sqlx_test]
+async fn test_get_machine_position_info(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     use rpc::forge::forge_server::Forge;
 
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
@@ -5320,9 +4851,9 @@ async fn test_get_machine_position_info(
 }
 
 /// Test get_machine_position_info with a machine that has no explored endpoint
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_get_machine_position_info_no_endpoint(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use rpc::forge::forge_server::Forge;
 
@@ -5361,9 +4892,9 @@ async fn test_get_machine_position_info_no_endpoint(
 /// This exercises the full wire (site-explorer iteration → per-host mode
 /// resolution → `check_and_configure_dpu_mode` → mock Redfish
 /// `set_nic_mode`) that the unit tests only cover in pieces.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
     use model::site_explorer::NicMode;
@@ -5437,9 +4968,9 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
 /// orphan: `audit_exploration_results` emits an `OrphanManagedHost` health
 /// alert on the host's Machine. Re-adding the entry clears the alert on the
 /// next iteration.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_orphan_managed_host_alert_emitted(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let host_config = ManagedHostConfig::default();
@@ -5532,9 +5063,9 @@ fn endpoint_explore_call_count(env: &TestEnv, bmc_ip: IpAddr) -> usize {
         .count()
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_bumps_report_version(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5558,9 +5089,9 @@ async fn test_refresh_endpoint_report_bumps_report_version(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_rejects_nonexistent_endpoint(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -5577,9 +5108,9 @@ async fn test_refresh_endpoint_report_rejects_nonexistent_endpoint(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5603,9 +5134,9 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5636,9 +5167,9 @@ async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5669,9 +5200,9 @@ async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_clears_pending_requested_exploration(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
@@ -5699,9 +5230,9 @@ async fn test_refresh_endpoint_report_clears_pending_requested_exploration(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_refresh_endpoint_report_lock_is_per_endpoint(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh_a = common::api_fixtures::create_managed_host(&env).await;
@@ -5784,9 +5315,9 @@ fn expected_switch_fixture(
 
 /// When a switch is rediscovered with a chassis serial that hashes to a new
 /// `SwitchId`, the BMC MAC check must keep us from inserting a second record.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn switch_skips_creation_when_bmc_mac_already_used(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let bmc_mac: MacAddress = "B8:3F:D2:90:97:D0".parse().unwrap();
@@ -5859,9 +5390,9 @@ async fn switch_skips_creation_when_bmc_mac_already_used(
 /// `MissingHardwareInfo::Serial` rather than give us a junk `SwitchId`, and
 /// no record gets created. The next exploration cycle picks the switch up
 /// once a real serial is reported.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn switch_treats_na_chassis_serial_as_missing(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let bmc_mac: MacAddress = "B8:3F:D2:90:97:D2".parse().unwrap();
@@ -5901,9 +5432,9 @@ async fn switch_treats_na_chassis_serial_as_missing(
 /// Power-shelf companion to `switch_skips_creation_when_bmc_mac_already_used`:
 /// a second call to `create_power_shelf` for the same BMC MAC must not insert
 /// a second row, even if the inputs we'd hash into a `PowerShelfId` differ.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn power_shelf_skips_creation_when_bmc_mac_already_used(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let bmc_mac: MacAddress = "B8:3F:D2:90:97:E0".parse().unwrap();
@@ -5935,20 +5466,12 @@ async fn power_shelf_skips_creation_when_bmc_mac_already_used(
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
-    let test_meter = TestMeter::default();
-    let explorer = SiteExplorer::new(
-        env.pool.clone(),
+    let explorer = env.new_site_explorer(
         SiteExplorerConfig {
             create_power_shelves: Arc::new(true.into()),
             ..Default::default()
         },
-        test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(env.config.get_firmware_config()),
-        env.common_pools.clone(),
-        env.api.work_lock_manager_handle.clone(),
-        env.rms_sim.as_rms_client(),
-        env.test_credential_manager.clone(),
+        &endpoint_explorer,
     );
 
     let explored_endpoint = ExploredEndpoint {
@@ -6041,9 +5564,9 @@ async fn power_shelf_skips_creation_when_bmc_mac_already_used(
 /// covering the static-assignments-segment counterpart to the DHCP `discover()` recovery hook:
 /// devices whose IP lives outside any Carbide-managed network never reach `discover()`, so this
 /// per-row preallocation is what gets their rows onto the books.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_reconcile_creates_missing_preallocations(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -6162,9 +5685,9 @@ async fn test_site_explorer_reconcile_creates_missing_preallocations(
 
 /// Site-explorer's reconciliation pass must materialize `ExpectedHostNic.fixed_ip`
 /// reservations too, not just BMC IPs.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -6228,9 +5751,9 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
 /// Running `try_preallocate_one` twice for the same (mac, ip) must be a no-op the second time
 /// -- no new rows, no errors. This is the steady-state behavior since site-explorer iterates
 /// continuously and re-issues the same calls on every pass.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_reconcile_is_idempotent(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -6279,9 +5802,9 @@ async fn test_site_explorer_reconcile_is_idempotent(
 /// A per-entry conflict (e.g., two expected_machines configured with the same static IP -- a
 /// genuine operator misconfiguration) must not abort the whole reconciliation pass. The
 /// conflicting entry gets logged and skipped; the rest of the iteration continues.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_reconcile_tolerates_per_entry_conflicts(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 
@@ -6354,9 +5877,9 @@ async fn test_site_explorer_reconcile_tolerates_per_entry_conflicts(
 /// host-NIC `fixed_ip` paths. Calls `try_preallocate_one` directly the same way the
 /// expected_switches loop does, and verifies the resulting row carries the configured
 /// IP with `InterfaceType::Data`.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_site_explorer_reconcile_preallocates_nvos_ip(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
 

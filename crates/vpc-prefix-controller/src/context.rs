@@ -15,25 +15,17 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
-
-use component_manager::component_manager::ComponentManager;
-use forge_secrets::credentials::CredentialManager;
 use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;
 
-use crate::metrics::SwitchMetrics;
-
-pub struct SwitchStateHandlerContextObjects {}
+pub struct VpcPrefixStateHandlerContextObjects {}
 
 #[derive(Clone)]
-pub struct SwitchStateHandlerServices {
+pub struct VpcPrefixStateHandlerServices {
     pub db_pool: PgPool,
-    pub component_manager: Option<Arc<ComponentManager>>,
-    pub credential_manager: Arc<dyn CredentialManager>,
 }
 
-impl StateHandlerContextObjects for SwitchStateHandlerContextObjects {
-    type ObjectMetrics = SwitchMetrics;
-    type Services = SwitchStateHandlerServices;
+impl StateHandlerContextObjects for VpcPrefixStateHandlerContextObjects {
+    type Services = VpcPrefixStateHandlerServices;
+    type ObjectMetrics = ();
 }

@@ -15,8 +15,9 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-switch-controller"
+name = "carbide-vpc-prefix-controller"
 version = "0.0.0"
+description = "State controller for VPC prefix lifecycle transitions"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -24,18 +25,13 @@ authors.workspace = true
 [dependencies]
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
-carbide-health-metrics = { path = "../health-metrics" }
-carbide-secrets = { path = "../secrets" }
-carbide-utils = { path = "../utils", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
-component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", default-features = false }
 state-controller = { path = "../state-controller" }
 
 async-trait = { workspace = true }
+chrono = { workspace = true }
 eyre = { workspace = true }
-mac_address = { workspace = true }
-opentelemetry = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 
