@@ -7,8 +7,13 @@
 // ComponentStatus that inventorysync writes, so callers no longer poll Core
 // directly for state-machine state.
 //
+// All component / rack identifiers are the Core (external) IDs that flow
+// through the Temporal task targets unchanged — the gate joins through
+// component.external_id (and rack.id, which is the same UUID Core uses).
+//
 // Semantics:
 //   - empty input → no-op success
+//   - nil gate → no-op success (test setups)
 //   - missing / unknown status → log and treat as permissive (fail-open),
 //     because conflating "no data" with "in use" would block every
 //     operation on the first transient gRPC blip
@@ -20,9 +25,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
@@ -40,16 +45,18 @@ const (
 // StatusReader is the narrow data dependency of the gate. A DB-backed
 // implementation lives in this package; tests inject fakes.
 type StatusReader interface {
-	// GetStatusesByComponentIDs returns the persisted ComponentStatus for
-	// each requested Flow component UUID. Components without a status row
-	// (or without an entry at all) are simply absent from the result map.
-	GetStatusesByComponentIDs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]*types.ComponentStatus, error)
+	// GetStatusesByExternalIDs returns the persisted ComponentStatus for
+	// each requested Core component ID (the external_id column).
+	// Components without a row or without a status are simply absent from
+	// the result map.
+	GetStatusesByExternalIDs(ctx context.Context, externalIDs []string) (map[string]*types.ComponentStatus, error)
 
-	// GetHostComponentIDsByRackIDs returns, for each rack, the Flow
-	// component UUIDs of its host (compute) members. Other component types
-	// are intentionally excluded — the rack-scoped readiness check is a
-	// tenant-safety guard, and tenants only attach to hosts.
-	GetHostComponentIDsByRackIDs(ctx context.Context, rackIDs []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error)
+	// GetHostExternalIDsByRackIDs returns, for each rack (Core rack ID,
+	// matching component.rack_id), the external_id of every host (compute)
+	// member. Other component types are intentionally excluded — the
+	// rack-scoped readiness check is a tenant-safety guard, and tenants
+	// only attach to hosts.
+	GetHostExternalIDsByRackIDs(ctx context.Context, rackIDs []string) (map[string][]string, error)
 }
 
 // Gate is the abstraction call sites depend on.
@@ -57,15 +64,14 @@ type Gate interface {
 	// WaitForComponentsReady blocks until none of the listed components
 	// block op (per their persisted ComponentStatus), or the gate's
 	// timeout elapses.
-	WaitForComponentsReady(ctx context.Context, componentIDs []uuid.UUID, op types.OperationType) error
+	WaitForComponentsReady(ctx context.Context, externalIDs []string, op types.OperationType) error
 
 	// WaitForRackHostsReady is the rack-scoped form: resolves each rack
 	// to its host components, then delegates to WaitForComponentsReady.
-	WaitForRackHostsReady(ctx context.Context, rackIDs []uuid.UUID, op types.OperationType) error
+	WaitForRackHostsReady(ctx context.Context, rackIDs []string, op types.OperationType) error
 }
 
-// DBGate is the production Gate. The reader is typically a *dbReader
-// constructed via NewDBReader.
+// DBGate is the production Gate. reader is typically a *DBReader.
 type DBGate struct {
 	reader       StatusReader
 	timeout      time.Duration
@@ -90,12 +96,15 @@ func NewDBGate(reader StatusReader, timeout, pollInterval time.Duration) *DBGate
 }
 
 // WaitForComponentsReady implements Gate.
-func (g *DBGate) WaitForComponentsReady(ctx context.Context, componentIDs []uuid.UUID, op types.OperationType) error {
-	if g == nil || g.reader == nil || len(componentIDs) == 0 {
+func (g *DBGate) WaitForComponentsReady(ctx context.Context, externalIDs []string, op types.OperationType) error {
+	if g == nil || g.reader == nil || len(externalIDs) == 0 {
 		return nil
 	}
 
-	unique := dedupSortedUUIDs(componentIDs)
+	unique := dedupSorted(externalIDs)
+	if len(unique) == 0 {
+		return nil
+	}
 
 	deadline := time.Now().Add(g.timeout)
 	attempt := 0
@@ -108,7 +117,7 @@ func (g *DBGate) WaitForComponentsReady(ctx context.Context, componentIDs []uuid
 		if len(blocking) == 0 {
 			if attempt > 1 {
 				log.Info().
-					Stringers("component_ids", uuidStringers(unique)).
+					Strs("component_ids", unique).
 					Str("operation", string(op)).
 					Int("attempts", attempt).
 					Msg("Components ready, proceeding with operation")
@@ -119,12 +128,12 @@ func (g *DBGate) WaitForComponentsReady(ctx context.Context, componentIDs []uuid
 		if !time.Now().Before(deadline) {
 			return fmt.Errorf(
 				"timed out after %s waiting for components to become ready for %s: %s",
-				g.timeout, op, uuidsJoin(blocking),
+				g.timeout, op, strings.Join(blocking, ", "),
 			)
 		}
 
 		log.Info().
-			Stringers("blocking_component_ids", uuidStringers(blocking)).
+			Strs("blocking_component_ids", blocking).
 			Str("operation", string(op)).
 			Dur("poll_interval", g.pollInterval).
 			Time("deadline", deadline).
@@ -137,19 +146,22 @@ func (g *DBGate) WaitForComponentsReady(ctx context.Context, componentIDs []uuid
 }
 
 // WaitForRackHostsReady implements Gate.
-func (g *DBGate) WaitForRackHostsReady(ctx context.Context, rackIDs []uuid.UUID, op types.OperationType) error {
+func (g *DBGate) WaitForRackHostsReady(ctx context.Context, rackIDs []string, op types.OperationType) error {
 	if g == nil || g.reader == nil || len(rackIDs) == 0 {
 		return nil
 	}
 
-	uniqueRacks := dedupSortedUUIDs(rackIDs)
+	uniqueRacks := dedupSorted(rackIDs)
+	if len(uniqueRacks) == 0 {
+		return nil
+	}
 
-	hostsByRack, err := g.reader.GetHostComponentIDsByRackIDs(ctx, uniqueRacks)
+	hostsByRack, err := g.reader.GetHostExternalIDsByRackIDs(ctx, uniqueRacks)
 	if err != nil {
 		return fmt.Errorf("list host components for racks: %w", err)
 	}
 
-	all := make([]uuid.UUID, 0)
+	all := make([]string, 0)
 	for _, rackID := range uniqueRacks {
 		all = append(all, hostsByRack[rackID]...)
 	}
@@ -158,7 +170,7 @@ func (g *DBGate) WaitForRackHostsReady(ctx context.Context, rackIDs []uuid.UUID,
 		// Switch-only / empty racks: the safety check is vacuously
 		// satisfied. Log so the absence stays visible.
 		log.Info().
-			Stringers("rack_ids", uuidStringers(uniqueRacks)).
+			Strs("rack_ids", uniqueRacks).
 			Str("operation", string(op)).
 			Msg("Rack readiness check: no host components found, skipping wait")
 		return nil
@@ -167,19 +179,19 @@ func (g *DBGate) WaitForRackHostsReady(ctx context.Context, rackIDs []uuid.UUID,
 	return g.WaitForComponentsReady(ctx, all, op)
 }
 
-// findBlocking returns the subset of componentIDs whose persisted status
+// findBlocking returns the subset of externalIDs whose persisted status
 // currently blocks op. Components with no status row (e.g. brand-new or
 // inventory hasn't run yet) are logged once per iteration and treated as
 // permissive — see the package doc comment.
-func (g *DBGate) findBlocking(ctx context.Context, componentIDs []uuid.UUID, op types.OperationType) ([]uuid.UUID, error) {
-	statuses, err := g.reader.GetStatusesByComponentIDs(ctx, componentIDs)
+func (g *DBGate) findBlocking(ctx context.Context, externalIDs []string, op types.OperationType) ([]string, error) {
+	statuses, err := g.reader.GetStatusesByExternalIDs(ctx, externalIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	var blocking []uuid.UUID
-	var missing []uuid.UUID
-	for _, id := range componentIDs {
+	var blocking []string
+	var missing []string
+	for _, id := range externalIDs {
 		s, ok := statuses[id]
 		if !ok || s == nil {
 			missing = append(missing, id)
@@ -192,7 +204,7 @@ func (g *DBGate) findBlocking(ctx context.Context, componentIDs []uuid.UUID, op 
 
 	if len(missing) > 0 {
 		log.Warn().
-			Stringers("missing_component_ids", uuidStringers(missing)).
+			Strs("missing_component_ids", missing).
 			Str("operation", string(op)).
 			Msg("Readiness check: no persisted status for some components, treating them as permissive")
 	}
@@ -213,44 +225,22 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func dedupSortedUUIDs(in []uuid.UUID) []uuid.UUID {
+func dedupSorted(in []string) []string {
 	if len(in) == 0 {
 		return nil
 	}
-	seen := make(map[uuid.UUID]struct{}, len(in))
-	out := make([]uuid.UUID, 0, len(in))
-	for _, id := range in {
-		if id == uuid.Nil {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" {
 			continue
 		}
-		if _, ok := seen[id]; ok {
+		if _, ok := seen[s]; ok {
 			continue
 		}
-		seen[id] = struct{}{}
-		out = append(out, id)
+		seen[s] = struct{}{}
+		out = append(out, s)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].String() < out[j].String()
-	})
+	sort.Strings(out)
 	return out
-}
-
-// uuidStringers adapts []uuid.UUID to zerolog's Stringers helper.
-func uuidStringers(in []uuid.UUID) []fmt.Stringer {
-	out := make([]fmt.Stringer, len(in))
-	for i := range in {
-		out[i] = in[i]
-	}
-	return out
-}
-
-func uuidsJoin(in []uuid.UUID) string {
-	if len(in) == 0 {
-		return ""
-	}
-	s := in[0].String()
-	for _, id := range in[1:] {
-		s += ", " + id.String()
-	}
-	return s
 }
