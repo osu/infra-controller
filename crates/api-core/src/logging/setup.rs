@@ -136,10 +136,9 @@ pub fn setup_logging(
                     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
                         .with_tonic()
                         .with_protocol(opentelemetry_otlp::Protocol::Grpc)
-                        .with_export_config({
-                            let mut cfg = ExportConfig::default();
-                            cfg.endpoint = Some(endpoint);
-                            cfg
+                        .with_export_config(ExportConfig {
+                            endpoint: Some(endpoint),
+                            ..Default::default()
                         })
                         .build()?;
 
