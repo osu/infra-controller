@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -23,15 +9,83 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 )
+
+func TestOperatingSystem_GetSiteID(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	t.Run("falls back to ID when ControllerOperatingSystemID is nil", func(t *testing.T) {
+		os := &OperatingSystem{ID: id}
+		got := os.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, id, *got)
+	})
+	t.Run("uses ControllerOperatingSystemID when set", func(t *testing.T) {
+		os := &OperatingSystem{ID: id, ControllerOperatingSystemID: &ctrlID}
+		got := os.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, ctrlID, *got)
+	})
+}
+
+func TestOperatingSystem_ToImageAttributesProto(t *testing.T) {
+	id := uuid.New()
+	desc := "primary"
+	url := "https://image"
+	sha := "deadbeef"
+	authType := "Basic"
+	authToken := "token"
+	rootFsID := "fs-1"
+	rootFsLabel := "label"
+	os := &OperatingSystem{
+		ID:                 id,
+		Name:               "ubuntu",
+		Description:        &desc,
+		ImageURL:           &url,
+		ImageSHA:           &sha,
+		ImageAuthType:      &authType,
+		ImageAuthToken:     &authToken,
+		RootFsID:           &rootFsID,
+		RootFsLabel:        &rootFsLabel,
+		EnableBlockStorage: true,
+	}
+	got := os.ToImageAttributesProto("org-1")
+	require.NotNil(t, got)
+	require.NotNil(t, got.Id)
+	assert.Equal(t, id.String(), got.Id.Value)
+	require.NotNil(t, got.Name)
+	assert.Equal(t, "ubuntu", *got.Name)
+	assert.Equal(t, "org-1", got.TenantOrganizationId)
+	assert.Equal(t, &desc, got.Description)
+	assert.Equal(t, "https://image", got.SourceUrl)
+	assert.Equal(t, "deadbeef", got.Digest)
+	assert.True(t, got.CreateVolume)
+	assert.Equal(t, &authType, got.AuthType)
+	assert.Equal(t, &authToken, got.AuthToken)
+	assert.Equal(t, &rootFsID, got.RootfsId)
+	assert.Equal(t, &rootFsLabel, got.RootfsLabel)
+}
+
+func TestOperatingSystem_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	os := &OperatingSystem{ID: id}
+	got := os.ToDeletionRequestProto("org-1")
+	require.NotNil(t, got)
+	require.NotNil(t, got.Id)
+	assert.Equal(t, id.String(), got.Id.Value)
+	assert.Equal(t, "org-1", got.TenantOrganizationId)
+}
 
 func testOperatingSystemInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)
@@ -68,7 +122,7 @@ func testOperatingSystemBuildInfrastructureProvider(t *testing.T, dbSession *db.
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -90,10 +144,10 @@ func testOperatingSystemBuildTenant(t *testing.T, dbSession *db.Session, name st
 func testOperatingSystemBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -170,22 +224,22 @@ func TestOperatingSystemSQLDAO_Create(t *testing.T) {
 				os, err := ossd.Create(
 					ctx, nil, OperatingSystemCreateInput{
 						Name:                        i.Name,
-						Description:                 db.GetStrPtr("description"),
+						Description:                 cutil.GetPtr("description"),
 						Org:                         "testOrg",
 						InfrastructureProviderID:    i.InfrastructureProviderID,
 						TenantID:                    i.TenantID,
 						ControllerOperatingSystemID: &dummyUUID,
-						Version:                     db.GetStrPtr("version"),
+						Version:                     cutil.GetPtr("version"),
 						OsType:                      "ipxe",
-						ImageURL:                    db.GetStrPtr("imageURL"),
-						ImageSHA:                    db.GetStrPtr("imageSHA"),
-						ImageAuthType:               db.GetStrPtr("imageAuthType"),
-						ImageAuthToken:              db.GetStrPtr("imageAuthToken"),
-						ImageDisk:                   db.GetStrPtr("imageDisk"),
-						RootFsId:                    db.GetStrPtr("rootFsId"),
-						RootFsLabel:                 db.GetStrPtr("rootFsLabel"),
-						IpxeScript:                  db.GetStrPtr("ipxeScript"),
-						UserData:                    db.GetStrPtr("userData"),
+						ImageURL:                    cutil.GetPtr("imageURL"),
+						ImageSHA:                    cutil.GetPtr("imageSHA"),
+						ImageAuthType:               cutil.GetPtr("imageAuthType"),
+						ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
+						ImageDisk:                   cutil.GetPtr("imageDisk"),
+						RootFsId:                    cutil.GetPtr("rootFsId"),
+						RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
+						IpxeScript:                  cutil.GetPtr("ipxeScript"),
+						UserData:                    cutil.GetPtr("userData"),
 						IsCloudInit:                 true,
 						AllowOverride:               true,
 						EnableBlockStorage:          true,
@@ -222,16 +276,16 @@ func TestOperatingSystemSQLDAO_GetByID(t *testing.T) {
 	os1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "test1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "ipxe",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
@@ -244,21 +298,21 @@ func TestOperatingSystemSQLDAO_GetByID(t *testing.T) {
 	os2, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "test2",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    nil,
 			TenantID:                    nil,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "image",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			ImageSHA:                    db.GetStrPtr("imageSHA"),
-			ImageAuthType:               db.GetStrPtr("imageAuthType"),
-			ImageAuthToken:              db.GetStrPtr("imageAuthToken"),
-			ImageDisk:                   db.GetStrPtr("imageDisk"),
-			RootFsId:                    db.GetStrPtr("rootFsId"),
-			RootFsLabel:                 db.GetStrPtr("rootFsLabel"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			ImageSHA:                    cutil.GetPtr("imageSHA"),
+			ImageAuthType:               cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                   cutil.GetPtr("imageDisk"),
+			RootFsId:                    cutil.GetPtr("rootFsId"),
+			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
@@ -389,15 +443,15 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			os, err := ossd.Create(
 				ctx, nil, OperatingSystemCreateInput{
 					Name:                        fmt.Sprintf("os-%v", i),
-					Description:                 db.GetStrPtr("Test Description"),
+					Description:                 cutil.GetPtr("Test Description"),
 					Org:                         tenant1.Org,
 					InfrastructureProviderID:    nil,
 					TenantID:                    &tenant1.ID,
 					ControllerOperatingSystemID: &dummyUUID,
-					Version:                     db.GetStrPtr("version"),
+					Version:                     cutil.GetPtr("version"),
 					OsType:                      OperatingSystemTypeImage,
-					ImageURL:                    db.GetStrPtr("imageURL"),
-					UserData:                    db.GetStrPtr("userData"),
+					ImageURL:                    cutil.GetPtr("imageURL"),
+					UserData:                    cutil.GetPtr("userData"),
 					IsCloudInit:                 true,
 					AllowOverride:               true,
 					EnableBlockStorage:          true,
@@ -421,16 +475,16 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			_, err := ossd.Create(
 				ctx, nil, OperatingSystemCreateInput{
 					Name:                        fmt.Sprintf("os-%v", i),
-					Description:                 db.GetStrPtr("description"),
+					Description:                 cutil.GetPtr("description"),
 					Org:                         tenant2.Org,
 					InfrastructureProviderID:    nil,
 					TenantID:                    &tenant2.ID,
 					ControllerOperatingSystemID: &dummyUUID,
-					Version:                     db.GetStrPtr("version"),
+					Version:                     cutil.GetPtr("version"),
 					OsType:                      OperatingSystemTypeIPXE,
-					ImageURL:                    db.GetStrPtr("iPXE"),
-					IpxeScript:                  db.GetStrPtr("ipxeScript"),
-					UserData:                    db.GetStrPtr("userData"),
+					ImageURL:                    cutil.GetPtr("iPXE"),
+					IpxeScript:                  cutil.GetPtr("ipxeScript"),
+					UserData:                    cutil.GetPtr("userData"),
 					IsCloudInit:                 true,
 					AllowOverride:               true,
 					EnableBlockStorage:          true,
@@ -455,16 +509,16 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 	os, _ := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "ipxe-os-1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         tenant4.Org,
 			InfrastructureProviderID:    nil,
 			TenantID:                    &tenant4.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      OperatingSystemTypeIPXE,
-			ImageURL:                    db.GetStrPtr("iPXE"),
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("iPXE"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
@@ -478,16 +532,16 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 	os, _ = ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "ipxe-os-2",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         tenant4.Org,
 			InfrastructureProviderID:    nil,
 			TenantID:                    &tenant4.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      OperatingSystemTypeIPXE,
-			ImageURL:                    db.GetStrPtr("iPXE"),
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("iPXE"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
@@ -500,15 +554,15 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 	// OS Image 1 for site2
 	os, _ = ossd.Create(ctx, nil, OperatingSystemCreateInput{
 		Name:                        "image-os-1",
-		Description:                 db.GetStrPtr("Test Description"),
+		Description:                 cutil.GetPtr("Test Description"),
 		Org:                         tenant4.Org,
 		InfrastructureProviderID:    nil,
 		TenantID:                    &tenant4.ID,
 		ControllerOperatingSystemID: &dummyUUID,
-		Version:                     db.GetStrPtr("version"),
+		Version:                     cutil.GetPtr("version"),
 		OsType:                      OperatingSystemTypeImage,
-		ImageURL:                    db.GetStrPtr("imageURL"),
-		UserData:                    db.GetStrPtr("userData"),
+		ImageURL:                    cutil.GetPtr("imageURL"),
+		UserData:                    cutil.GetPtr("userData"),
 		IsCloudInit:                 true,
 		AllowOverride:               true,
 		EnableBlockStorage:          true,
@@ -527,15 +581,15 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 	// OS Image 2 for site2
 	os, _ = ossd.Create(ctx, nil, OperatingSystemCreateInput{
 		Name:                        "image-os-2",
-		Description:                 db.GetStrPtr("Test Description"),
+		Description:                 cutil.GetPtr("Test Description"),
 		Org:                         tenant4.Org,
 		InfrastructureProviderID:    nil,
 		TenantID:                    &tenant4.ID,
 		ControllerOperatingSystemID: &dummyUUID,
-		Version:                     db.GetStrPtr("version"),
+		Version:                     cutil.GetPtr("version"),
 		OsType:                      OperatingSystemTypeImage,
-		ImageURL:                    db.GetStrPtr("imageURL"),
-		UserData:                    db.GetStrPtr("userData"),
+		ImageURL:                    cutil.GetPtr("imageURL"),
+		UserData:                    cutil.GetPtr("userData"),
 		IsCloudInit:                 true,
 		AllowOverride:               true,
 		EnableBlockStorage:          true,
@@ -554,15 +608,15 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 	// OS Image 3 for site3
 	os, _ = ossd.Create(ctx, nil, OperatingSystemCreateInput{
 		Name:                        "image-os-3",
-		Description:                 db.GetStrPtr("Test Description"),
+		Description:                 cutil.GetPtr("Test Description"),
 		Org:                         tenant4.Org,
 		InfrastructureProviderID:    nil,
 		TenantID:                    &tenant4.ID,
 		ControllerOperatingSystemID: &dummyUUID,
-		Version:                     db.GetStrPtr("version"),
+		Version:                     cutil.GetPtr("version"),
 		OsType:                      OperatingSystemTypeImage,
-		ImageURL:                    db.GetStrPtr("imageURL"),
-		UserData:                    db.GetStrPtr("userData"),
+		ImageURL:                    cutil.GetPtr("imageURL"),
+		UserData:                    cutil.GetPtr("userData"),
 		IsCloudInit:                 true,
 		AllowOverride:               true,
 		EnableBlockStorage:          true,
@@ -609,7 +663,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			tenantIDs:          nil,
 			osNames:            nil,
 			expectedCount:      paginator.DefaultLimit,
-			expectedTotal:      db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal:      cutil.GetPtr(totalCount + testJoinCount),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -620,7 +674,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:        nil,
 			expectedError:  false,
 			expectedCount:  paginator.DefaultLimit,
-			expectedTotal:  db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal:  cutil.GetPtr(totalCount + testJoinCount),
 			paramRelations: []string{InfrastructureProviderRelationName, TenantRelationName},
 		},
 		{
@@ -662,7 +716,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osOrgs:        []string{tenant1.Org},
 			tenantIDs:     []uuid.UUID{tenant1.ID},
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -670,7 +724,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			osNames:       nil,
 			tenantIDs:     nil,
-			isActive:      db.GetBoolPtr(false),
+			isActive:      cutil.GetPtr(false),
 			expectedCount: 0,
 			expectedError: false,
 		},
@@ -679,9 +733,9 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			osNames:       nil,
 			tenantIDs:     nil,
-			isActive:      db.GetBoolPtr(true),
+			isActive:      cutil.GetPtr(true),
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
 		},
 		{
@@ -691,14 +745,14 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osOrgs:        []string{tenant1.Org, tenant2.Org},
 			tenantIDs:     []uuid.UUID{tenant1.ID, tenant2.ID},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
 			desc:          "GetAll with ids filter returns objects",
 			paramIDs:      []uuid.UUID{ossTenant1[0].ID, ossTenant1[1].ID},
 			expectedError: false,
-			expectedTotal: db.GetIntPtr(2),
+			expectedTotal: cutil.GetPtr(2),
 			expectedCount: 2,
 		},
 		{
@@ -730,10 +784,10 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			osNames:       nil,
 			tenantIDs:     []uuid.UUID{tenant1.ID},
-			offset:        db.GetIntPtr(0),
-			limit:         db.GetIntPtr(5),
+			offset:        cutil.GetPtr(0),
+			limit:         cutil.GetPtr(5),
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -741,9 +795,9 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			osNames:       nil,
 			tenantIDs:     []uuid.UUID{tenant1.ID},
-			offset:        db.GetIntPtr(5),
+			offset:        cutil.GetPtr(5),
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -757,7 +811,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &ossTenant1[4], // 5th entry is "os-8" and would appear first on descending order
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -769,7 +823,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			siteIDs:       []uuid.UUID{site.ID},
 			searchQuery:   nil,
 			expectedCount: len(ossas),
-			expectedTotal: db.GetIntPtr(len(ossas)),
+			expectedTotal: cutil.GetPtr(len(ossas)),
 			expectedError: false,
 		},
 		{
@@ -781,7 +835,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			siteIDs:       []uuid.UUID{site.ID},
 			searchQuery:   nil,
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + len(joinIpxeOss)),
+			expectedTotal: cutil.GetPtr(totalCount + len(joinIpxeOss)),
 			expectedError: false,
 		},
 		{
@@ -794,7 +848,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osTypes:       []string{OperatingSystemTypeImage},
 			searchQuery:   nil,
 			expectedCount: len(ossasSite3) + len(ossasSite2),
-			expectedTotal: db.GetIntPtr(len(ossasSite3) + len(ossasSite2)),
+			expectedTotal: cutil.GetPtr(len(ossasSite3) + len(ossasSite2)),
 			expectedError: false,
 		},
 		{
@@ -807,7 +861,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osTypes:       []string{OperatingSystemTypeImage},
 			searchQuery:   nil,
 			expectedCount: len(ossas),
-			expectedTotal: db.GetIntPtr(len(ossas)),
+			expectedTotal: cutil.GetPtr(len(ossas)),
 			expectedError: false,
 		},
 		{
@@ -815,9 +869,9 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			tenantIDs:     nil,
 			osNames:       nil,
-			searchQuery:   db.GetStrPtr("os-"),
+			searchQuery:   cutil.GetPtr("os-"),
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
 		},
 		{
@@ -825,9 +879,9 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			tenantIDs:     nil,
 			osNames:       nil,
-			searchQuery:   db.GetStrPtr("description"),
+			searchQuery:   cutil.GetPtr("description"),
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
 		},
 		{
@@ -837,7 +891,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:       nil,
 			osTypes:       []string{OperatingSystemTypeIPXE},
 			expectedCount: totalCount/2 + len(joinIpxeOss),
-			expectedTotal: db.GetIntPtr(totalCount/2 + len(joinIpxeOss)),
+			expectedTotal: cutil.GetPtr(totalCount/2 + len(joinIpxeOss)),
 			expectedError: false,
 		},
 		{
@@ -847,7 +901,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:       nil,
 			osTypes:       []string{OperatingSystemTypeImage},
 			expectedCount: (totalCount) / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -857,7 +911,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:       nil,
 			osTypes:       []string{OperatingSystemTypeImage, OperatingSystemTypeIPXE},
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
 		},
 		{
@@ -865,9 +919,9 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			tenantIDs:     nil,
 			osNames:       nil,
-			searchQuery:   db.GetStrPtr(OperatingSystemStatusPending),
+			searchQuery:   cutil.GetPtr(OperatingSystemStatusPending),
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
 		},
 		{
@@ -877,7 +931,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:       nil,
 			statuses:      []string{OperatingSystemStatusPending},
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -887,7 +941,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:       nil,
 			statuses:      []string{OperatingSystemStatusPending, OperatingSystemStatusError},
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -897,7 +951,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osNames:       nil,
 			statuses:      []string{OperatingSystemStatusError},
 			expectedCount: 0,
-			expectedTotal: db.GetIntPtr(0),
+			expectedTotal: cutil.GetPtr(0),
 			expectedError: false,
 		},
 		{
@@ -905,9 +959,9 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ipID:          nil,
 			tenantIDs:     nil,
 			osNames:       nil,
-			searchQuery:   db.GetStrPtr(""),
+			searchQuery:   cutil.GetPtr(""),
 			expectedCount: paginator.DefaultLimit,
-			expectedTotal: db.GetIntPtr(totalCount + testJoinCount),
+			expectedTotal: cutil.GetPtr(totalCount + testJoinCount),
 			expectedError: false,
 		},
 		{
@@ -919,7 +973,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osTypes:       nil,
 			searchQuery:   nil,
 			expectedCount: len(joinIpxeOss) + len(ossasSite3),
-			expectedTotal: db.GetIntPtr(len(joinIpxeOss) + len(ossasSite3)),
+			expectedTotal: cutil.GetPtr(len(joinIpxeOss) + len(ossasSite3)),
 			expectedError: false,
 		},
 		{
@@ -931,7 +985,7 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			osTypes:       []string{OperatingSystemTypeImage},
 			searchQuery:   nil,
 			expectedCount: len(ossasSite3),
-			expectedTotal: db.GetIntPtr(len(ossasSite3)),
+			expectedTotal: cutil.GetPtr(len(ossasSite3)),
 			expectedError: false,
 		},
 	}
@@ -999,21 +1053,21 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 	os1tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant1.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "ipxe",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			ImageSHA:                    db.GetStrPtr("imageSHA"),
-			ImageAuthType:               db.GetStrPtr("imageAuthType"),
-			ImageAuthToken:              db.GetStrPtr("imageAuthToken"),
-			ImageDisk:                   db.GetStrPtr("imageDisk"),
-			RootFsId:                    db.GetStrPtr("rootFsId"),
-			RootFsLabel:                 db.GetStrPtr("rootFsLabel"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			ImageSHA:                    cutil.GetPtr("imageSHA"),
+			ImageAuthType:               cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                   cutil.GetPtr("imageDisk"),
+			RootFsId:                    cutil.GetPtr("rootFsId"),
+			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
@@ -1026,15 +1080,15 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 	os2tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os2tenant1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant1.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "ipxe",
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
@@ -1047,15 +1101,15 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 	os1tenant2, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant2.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "ipxe",
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
@@ -1134,51 +1188,51 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			desc: "can update string fields: name, description, org, version, imageurl, imageSHA, imageAuthType, imageAuthToken, imageDisk, rootFsID, rootFsLabel, ipxescript, userdata, status",
 			os:   os1tenant1,
 
-			paramName:                        db.GetStrPtr("updatedName"),
-			paramDescription:                 db.GetStrPtr("updatedDescription"),
-			paramOrg:                         db.GetStrPtr("updatedOrg"),
+			paramName:                        cutil.GetPtr("updatedName"),
+			paramDescription:                 cutil.GetPtr("updatedDescription"),
+			paramOrg:                         cutil.GetPtr("updatedOrg"),
 			paramInfrastructureProviderID:    nil,
 			paramTenantID:                    nil,
 			paramControllerOperatingSystemID: nil,
-			paramVersion:                     db.GetStrPtr("updatedVersion"),
-			paramType:                        db.GetStrPtr("updatedType"),
-			paramImageURL:                    db.GetStrPtr("updatedImageURL"),
-			paramImageSHA:                    db.GetStrPtr("updatedImageSHA"),
-			paramImageAuthType:               db.GetStrPtr("updatedImageAuthType"),
-			paramImageAuthToken:              db.GetStrPtr("updatedImageAuthToken"),
-			paramImageDisk:                   db.GetStrPtr("updatedImageDisk"),
-			paramRootFsID:                    db.GetStrPtr("updatedRootFsID"),
-			paramRootFsLabel:                 db.GetStrPtr("updatedRootFsLabel"),
-			paramIpxeScript:                  db.GetStrPtr("updatedIpxeScript"),
-			paramUserData:                    db.GetStrPtr("updatedUserData"),
+			paramVersion:                     cutil.GetPtr("updatedVersion"),
+			paramType:                        cutil.GetPtr("updatedType"),
+			paramImageURL:                    cutil.GetPtr("updatedImageURL"),
+			paramImageSHA:                    cutil.GetPtr("updatedImageSHA"),
+			paramImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
+			paramImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
+			paramImageDisk:                   cutil.GetPtr("updatedImageDisk"),
+			paramRootFsID:                    cutil.GetPtr("updatedRootFsID"),
+			paramRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
+			paramIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
+			paramUserData:                    cutil.GetPtr("updatedUserData"),
 			paramIsCloudInit:                 nil,
 			paramAllowOverride:               nil,
 			paramEnableBlockStorage:          nil,
 			paramPhoneHomeEnabled:            nil,
-			paramStatus:                      db.GetStrPtr(OperatingSystemStatusProvisioning),
+			paramStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 
-			expectedName:                        db.GetStrPtr("updatedName"),
-			expectedDescription:                 db.GetStrPtr("updatedDescription"),
-			expectedOrg:                         db.GetStrPtr("updatedOrg"),
+			expectedName:                        cutil.GetPtr("updatedName"),
+			expectedDescription:                 cutil.GetPtr("updatedDescription"),
+			expectedOrg:                         cutil.GetPtr("updatedOrg"),
 			expectedInfrastructureProviderID:    os1tenant1.InfrastructureProviderID,
 			expectedTenantID:                    os1tenant1.TenantID,
 			expectedControllerOperatingSystemID: os1tenant1.ControllerOperatingSystemID,
-			expectedVersion:                     db.GetStrPtr("updatedVersion"),
-			expectedType:                        db.GetStrPtr("updatedType"),
-			expectedImageURL:                    db.GetStrPtr("updatedImageURL"),
-			expectedImageSHA:                    db.GetStrPtr("updatedImageSHA"),
-			expectedImageAuthType:               db.GetStrPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              db.GetStrPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   db.GetStrPtr("updatedImageDisk"),
-			expectedRootFsID:                    db.GetStrPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 db.GetStrPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  db.GetStrPtr("updatedIpxeScript"),
-			expectedUserData:                    db.GetStrPtr("updatedUserData"),
+			expectedVersion:                     cutil.GetPtr("updatedVersion"),
+			expectedType:                        cutil.GetPtr("updatedType"),
+			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                    cutil.GetPtr("updatedUserData"),
 			expectedIsCloudInit:                 &os1tenant1.IsCloudInit,
 			expectedAllowOverride:               &os1tenant1.AllowOverride,
 			expectedEnableBlockStorage:          &os1tenant1.EnableBlockStorage,
 			expectPhoneHomeEnabled:              &os1tenant1.PhoneHomeEnabled,
-			expectedStatus:                      db.GetStrPtr(OperatingSystemStatusProvisioning),
+			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 			verifyChildSpanner:                  true,
 		},
 		{
@@ -1208,28 +1262,28 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramPhoneHomeEnabled:            nil,
 			paramStatus:                      nil,
 
-			expectedName:                        db.GetStrPtr("updatedName"),
-			expectedDescription:                 db.GetStrPtr("updatedDescription"),
-			expectedOrg:                         db.GetStrPtr("updatedOrg"),
+			expectedName:                        cutil.GetPtr("updatedName"),
+			expectedDescription:                 cutil.GetPtr("updatedDescription"),
+			expectedOrg:                         cutil.GetPtr("updatedOrg"),
 			expectedInfrastructureProviderID:    &updatedIP.ID,
 			expectedTenantID:                    &updatedTenant.ID,
 			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     db.GetStrPtr("updatedVersion"),
-			expectedType:                        db.GetStrPtr("updatedType"),
-			expectedImageURL:                    db.GetStrPtr("updatedImageURL"),
-			expectedImageSHA:                    db.GetStrPtr("updatedImageSHA"),
-			expectedImageAuthType:               db.GetStrPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              db.GetStrPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   db.GetStrPtr("updatedImageDisk"),
-			expectedRootFsID:                    db.GetStrPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 db.GetStrPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  db.GetStrPtr("updatedIpxeScript"),
-			expectedUserData:                    db.GetStrPtr("updatedUserData"),
+			expectedVersion:                     cutil.GetPtr("updatedVersion"),
+			expectedType:                        cutil.GetPtr("updatedType"),
+			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                    cutil.GetPtr("updatedUserData"),
 			expectedIsCloudInit:                 &os1tenant1.IsCloudInit,
 			expectedAllowOverride:               &os1tenant1.AllowOverride,
 			expectedEnableBlockStorage:          &os1tenant1.EnableBlockStorage,
 			expectPhoneHomeEnabled:              &os1tenant1.PhoneHomeEnabled,
-			expectedStatus:                      db.GetStrPtr(OperatingSystemStatusProvisioning),
+			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
 			desc: "can update bool fields: iscloudinit, allowcloudinit, isblockstorage",
@@ -1258,55 +1312,55 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramPhoneHomeEnabled:            &updatedPhoneHomeEnabled,
 			paramStatus:                      nil,
 
-			expectedName:                        db.GetStrPtr("updatedName"),
-			expectedDescription:                 db.GetStrPtr("updatedDescription"),
-			expectedOrg:                         db.GetStrPtr("updatedOrg"),
+			expectedName:                        cutil.GetPtr("updatedName"),
+			expectedDescription:                 cutil.GetPtr("updatedDescription"),
+			expectedOrg:                         cutil.GetPtr("updatedOrg"),
 			expectedInfrastructureProviderID:    &updatedIP.ID,
 			expectedTenantID:                    &updatedTenant.ID,
 			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     db.GetStrPtr("updatedVersion"),
-			expectedType:                        db.GetStrPtr("updatedType"),
-			expectedImageURL:                    db.GetStrPtr("updatedImageURL"),
-			expectedImageSHA:                    db.GetStrPtr("updatedImageSHA"),
-			expectedImageAuthType:               db.GetStrPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              db.GetStrPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   db.GetStrPtr("updatedImageDisk"),
-			expectedRootFsID:                    db.GetStrPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 db.GetStrPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  db.GetStrPtr("updatedIpxeScript"),
-			expectedUserData:                    db.GetStrPtr("updatedUserData"),
+			expectedVersion:                     cutil.GetPtr("updatedVersion"),
+			expectedType:                        cutil.GetPtr("updatedType"),
+			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                    cutil.GetPtr("updatedUserData"),
 			expectedIsCloudInit:                 &updatedIsCloudInit,
 			expectedAllowOverride:               &updatedAllowOverride,
 			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
 			expectPhoneHomeEnabled:              &updatedEnableBlockStorage,
-			expectedStatus:                      db.GetStrPtr(OperatingSystemStatusProvisioning),
+			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
 			desc: "ok when no fields are updated",
 			os:   os1tenant1,
 
-			expectedName:                        db.GetStrPtr("updatedName"),
-			expectedDescription:                 db.GetStrPtr("updatedDescription"),
-			expectedOrg:                         db.GetStrPtr("updatedOrg"),
+			expectedName:                        cutil.GetPtr("updatedName"),
+			expectedDescription:                 cutil.GetPtr("updatedDescription"),
+			expectedOrg:                         cutil.GetPtr("updatedOrg"),
 			expectedInfrastructureProviderID:    &updatedIP.ID,
 			expectedTenantID:                    &updatedTenant.ID,
 			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     db.GetStrPtr("updatedVersion"),
-			expectedType:                        db.GetStrPtr("updatedType"),
-			expectedImageURL:                    db.GetStrPtr("updatedImageURL"),
-			expectedImageSHA:                    db.GetStrPtr("updatedImageSHA"),
-			expectedImageAuthType:               db.GetStrPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              db.GetStrPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   db.GetStrPtr("updatedImageDisk"),
-			expectedRootFsID:                    db.GetStrPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 db.GetStrPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  db.GetStrPtr("updatedIpxeScript"),
-			expectedUserData:                    db.GetStrPtr("updatedUserData"),
+			expectedVersion:                     cutil.GetPtr("updatedVersion"),
+			expectedType:                        cutil.GetPtr("updatedType"),
+			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                    cutil.GetPtr("updatedUserData"),
 			expectedIsCloudInit:                 &updatedIsCloudInit,
 			expectedAllowOverride:               &updatedAllowOverride,
 			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
 			expectPhoneHomeEnabled:              &updatedPhoneHomeEnabled,
-			expectedStatus:                      db.GetStrPtr(OperatingSystemStatusProvisioning),
+			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
 			desc:                  "can update isActive from true to false",
@@ -1314,30 +1368,30 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramIsActive:         &updatedIsActive,
 			paramDeactivationNote: &updatedDeactivationNote,
 
-			expectedName:                        db.GetStrPtr("updatedName"),
-			expectedDescription:                 db.GetStrPtr("updatedDescription"),
-			expectedOrg:                         db.GetStrPtr("updatedOrg"),
+			expectedName:                        cutil.GetPtr("updatedName"),
+			expectedDescription:                 cutil.GetPtr("updatedDescription"),
+			expectedOrg:                         cutil.GetPtr("updatedOrg"),
 			expectedInfrastructureProviderID:    &updatedIP.ID,
 			expectedTenantID:                    &updatedTenant.ID,
 			expectedControllerOperatingSystemID: &updatedUUID,
-			expectedVersion:                     db.GetStrPtr("updatedVersion"),
-			expectedType:                        db.GetStrPtr("updatedType"),
-			expectedImageURL:                    db.GetStrPtr("updatedImageURL"),
-			expectedImageSHA:                    db.GetStrPtr("updatedImageSHA"),
-			expectedImageAuthType:               db.GetStrPtr("updatedImageAuthType"),
-			expectedImageAuthToken:              db.GetStrPtr("updatedImageAuthToken"),
-			expectedImageDisk:                   db.GetStrPtr("updatedImageDisk"),
-			expectedRootFsID:                    db.GetStrPtr("updatedRootFsID"),
-			expectedRootFsLabel:                 db.GetStrPtr("updatedRootFsLabel"),
-			expectedIpxeScript:                  db.GetStrPtr("updatedIpxeScript"),
-			expectedUserData:                    db.GetStrPtr("updatedUserData"),
+			expectedVersion:                     cutil.GetPtr("updatedVersion"),
+			expectedType:                        cutil.GetPtr("updatedType"),
+			expectedImageURL:                    cutil.GetPtr("updatedImageURL"),
+			expectedImageSHA:                    cutil.GetPtr("updatedImageSHA"),
+			expectedImageAuthType:               cutil.GetPtr("updatedImageAuthType"),
+			expectedImageAuthToken:              cutil.GetPtr("updatedImageAuthToken"),
+			expectedImageDisk:                   cutil.GetPtr("updatedImageDisk"),
+			expectedRootFsID:                    cutil.GetPtr("updatedRootFsID"),
+			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
+			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
+			expectedUserData:                    cutil.GetPtr("updatedUserData"),
 			expectedIsCloudInit:                 &updatedIsCloudInit,
 			expectedAllowOverride:               &updatedAllowOverride,
 			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
 			expectPhoneHomeEnabled:              &updatedPhoneHomeEnabled,
 			expectedIsActive:                    &updatedIsActive,
 			expectedDeactivationNote:            &updatedDeactivationNote,
-			expectedStatus:                      db.GetStrPtr(OperatingSystemStatusProvisioning),
+			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 	}
 	for _, tc := range tests {
@@ -1472,21 +1526,21 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 	os1tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant1.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "image",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			ImageSHA:                    db.GetStrPtr("imageSHA"),
-			ImageAuthType:               db.GetStrPtr("imageAuthType"),
-			ImageAuthToken:              db.GetStrPtr("imageAuthToken"),
-			ImageDisk:                   db.GetStrPtr("imageDisk"),
-			RootFsId:                    db.GetStrPtr("rootFsId"),
-			RootFsLabel:                 db.GetStrPtr("rootFsLabel"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			ImageSHA:                    cutil.GetPtr("imageSHA"),
+			ImageAuthType:               cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                   cutil.GetPtr("imageDisk"),
+			RootFsId:                    cutil.GetPtr("rootFsId"),
+			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
@@ -1499,16 +1553,16 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 	os2tenant1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os2tenant1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant1.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "ipxe",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
@@ -1521,21 +1575,21 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 	os1tenant2, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant2.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "image",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			ImageSHA:                    db.GetStrPtr("imageSHA"),
-			ImageAuthType:               db.GetStrPtr("imageAuthType"),
-			ImageAuthToken:              db.GetStrPtr("imageAuthToken"),
-			ImageDisk:                   db.GetStrPtr("imageDisk"),
-			RootFsId:                    db.GetStrPtr("rootFsId"),
-			RootFsLabel:                 db.GetStrPtr("rootFsLabel"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			ImageSHA:                    cutil.GetPtr("imageSHA"),
+			ImageAuthType:               cutil.GetPtr("imageAuthType"),
+			ImageAuthToken:              cutil.GetPtr("imageAuthToken"),
+			ImageDisk:                   cutil.GetPtr("imageDisk"),
+			RootFsId:                    cutil.GetPtr("rootFsId"),
+			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
@@ -2048,16 +2102,16 @@ func TestOperatingSystemSQLDAO_Delete(t *testing.T) {
 	os1, err := ossd.Create(
 		ctx, nil, OperatingSystemCreateInput{
 			Name:                        "os1",
-			Description:                 db.GetStrPtr("description"),
+			Description:                 cutil.GetPtr("description"),
 			Org:                         "testOrg",
 			InfrastructureProviderID:    &ip.ID,
 			TenantID:                    &tenant.ID,
 			ControllerOperatingSystemID: &dummyUUID,
-			Version:                     db.GetStrPtr("version"),
+			Version:                     cutil.GetPtr("version"),
 			OsType:                      "ipxe",
-			ImageURL:                    db.GetStrPtr("imageURL"),
-			IpxeScript:                  db.GetStrPtr("ipxeScript"),
-			UserData:                    db.GetStrPtr("userData"),
+			ImageURL:                    cutil.GetPtr("imageURL"),
+			IpxeScript:                  cutil.GetPtr("ipxeScript"),
+			UserData:                    cutil.GetPtr("userData"),
 			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,

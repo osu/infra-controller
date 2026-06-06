@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -25,10 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 )
 
@@ -79,7 +66,7 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 			HostId:               &host,
 			Metadata: &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "env", Value: db.GetStrPtr("prod")},
+					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
 		})
@@ -101,11 +88,11 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 		assert.Equal(t, &slot, eps.SlotID)
 		assert.Equal(t, &trayIdx, eps.TrayIdx)
 		assert.Equal(t, &host, eps.HostID)
-		assert.Equal(t, map[string]string{"env": "prod"}, eps.Labels)
+		assert.Equal(t, Labels{"env": "prod"}, eps.Labels)
 	})
 
 	t.Run("empty BmcIpAddress yields nil pointer", func(t *testing.T) {
-		eps := &ExpectedPowerShelf{BmcIpAddress: db.GetStrPtr("stale")}
+		eps := &ExpectedPowerShelf{BmcIpAddress: cutil.GetPtr("stale")}
 		eps.FromProto(&cwssaws.ExpectedPowerShelf{
 			ExpectedPowerShelfId: &cwssaws.UUID{Value: id.String()},
 			BmcIpAddress:         "",
@@ -174,7 +161,7 @@ func TestExpectedPowerShelfSQLDAO_Create(t *testing.T) {
 					SiteID:               site.ID,
 					BmcMacAddress:        "00:1B:44:11:3A:B7",
 					ShelfSerialNumber:    "SHELF123",
-					BmcIpAddress:         db.GetStrPtr("192.168.1.100"),
+					BmcIpAddress:         cutil.GetPtr("192.168.1.100"),
 					Labels: map[string]string{
 						"environment": "test",
 						"location":    "datacenter1",
@@ -193,7 +180,7 @@ func TestExpectedPowerShelfSQLDAO_Create(t *testing.T) {
 					SiteID:               site.ID,
 					BmcMacAddress:        "00:1B:44:11:3A:B8",
 					ShelfSerialNumber:    "SHELF789",
-					BmcIpAddress:         db.GetStrPtr("10.0.0.1"),
+					BmcIpAddress:         cutil.GetPtr("10.0.0.1"),
 					Labels: map[string]string{
 						"environment": "production",
 					},
@@ -242,7 +229,7 @@ func TestExpectedPowerShelfSQLDAO_Create(t *testing.T) {
 					assert.Equal(t, input.BmcMacAddress, eps.BmcMacAddress)
 					assert.Equal(t, input.ShelfSerialNumber, eps.ShelfSerialNumber)
 					assert.Equal(t, input.BmcIpAddress, eps.BmcIpAddress)
-					assert.Equal(t, input.Labels, eps.Labels)
+					assert.Equal(t, Labels(input.Labels), eps.Labels)
 				}
 
 				if tc.verifyChildSpanner {
@@ -275,7 +262,7 @@ func testExpectedPowerShelfSQLDAOCreateExpectedPowerShelves(ctx context.Context,
 			SiteID:               site.ID,
 			BmcMacAddress:        "00:1B:44:11:3A:B7",
 			ShelfSerialNumber:    "SHELF123",
-			BmcIpAddress:         db.GetStrPtr("192.168.1.100"),
+			BmcIpAddress:         cutil.GetPtr("192.168.1.100"),
 			Labels: map[string]string{
 				"environment": "test",
 				"location":    "datacenter1",
@@ -289,7 +276,7 @@ func testExpectedPowerShelfSQLDAOCreateExpectedPowerShelves(ctx context.Context,
 			SiteID:               site.ID,
 			BmcMacAddress:        "00:1B:44:11:3A:B8",
 			ShelfSerialNumber:    "SHELF789",
-			BmcIpAddress:         db.GetStrPtr("10.0.0.1"),
+			BmcIpAddress:         cutil.GetPtr("10.0.0.1"),
 			Labels: map[string]string{
 				"environment": "production",
 			},
@@ -427,7 +414,7 @@ func TestExpectedPowerShelfSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with no filters returns all objects",
 			expectedCount:      3,
-			expectedTotal:      db.GetIntPtr(3),
+			expectedTotal:      cutil.GetPtr(3),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -437,7 +424,7 @@ func TestExpectedPowerShelfSQLDAO_GetAll(t *testing.T) {
 				SiteIDs: []uuid.UUID{created[0].SiteID},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -459,7 +446,7 @@ func TestExpectedPowerShelfSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query filter returns objects",
 			filter: ExpectedPowerShelfFilterInput{
-				SearchQuery: db.GetStrPtr("SHELF123"),
+				SearchQuery: cutil.GetPtr("SHELF123"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -475,20 +462,20 @@ func TestExpectedPowerShelfSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(2),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(2),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with offset returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(1),
+				Offset: cutil.GetPtr(1),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -500,7 +487,7 @@ func TestExpectedPowerShelfSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 	}
@@ -573,7 +560,7 @@ func TestExpectedPowerShelfSQLDAO_Update(t *testing.T) {
 			desc: "Update BMC MAC address",
 			input: ExpectedPowerShelfUpdateInput{
 				ExpectedPowerShelfID: epsExp[0].ID,
-				BmcMacAddress:        db.GetStrPtr("00:1B:44:11:3A:C1"),
+				BmcMacAddress:        cutil.GetPtr("00:1B:44:11:3A:C1"),
 			},
 			expectedError:      false,
 			verifyChildSpanner: true,
@@ -582,7 +569,7 @@ func TestExpectedPowerShelfSQLDAO_Update(t *testing.T) {
 			desc: "Update shelf serial number",
 			input: ExpectedPowerShelfUpdateInput{
 				ExpectedPowerShelfID: epsExp[1].ID,
-				ShelfSerialNumber:    db.GetStrPtr("NEWSHELF789"),
+				ShelfSerialNumber:    cutil.GetPtr("NEWSHELF789"),
 			},
 			expectedError: false,
 		},
@@ -590,7 +577,7 @@ func TestExpectedPowerShelfSQLDAO_Update(t *testing.T) {
 			desc: "Update IP address",
 			input: ExpectedPowerShelfUpdateInput{
 				ExpectedPowerShelfID: epsExp[2].ID,
-				BmcIpAddress:         db.GetStrPtr("172.16.0.1"),
+				BmcIpAddress:         cutil.GetPtr("172.16.0.1"),
 			},
 			expectedError: false,
 		},
@@ -626,7 +613,7 @@ func TestExpectedPowerShelfSQLDAO_Update(t *testing.T) {
 					assert.Equal(t, tc.input.BmcIpAddress, got.BmcIpAddress)
 				}
 				if tc.input.Labels != nil {
-					assert.Equal(t, tc.input.Labels, got.Labels)
+					assert.Equal(t, Labels(tc.input.Labels), got.Labels)
 				}
 
 				if tc.verifyChildSpanner {

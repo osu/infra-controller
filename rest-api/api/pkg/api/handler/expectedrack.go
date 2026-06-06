@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -24,17 +10,17 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -142,7 +128,7 @@ func (cerh CreateExpectedRackHandler) Handle(c echo.Context) error {
 		SiteIDs: []uuid.UUID{site.ID},
 		RackIDs: []string{apiRequest.RackID},
 	}, paginator.PageInput{
-		Limit: cdb.GetIntPtr(1),
+		Limit: cutil.GetPtr(1),
 	}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error checking for duplicate Expected Rack")
@@ -299,7 +285,7 @@ func (gaerh GetAllExpectedRackHandler) Handle(c echo.Context) error {
 		siteDAO := cdbm.NewSiteDAO(gaerh.dbSession)
 		sites, _, err := siteDAO.GetAll(ctx, nil,
 			cdbm.SiteFilterInput{InfrastructureProviderIDs: []uuid.UUID{infrastructureProvider.ID}},
-			paginator.PageInput{Limit: cdb.GetIntPtr(math.MaxInt)},
+			paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)},
 			nil,
 		)
 		if err != nil {
@@ -594,7 +580,7 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 		_, count, err := erDAO.GetAll(ctx, nil, cdbm.ExpectedRackFilterInput{
 			SiteIDs: []uuid.UUID{expectedRack.SiteID},
 			RackIDs: []string{*apiRequest.RackID},
-		}, paginator.PageInput{Limit: cdb.GetIntPtr(1)}, nil)
+		}, paginator.PageInput{Limit: cutil.GetPtr(1)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error checking for duplicate Expected Rack")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate Expected Rack uniqueness due to DB error", nil)

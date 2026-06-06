@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -21,8 +7,9 @@ import (
 	"fmt"
 	"testing"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -43,7 +30,7 @@ func TestAPISSHKeyCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "ok when all fields are provided",
-			obj:       APISSHKeyCreateRequest{Name: "test", PublicKey: validPublicKey, SSHKeyGroupID: cdb.GetStrPtr(uuid.New().String())},
+			obj:       APISSHKeyCreateRequest{Name: "test", PublicKey: validPublicKey, SSHKeyGroupID: cutil.GetPtr(uuid.New().String())},
 			expectErr: false,
 		},
 		{
@@ -53,12 +40,12 @@ func TestAPISSHKeyCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			desc:      "error when sshkey group is invalid",
-			obj:       APISSHKeyCreateRequest{Name: "test", SSHKeyGroupID: cdb.GetStrPtr("test"), PublicKey: validPublicKey},
+			obj:       APISSHKeyCreateRequest{Name: "test", SSHKeyGroupID: cutil.GetPtr("test"), PublicKey: validPublicKey},
 			expectErr: true,
 		},
 		{
 			desc:      "error when public key is invalid",
-			obj:       APISSHKeyCreateRequest{Name: "test", SSHKeyGroupID: cdb.GetStrPtr(uuid.New().String()), PublicKey: invalidPublicKey},
+			obj:       APISSHKeyCreateRequest{Name: "test", SSHKeyGroupID: cutil.GetPtr(uuid.New().String()), PublicKey: invalidPublicKey},
 			expectErr: true,
 		},
 	}
@@ -81,12 +68,12 @@ func TestAPISSHKeyUpdateRequest_Validate(t *testing.T) {
 	}{
 		{
 			desc:      "Success case",
-			obj:       APISSHKeyUpdateRequest{Name: cdb.GetStrPtr("updatedname")},
+			obj:       APISSHKeyUpdateRequest{Name: cutil.GetPtr("updatedname")},
 			expectErr: false,
 		},
 		{
 			desc:      "Failure case",
-			obj:       APISSHKeyUpdateRequest{Name: cdb.GetStrPtr("e")},
+			obj:       APISSHKeyUpdateRequest{Name: cutil.GetPtr("e")},
 			expectErr: true,
 		},
 	}
@@ -108,8 +95,8 @@ func TestAPISSHKeyNew(t *testing.T) {
 		Org:         "test",
 		TenantID:    uuid.New(),
 		PublicKey:   "testkey",
-		Fingerprint: cdb.GetStrPtr("test"),
-		Expires:     cdb.GetTimePtr(cdb.GetCurTime()),
+		Fingerprint: cutil.GetPtr("test"),
+		Expires:     cutil.GetPtr(cdb.GetCurTime()),
 		Created:     cdb.GetCurTime(),
 		Updated:     cdb.GetCurTime(),
 	}

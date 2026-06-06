@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -33,22 +19,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -132,7 +115,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 	// Default TenantID to org's Tenant when nil; validate when set
 	if apiRequest.TenantID == nil {
-		apiRequest.TenantID = cdb.GetStrPtr(tenant.ID.String())
+		apiRequest.TenantID = cutil.GetPtr(tenant.ID.String())
 	} else if *apiRequest.TenantID != tenant.ID.String() {
 		logger.Warn().Str("tenantId", *apiRequest.TenantID).Msg("TenantID in request does not match org's Tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "TenantID specified in request does not match org's Tenant", nil)
@@ -202,7 +185,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{tenant.ID},
 		},
 		cdbp.PageInput{
-			Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+			Limit: cutil.GetPtr(cdbp.TotalLimit),
 		},
 		nil,
 	)
@@ -298,8 +281,8 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 		// Create the status detail record for Operating System
 		sdDAO := cdbm.NewStatusDetailDAO(csh.dbSession)
-		ossd, derr := sdDAO.CreateFromParams(ctx, tx, os.ID.String(), *cdb.GetStrPtr(osStatus),
-			cdb.GetStrPtr(osStatusMessage))
+		ossd, derr := sdDAO.CreateFromParams(ctx, tx, os.ID.String(), *cutil.GetPtr(osStatus),
+			cutil.GetPtr(osStatusMessage))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
@@ -331,8 +314,8 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			}
 
 			// Create Status details
-			_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), *cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
-				cdb.GetStrPtr("received Operating System Association create request, syncing"))
+			_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+				cutil.GetPtr("received Operating System Association create request, syncing"))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)
@@ -354,7 +337,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 				OperatingSystemIDs: []uuid.UUID{os.ID},
 			},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
 			},
 			[]string{cdbm.SiteRelationName, cdbm.OperatingSystemRelationName},
 		)
@@ -377,19 +360,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 				}
 
-				createOsRequest := &cwssaws.OsImageAttributes{
-					Id:                   &cwssaws.UUID{Value: common.GetSiteOperatingSystemtID(os).String()},
-					Name:                 &os.Name,
-					TenantOrganizationId: tenant.Org,
-					Description:          os.Description,
-					SourceUrl:            *os.ImageURL,
-					Digest:               *os.ImageSHA,
-					CreateVolume:         os.EnableBlockStorage,
-					AuthType:             os.ImageAuthType,
-					AuthToken:            os.ImageAuthToken,
-					RootfsId:             os.RootFsID,
-					RootfsLabel:          os.RootFsLabel,
-				}
+				createOsRequest := apiRequest.ToProto(os, tenant.Org)
 
 				workflowOptions := temporalClient.StartWorkflowOptions{
 					ID:                       "image-os-create-" + ossa.SiteID.String() + "-" + os.ID.String() + "-" + *ossa.Version,
@@ -439,11 +410,18 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to create Operating System due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to create Operating System due to DB transaction error")
 	}
 
 	// create response
@@ -671,7 +649,7 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 			OperatingSystemIDs: osIDs,
 			SiteIDs:            siteIDs,
 		},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 		[]string{cdbm.SiteRelationName},
 	)
 	if err != nil {
@@ -698,7 +676,7 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 			SiteIDs:   siteIDs,
 		},
 		cdbp.PageInput{
-			Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+			Limit: cutil.GetPtr(cdbp.TotalLimit),
 		},
 		nil,
 	)
@@ -868,7 +846,7 @@ func (gsh GetOperatingSystemHandler) Handle(c echo.Context) error {
 				OperatingSystemIDs: []uuid.UUID{os.ID},
 			},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
 			},
 			[]string{cdbm.SiteRelationName},
 		)
@@ -886,7 +864,7 @@ func (gsh GetOperatingSystemHandler) Handle(c echo.Context) error {
 				TenantIDs: []uuid.UUID{tenant.ID},
 			},
 			cdbp.PageInput{
-				Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+				Limit: cutil.GetPtr(cdbp.TotalLimit),
 			},
 			nil,
 		)
@@ -1083,7 +1061,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			cdbm.TenantSiteFilterInput{
 				TenantIDs: []uuid.UUID{tenant.ID},
 			},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 			nil,
 		)
 		if err != nil {
@@ -1113,10 +1091,10 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 	}
 
 	// Save update status in DB
-	osStatus := db.GetStrPtr(cdbm.OperatingSystemStatusReady)
+	osStatus := cutil.GetPtr(cdbm.OperatingSystemStatusReady)
 	osStatusMessage := "Operating System has been updated and ready for use"
 	if apiRequest.IsActive != nil && !*apiRequest.IsActive {
-		osStatus = db.GetStrPtr(cdbm.OperatingSystemStatusDeactivated)
+		osStatus = cutil.GetPtr(cdbm.OperatingSystemStatusDeactivated)
 		osStatusMessage = "Operating System has been deactivated"
 		if apiRequest.DeactivationNote != nil && *apiRequest.DeactivationNote != "" {
 			osStatusMessage += ". " + *apiRequest.DeactivationNote
@@ -1126,7 +1104,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			osStatusMessage = "Operating System has been reactivated and is ready for use"
 		}
 		if os.Type == cdbm.OperatingSystemTypeImage {
-			osStatus = db.GetStrPtr(cdbm.OperatingSystemStatusSyncing)
+			osStatus = cutil.GetPtr(cdbm.OperatingSystemStatusSyncing)
 			osStatusMessage = "received Operating System update request, syncing"
 		}
 	}
@@ -1185,7 +1163,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		}
 
 		// get status details for the response
-		retssds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uos.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		retssds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uos.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for os from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for Operating System", nil)
@@ -1202,7 +1180,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 					tx,
 					cdbm.OperatingSystemSiteAssociationUpdateInput{
 						OperatingSystemSiteAssociationID: dbossa.ID,
-						Status:                           cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+						Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
 					},
 				)
 				if derr != nil {
@@ -1211,8 +1189,8 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 				}
 
 				// Create Status details
-				_, derr = sdDAO.CreateFromParams(ctx, tx, dbossa.ID.String(), *cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
-					cdb.GetStrPtr("received Operating System Association update request, syncing"))
+				_, derr = sdDAO.CreateFromParams(ctx, tx, dbossa.ID.String(), *cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+					cutil.GetPtr("received Operating System Association update request, syncing"))
 				if derr != nil {
 					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Site Association", nil)
@@ -1232,19 +1210,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 				}
 
-				updateOsRequest := &cwssaws.OsImageAttributes{
-					Id:                   &cwssaws.UUID{Value: common.GetSiteOperatingSystemtID(uos).String()},
-					Name:                 &uos.Name,
-					Description:          uos.Description,
-					TenantOrganizationId: tenant.Org,
-					SourceUrl:            *uos.ImageURL,
-					Digest:               *uos.ImageSHA,
-					CreateVolume:         uos.EnableBlockStorage,
-					AuthType:             uos.ImageAuthType,
-					AuthToken:            uos.ImageAuthToken,
-					RootfsId:             uos.RootFsID,
-					RootfsLabel:          uos.RootFsLabel,
-				}
+				updateOsRequest := apiRequest.ToProto(uos, tenant.Org)
 
 				workflowOptions := temporalClient.StartWorkflowOptions{
 					ID:                       "image-os-update-" + updatedOssa.SiteID.String() + "-" + uos.ID.String() + "-" + *updatedOssa.Version,
@@ -1305,7 +1271,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 					OperatingSystemIDs: []uuid.UUID{uos.ID},
 				},
 				cdbp.PageInput{
-					Limit: cdb.GetIntPtr(cdbp.TotalLimit),
+					Limit: cutil.GetPtr(cdbp.TotalLimit),
 				},
 				[]string{cdbm.SiteRelationName},
 			)
@@ -1318,11 +1284,18 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to update Operating System due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to update Operating System due to DB transaction error")
 	}
 
 	// Send response
@@ -1491,7 +1464,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 		if os.Type == cdbm.OperatingSystemTypeImage {
 
 			// Update Operating System to set status to Deleting
-			_, derr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os.ID, Status: cdb.GetStrPtr(cdbm.OperatingSystemStatusDeleting)})
+			_, derr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os.ID, Status: cutil.GetPtr(cdbm.OperatingSystemStatusDeleting)})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error updating Operating System in DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Operating System", nil)
@@ -1500,7 +1473,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			// Create status detail
 			sdDAO := cdbm.NewStatusDetailDAO(dsh.dbSession)
 			// create a status detail record for the Operating System
-			_, derr = sdDAO.CreateFromParams(ctx, tx, os.ID.String(), cdbm.OperatingSystemStatusDeleting, cdb.GetStrPtr("received request for deletion, pending processing"))
+			_, derr = sdDAO.CreateFromParams(ctx, tx, os.ID.String(), cdbm.OperatingSystemStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
@@ -1515,7 +1488,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 						tx,
 						cdbm.OperatingSystemSiteAssociationUpdateInput{
 							OperatingSystemSiteAssociationID: ossa.ID,
-							Status:                           cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusDeleting),
+							Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusDeleting),
 						},
 					)
 					if derr != nil {
@@ -1524,7 +1497,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					}
 
 					// create a status detail record for the Operating System Association
-					_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), cdbm.OperatingSystemSiteAssociationStatusDeleting, cdb.GetStrPtr("received request for deletion, pending processing"))
+					_, derr = sdDAO.CreateFromParams(ctx, tx, ossa.ID.String(), cdbm.OperatingSystemSiteAssociationStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
 					if derr != nil {
 						logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 						return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)
@@ -1538,10 +1511,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					}
 
 					// Prepare the delete/release request workflow object
-					deleteOsRequest := &cwssaws.DeleteOsImageRequest{
-						Id:                   &cwssaws.UUID{Value: common.GetSiteOperatingSystemtID(os).String()},
-						TenantOrganizationId: tenant.Org,
-					}
+					deleteOsRequest := os.ToDeletionRequestProto(tenant.Org)
 
 					workflowOptions := temporalClient.StartWorkflowOptions{
 						ID:                       "image-os-delete-" + ossa.SiteID.String() + "-" + os.ID.String() + "-" + *ossa.Version,
@@ -1619,11 +1589,18 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to delete Operating System due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to delete Operating System due to DB transaction error")
 	}
 
 	// Create response

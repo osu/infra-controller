@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -26,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -68,10 +55,10 @@ func createAuditUser(dbSession *db.Session) (uuid.UUID, error) {
 
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr("test123"),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr("test123"),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: OrgData{
 			ngcOrg.Name: ngcOrg,
 		},
@@ -208,7 +195,7 @@ func TestAuditEntrySQLDAO_Update(t *testing.T) {
 	assert.NoError(t, err)
 	updateInput := AuditEntryUpdateInput{
 		ID:            created.ID,
-		StatusMessage: db.GetStrPtr("updated status message"),
+		StatusMessage: cutil.GetPtr("updated status message"),
 		Body:          updateBody,
 	}
 	updated, err := dao.Update(ctx, nil, updateInput)
@@ -261,12 +248,12 @@ func TestAuditEntrySQLDAO_GetAll(t *testing.T) {
 	assert.Len(t, entries, 20)
 	assert.Equal(t, total, 30)
 
-	entries, total, err = dao.GetAll(ctx, nil, AuditEntryFilterInput{OrgName: db.GetStrPtr(orgName1)}, paginator.PageInput{})
+	entries, total, err = dao.GetAll(ctx, nil, AuditEntryFilterInput{OrgName: cutil.GetPtr(orgName1)}, paginator.PageInput{})
 	assert.NoError(t, err)
 	assert.Len(t, entries, 15)
 	assert.Equal(t, total, 15)
 
-	entries, total, err = dao.GetAll(ctx, nil, AuditEntryFilterInput{FailedOnly: db.GetBoolPtr(true)}, paginator.PageInput{})
+	entries, total, err = dao.GetAll(ctx, nil, AuditEntryFilterInput{FailedOnly: cutil.GetPtr(true)}, paginator.PageInput{})
 	assert.NoError(t, err)
 	assert.Len(t, entries, 15)
 	assert.Equal(t, total, 15)

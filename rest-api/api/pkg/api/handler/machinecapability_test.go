@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -26,12 +12,13 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -60,34 +47,34 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 	st1 := common.TestBuildSite(t, dbSession, ip, "Test Site 1", ipu)
 	st2 := common.TestBuildSite(t, dbSession, ip, "Test Site 2", ipu)
 
-	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cdb.GetUUIDPtr(uuid.New()), st1, map[string]string{
+	it := common.TestBuildInstanceType(t, dbSession, "x2.large", cutil.GetPtr(uuid.New()), st1, map[string]string{
 		"name":        "x2.large",
 		"description": "X2 Large Instance Type",
 	}, ipu)
 
 	m1 := common.TestBuildMachine(t, dbSession, ip, st1, nil, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cdb.GetStrPtr("3.8Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeGPU, "Nvidia V100", nil, cdb.GetStrPtr("128GB"), cdb.GetStrPtr("Nvidia"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "Dell Ent NVMe CM6 RI 1.92TB", nil, nil, nil, cdb.GetIntPtr(3), cdb.GetStrPtr(""), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cutil.GetPtr("3.8Ghz"), nil, cutil.GetPtr("Genuine Intel"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeGPU, "Nvidia V100", nil, cutil.GetPtr("128GB"), cutil.GetPtr("Nvidia"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "Dell Ent NVMe CM6 RI 1.92TB", nil, nil, nil, cutil.GetPtr(3), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	m2 := common.TestBuildMachine(t, dbSession, ip, st1, &it.ID, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cdb.GetStrPtr("3.8Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "SSDPF2KE016T9L", nil, nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeNetwork, "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller", nil, nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cutil.GetPtr("3.8Ghz"), nil, cutil.GetPtr("Genuine Intel"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cutil.GetPtr("16GB"), nil, cutil.GetPtr(4), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "SSDPF2KE016T9L", nil, nil, nil, cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeNetwork, "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller", nil, nil, nil, cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	common.TestBuildMachineInstanceType(t, dbSession, m2, it)
 
 	m3 := common.TestBuildMachine(t, dbSession, ip, st2, nil, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron CX", cdb.GetStrPtr("2.4Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), []int{1, 3})
+	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron CX", cutil.GetPtr("2.4Ghz"), nil, cutil.GetPtr("Genuine Intel"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cutil.GetPtr("16GB"), nil, cutil.GetPtr(4), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), []int{1, 3})
 
 	m4 := common.TestBuildMachine(t, dbSession, ip, st2, nil, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron DX", cdb.GetStrPtr("2.4Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT43244 BlueField-3 integrated ConnectX-7 network controller", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr("DPU"), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron DX", cutil.GetPtr("2.4Ghz"), nil, cutil.GetPtr("Genuine Intel"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cutil.GetPtr("16GB"), nil, cutil.GetPtr(4), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT43244 BlueField-3 integrated ConnectX-7 network controller", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -114,20 +101,20 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 		user                *cdbm.User
 		wantRespCode        int
 		wantRespCount       int
-		wantType            *string
+		wantType            *cdbm.MachineCapabilityType
 		wantName            *string
 		wantFrequency       *string
 		wantCapacity        *string
 		wantVendor          *string
 		wantCount           *int
-		wantDeviceType      *string
+		wantDeviceType      *cdbm.MachineCapabilityDeviceType
 		wantInactiveDevices []int
 	}{
 		{
 			name: "success retrieving all distinct Machine Capabilities from a Site",
 			org:  ipOrg,
 			args: args{
-				siteID: cdb.GetUUIDPtr(st1.ID),
+				siteID: cutil.GetPtr(st1.ID),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
@@ -137,34 +124,34 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 			name: "success retrieving & filtering by Capability type",
 			org:  ipOrg,
 			args: args{
-				siteID:         cdb.GetUUIDPtr(st1.ID),
-				capabilityType: cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeStorage)),
+				siteID:         cutil.GetPtr(st1.ID),
+				capabilityType: cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeStorage),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 2,
-			wantType:      cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeStorage)),
+			wantType:      cutil.GetPtr(cdbm.MachineCapabilityTypeStorage),
 		},
 		{
 			name: "success retrieving & filtering by Capability type and hasInstanceType set to true",
 			org:  ipOrg,
 			args: args{
-				siteID:          cdb.GetUUIDPtr(st1.ID),
-				hasInstanceType: cdb.GetBoolPtr(true),
-				capabilityType:  cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeMemory)),
+				siteID:          cutil.GetPtr(st1.ID),
+				hasInstanceType: cutil.GetPtr(true),
+				capabilityType:  cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeMemory),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 1,
-			wantType:      cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeMemory)),
+			wantType:      cutil.GetPtr(cdbm.MachineCapabilityTypeMemory),
 		},
 		{
 			name: "success retrieving & filtering by Capability type and hasInstanceType set to true",
 			org:  ipOrg,
 			args: args{
-				siteID:          cdb.GetUUIDPtr(st1.ID),
-				hasInstanceType: cdb.GetBoolPtr(false),
-				capabilityType:  cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeMemory)),
+				siteID:          cutil.GetPtr(st1.ID),
+				hasInstanceType: cutil.GetPtr(false),
+				capabilityType:  cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeMemory),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
@@ -174,59 +161,59 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 			name: "success retrieving & filtering by name",
 			org:  ipOrg,
 			args: args{
-				siteID: cdb.GetUUIDPtr(st2.ID),
-				name:   cdb.GetStrPtr("Intel Celeron CX"),
+				siteID: cutil.GetPtr(st2.ID),
+				name:   cutil.GetPtr("Intel Celeron CX"),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 1,
-			wantName:      cdb.GetStrPtr("Intel Celeron CX"),
+			wantName:      cutil.GetPtr("Intel Celeron CX"),
 		},
 		{
 			name: "success retrieving & filtering by frequency",
 			org:  ipOrg,
 			args: args{
-				siteID:    cdb.GetUUIDPtr(st2.ID),
-				frequency: cdb.GetStrPtr("2.4Ghz"),
+				siteID:    cutil.GetPtr(st2.ID),
+				frequency: cutil.GetPtr("2.4Ghz"),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 2,
-			wantFrequency: cdb.GetStrPtr("2.4Ghz"),
+			wantFrequency: cutil.GetPtr("2.4Ghz"),
 		},
 		{
 			name: "success retrieving & filtering by vendor & count",
 			org:  ipOrg,
 			args: args{
-				siteID: cdb.GetUUIDPtr(st2.ID),
-				vendor: cdb.GetStrPtr("Mellanox Technologies"),
-				count:  cdb.GetIntPtr(2),
+				siteID: cutil.GetPtr(st2.ID),
+				vendor: cutil.GetPtr("Mellanox Technologies"),
+				count:  cutil.GetPtr(2),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 3,
-			wantVendor:    cdb.GetStrPtr("Mellanox Technologies"),
-			wantCount:     cdb.GetIntPtr(2),
+			wantVendor:    cutil.GetPtr("Mellanox Technologies"),
+			wantCount:     cutil.GetPtr(2),
 		},
 		{
 			name: "success retrieving & filtering by count & device type",
 			org:  ipOrg,
 			args: args{
-				siteID:     cdb.GetUUIDPtr(st2.ID),
-				deviceType: cdb.GetStrPtr("DPU"),
-				count:      cdb.GetIntPtr(2),
+				siteID:     cutil.GetPtr(st2.ID),
+				deviceType: cutil.GetPtr("DPU"),
+				count:      cutil.GetPtr(2),
 			},
 			user:           ipu,
 			wantRespCode:   http.StatusOK,
 			wantRespCount:  1,
-			wantDeviceType: cdb.GetStrPtr("DPU"),
-			wantCount:      cdb.GetIntPtr(2),
+			wantDeviceType: cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+			wantCount:      cutil.GetPtr(2),
 		},
 		{
 			name: "success retrieving & filtering by inactive devices",
 			org:  ipOrg,
 			args: args{
-				siteID:          cdb.GetUUIDPtr(st2.ID),
+				siteID:          cutil.GetPtr(st2.ID),
 				inactiveDevices: []string{"1", "3"},
 			},
 			user:                ipu,

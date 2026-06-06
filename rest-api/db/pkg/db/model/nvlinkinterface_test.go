@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,9 +8,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,10 +36,10 @@ func TestNVLinkInterfaceSQLDAO_GetByID(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -60,7 +47,7 @@ func TestNVLinkInterfaceSQLDAO_GetByID(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -75,11 +62,11 @@ func TestNVLinkInterfaceSQLDAO_GetByID(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -87,8 +74,8 @@ func TestNVLinkInterfaceSQLDAO_GetByID(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
-	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, nil, db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 0, nil, cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, context.Background())
@@ -187,14 +174,14 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("janed@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu1 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("janed@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn1 := testBuildTenant(t, dbSession, nil, "test-tenant-1", "test-tenant-org-1", tnu1.ID)
 
-	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jimd@test.com"), db.GetStrPtr("Jim"), db.GetStrPtr("Doe"))
+	tnu2 := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jimd@test.com"), cutil.GetPtr("Jim"), cutil.GetPtr("Doe"))
 	tn2 := testBuildTenant(t, dbSession, nil, "test-tenant-2", "test-tenant-org-2", tnu2.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -204,8 +191,8 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn1, "testVpc")
 	vpc2 := testInstanceBuildVpc(t, dbSession, ip, st2, tn1, "testVpc2")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
-	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st2.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest2"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st2.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest2"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn1, st, "testAllocation")
 	allocation2 := testInstanceBuildAllocation(t, dbSession, ip, tn2, st2, "testAllocation2")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
@@ -222,12 +209,12 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu1.ID,
 		},
@@ -244,12 +231,12 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc2.ID,
 			MachineID:                &machine2.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu2.ID,
 		},
@@ -257,8 +244,8 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i2)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition2", nil, tn2.Org, tn2.ID, st2.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu2.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition2", nil, tn2.Org, tn2.ID, st2.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu2.ID)
 
 	totalCount := 30
 	nvlinkInterfaces := []NVLinkInterface{}
@@ -277,9 +264,9 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 		}
 
 		if i%2 == 0 {
-			nvli = testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), i, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tn.ID)
+			nvli = testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), i, cutil.GetPtr("guid"), cutil.GetPtr(NVLinkInterfaceStatusReady), tn.ID)
 		} else {
-			nvli = testBuildNVLinkInterface(t, dbSession, nil, st2.ID, i2.ID, nvllp2.ID, nil, db.GetStrPtr("Nvidia GB200"), i, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusPending), tn.ID)
+			nvli = testBuildNVLinkInterface(t, dbSession, nil, st2.ID, i2.ID, nvllp2.ID, nil, cutil.GetPtr("Nvidia GB200"), i, cutil.GetPtr("guid"), cutil.GetPtr(NVLinkInterfaceStatusPending), tn.ID)
 		}
 
 		nvlinkInterfaces = append(nvlinkInterfaces, *nvli)
@@ -394,7 +381,7 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 			args: args{
 				ctx:     context.Background(),
 				siteIDs: []uuid.UUID{st.ID},
-				limit:   db.GetIntPtr(10),
+				limit:   cutil.GetPtr(10),
 			},
 			wantCount:      10,
 			wantTotalCount: totalCount / 2,
@@ -408,7 +395,7 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 			args: args{
 				ctx:     context.Background(),
 				siteIDs: []uuid.UUID{st.ID, st2.ID},
-				offset:  db.GetIntPtr(5),
+				offset:  cutil.GetPtr(5),
 			},
 			wantCount:      paginator.DefaultLimit,
 			wantTotalCount: totalCount,
@@ -421,7 +408,7 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:         context.Background(),
-				searchQuery: db.GetStrPtr(NVLinkInterfaceStatusReady),
+				searchQuery: cutil.GetPtr(NVLinkInterfaceStatusReady),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -434,7 +421,7 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:         context.Background(),
-				searchQuery: db.GetStrPtr(NVLinkInterfaceStatusPending),
+				searchQuery: cutil.GetPtr(NVLinkInterfaceStatusPending),
 			},
 			wantCount:      totalCount / 2,
 			wantTotalCount: totalCount / 2,
@@ -534,17 +521,17 @@ func TestNVLinkInterfaceSQLDAO_Create(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -559,12 +546,12 @@ func TestNVLinkInterfaceSQLDAO_Create(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -572,13 +559,13 @@ func TestNVLinkInterfaceSQLDAO_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	nvli := &NVLinkInterface{
 		SiteID:                   st.ID,
 		InstanceID:               i1.ID,
 		NVLinkLogicalPartitionID: nvllp.ID,
-		Device:                   db.GetStrPtr("Nvidia GB200"),
+		Device:                   cutil.GetPtr("Nvidia GB200"),
 		DeviceInstance:           0,
 		Status:                   NVLinkInterfaceStatusPending,
 		CreatedBy:                tnu.ID,
@@ -664,10 +651,10 @@ func TestNVLinkInterfaceSQLDAO_Update(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -675,7 +662,7 @@ func TestNVLinkInterfaceSQLDAO_Update(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -690,12 +677,12 @@ func TestNVLinkInterfaceSQLDAO_Update(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -703,8 +690,8 @@ func TestNVLinkInterfaceSQLDAO_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
-	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 0, cutil.GetPtr("guid"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	uNVLinkInterface := nvli
 	uNVLinkInterface.DeviceInstance = 1
@@ -788,15 +775,15 @@ func TestNVLinkInterfaceSQLDAO_UpdateMultiple(t *testing.T) {
 	defer dbSession.Close()
 	TestSetupSchema(t, dbSession)
 
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -811,24 +798,24 @@ func TestNVLinkInterfaceSQLDAO_UpdateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// Create multiple NVLinkInterfaces for batch update testing
-	nvli1 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid1"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
-	nvli2 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 1, db.GetStrPtr("guid2"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
-	nvli3 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 2, db.GetStrPtr("guid3"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvli1 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 0, cutil.GetPtr("guid1"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvli2 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 1, cutil.GetPtr("guid2"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvli3 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 2, cutil.GetPtr("guid3"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	nvlisd := NewNVLinkInterfaceDAO(dbSession)
 
@@ -847,16 +834,16 @@ func TestNVLinkInterfaceSQLDAO_UpdateMultiple(t *testing.T) {
 			inputs: []NVLinkInterfaceUpdateInput{
 				{
 					NVLinkInterfaceID: nvli1.ID,
-					Status:            db.GetStrPtr(NVLinkInterfaceStatusDeleting),
+					Status:            cutil.GetPtr(NVLinkInterfaceStatusDeleting),
 				},
 				{
 					NVLinkInterfaceID: nvli2.ID,
-					Status:            db.GetStrPtr(NVLinkInterfaceStatusDeleting),
+					Status:            cutil.GetPtr(NVLinkInterfaceStatusDeleting),
 				},
 				{
 					NVLinkInterfaceID: nvli3.ID,
-					Status:            db.GetStrPtr(NVLinkInterfaceStatusPending),
-					DeviceInstance:    db.GetIntPtr(10),
+					Status:            cutil.GetPtr(NVLinkInterfaceStatusPending),
+					DeviceInstance:    cutil.GetPtr(10),
 				},
 			},
 			expectError:        false,
@@ -912,7 +899,7 @@ func TestNVLinkInterfaceSQLDAO_UpdateMultiple_ExceedsMaxBatchItems(t *testing.T)
 	for i := range inputs {
 		inputs[i] = NVLinkInterfaceUpdateInput{
 			NVLinkInterfaceID: uuid.New(),
-			Status:            db.GetStrPtr(NVLinkInterfaceStatusDeleting),
+			Status:            cutil.GetPtr(NVLinkInterfaceStatusDeleting),
 		}
 	}
 
@@ -932,10 +919,10 @@ func TestNVLinkInterfaceSQLDAO_Clear(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -943,7 +930,7 @@ func TestNVLinkInterfaceSQLDAO_Clear(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -958,12 +945,12 @@ func TestNVLinkInterfaceSQLDAO_Clear(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -971,8 +958,8 @@ func TestNVLinkInterfaceSQLDAO_Clear(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
-	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 1, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 1, cutil.GetPtr("guid"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, context.Background())
@@ -1053,10 +1040,10 @@ func TestNVLinkInterfaceSQLDAO_Delete(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
@@ -1064,7 +1051,7 @@ func TestNVLinkInterfaceSQLDAO_Delete(t *testing.T) {
 	// Create necessary objects for instance
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1079,12 +1066,12 @@ func TestNVLinkInterfaceSQLDAO_Delete(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
@@ -1092,8 +1079,8 @@ func TestNVLinkInterfaceSQLDAO_Delete(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
-	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, cutil.GetPtr("Nvidia GB200"), 0, cutil.GetPtr("guid"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -1149,15 +1136,15 @@ func TestNVLinkInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 	defer dbSession.Close()
 	TestSetupSchema(t, dbSession)
 
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1172,18 +1159,18 @@ func TestNVLinkInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	nvlisd := NewNVLinkInterfaceDAO(dbSession)
 
@@ -1293,10 +1280,10 @@ func TestNVLinkInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Shared infrastructure
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	// Two target sites plus a third site that has no NVLink interfaces, used to
@@ -1310,7 +1297,7 @@ func TestNVLinkInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 
 	buildInstanceForSite := func(site *Site, hostname, machineTag string) *Instance {
 		vpc := testInstanceBuildVpc(t, dbSession, ip, site, tn, "vpc-"+site.Name)
-		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr(machineTag))
+		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr(machineTag))
 		alloc := testInstanceBuildAllocation(t, dbSession, ip, tn, site, "alloc-"+site.Name)
 		_ = testBuildAllocationConstraint(t, dbSession, alloc, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 
@@ -1325,11 +1312,11 @@ func TestNVLinkInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 				InstanceTypeID:           &instanceType.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr(hostname),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
-				UserData:                 db.GetStrPtr("userdata"),
-				InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+				Hostname:                 cutil.GetPtr(hostname),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
+				UserData:                 cutil.GetPtr("userdata"),
+				InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 				Status:                   InstanceStatusPending,
 				CreatedBy:                tnu.ID,
 			},
@@ -1341,13 +1328,13 @@ func TestNVLinkInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 	inst1 := buildInstanceForSite(st1, "host1.com", "mcType1")
 	inst2 := buildInstanceForSite(st2, "host2.com", "mcType2")
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-1", nil, tn.Org, tn.ID, st1.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-2", nil, tn.Org, tn.ID, st2.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-1", nil, tn.Org, tn.ID, st1.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-2", nil, tn.Org, tn.ID, st2.ID, cutil.GetPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// Two interfaces in the target site, one in another site that should remain.
-	nvli1a := testBuildNVLinkInterface(t, dbSession, nil, st1.ID, inst1.ID, nvllp1.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid-1a"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
-	nvli1b := testBuildNVLinkInterface(t, dbSession, nil, st1.ID, inst1.ID, nvllp1.ID, nil, db.GetStrPtr("Nvidia GB200"), 1, db.GetStrPtr("guid-1b"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
-	nvli2 := testBuildNVLinkInterface(t, dbSession, nil, st2.ID, inst2.ID, nvllp2.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid-2"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvli1a := testBuildNVLinkInterface(t, dbSession, nil, st1.ID, inst1.ID, nvllp1.ID, nil, cutil.GetPtr("Nvidia GB200"), 0, cutil.GetPtr("guid-1a"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvli1b := testBuildNVLinkInterface(t, dbSession, nil, st1.ID, inst1.ID, nvllp1.ID, nil, cutil.GetPtr("Nvidia GB200"), 1, cutil.GetPtr("guid-1b"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
+	nvli2 := testBuildNVLinkInterface(t, dbSession, nil, st2.ID, inst2.ID, nvllp2.ID, nil, cutil.GetPtr("Nvidia GB200"), 0, cutil.GetPtr("guid-2"), cutil.GetPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)

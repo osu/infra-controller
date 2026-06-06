@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -26,13 +12,13 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/samber/lo"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 )
 
 // ~~~~~ Machine GPU Stats Handler ~~~~~ //
@@ -89,14 +75,12 @@ func (gmgsh GetMachineGPUStatsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have access to the specified site", nil)
 	}
 
-	siteID := &site.ID
-
 	// Fetch all machines for the site (exclude metadata for performance)
 	machineDAO := cdbm.NewMachineDAO(gmgsh.dbSession)
 	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{
-		SiteID:          siteID,
+		SiteIDs:         []uuid.UUID{site.ID},
 		ExcludeMetadata: true,
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving machines for site")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve machines", nil)
@@ -110,9 +94,8 @@ func (gmgsh GetMachineGPUStatsHandler) Handle(c echo.Context) error {
 
 	// Fetch GPU capabilities for all machines
 	mcDAO := cdbm.NewMachineCapabilityDAO(gmgsh.dbSession)
-	gpuType := cdbm.MachineCapabilityTypeGPU
-	capabilities, _, err := mcDAO.GetAll(ctx, nil, machineIDs, nil, &gpuType,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	capabilities, _, err := mcDAO.GetAll(ctx, nil, machineIDs, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeGPU),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving GPU capabilities")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve GPU capabilities", nil)
@@ -184,7 +167,7 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 1. Fetch all instance types for the site
 	itDAO := cdbm.NewInstanceTypeDAO(gtitsh.dbSession)
 	instanceTypes, _, err := itDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: siteIDs},
-		nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving instance types")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve instance types", nil)
@@ -196,7 +179,7 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 2. Fetch all allocations for the site (IDs needed to filter constraints)
 	aDAO := cdbm.NewAllocationDAO(gtitsh.dbSession)
 	allocations, _, err := aDAO.GetAll(ctx, nil, cdbm.AllocationFilterInput{SiteIDs: siteIDs},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving allocations")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocations", nil)
@@ -209,8 +192,8 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	if len(allocationIDs) > 0 {
 		acDAO := cdbm.NewAllocationConstraintDAO(gtitsh.dbSession)
 		constraints, _, err = acDAO.GetAll(ctx, nil, allocationIDs,
-			cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs,
-			nil, nil, []string{"Allocation.Tenant"}, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs,
+			nil, nil, []string{"Allocation.Tenant"}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving allocation constraints")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocation constraints", nil)
@@ -220,7 +203,7 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 4. Fetch all instances for the site
 	iDAO := cdbm.NewInstanceDAO(gtitsh.dbSession)
 	instances, _, err := iDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{SiteIDs: siteIDs},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving instances")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve instances", nil)
@@ -229,10 +212,10 @@ func (gtitsh GetTenantInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 5. Fetch all machines with instance types for the site (exclude metadata)
 	machineDAO := cdbm.NewMachineDAO(gtitsh.dbSession)
 	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{
-		SiteID:          siteID,
+		SiteIDs:         []uuid.UUID{site.ID},
 		InstanceTypeIDs: instanceTypeIDs,
 		ExcludeMetadata: true,
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving machines")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve machines", nil)
@@ -411,14 +394,12 @@ func (gmitsh GetMachineInstanceTypeSummaryHandler) Handle(c echo.Context) error 
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have access to the specified site", nil)
 	}
 
-	siteID := &site.ID
-
 	// Fetch all machines for the site (exclude metadata for performance)
 	machineDAO := cdbm.NewMachineDAO(gmitsh.dbSession)
 	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{
-		SiteID:          siteID,
+		SiteIDs:         []uuid.UUID{site.ID},
 		ExcludeMetadata: true,
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving machines for site")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve machines", nil)
@@ -497,13 +478,12 @@ func (gmitsh GetMachineInstanceTypeStatsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have access to the specified site", nil)
 	}
 
-	siteID := &site.ID
-	siteIDs := []uuid.UUID{*siteID}
+	siteIDs := []uuid.UUID{site.ID}
 
 	// 1. Fetch all instance types for the site
 	itDAO := cdbm.NewInstanceTypeDAO(gmitsh.dbSession)
 	instanceTypes, _, err := itDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{SiteIDs: siteIDs},
-		nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving instance types")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve instance types", nil)
@@ -518,9 +498,9 @@ func (gmitsh GetMachineInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 2. Fetch all machines for the site (exclude metadata)
 	machineDAO := cdbm.NewMachineDAO(gmitsh.dbSession)
 	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{
-		SiteID:          siteID,
+		SiteIDs:         siteIDs,
 		ExcludeMetadata: true,
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving machines")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve machines", nil)
@@ -534,7 +514,7 @@ func (gmitsh GetMachineInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 3. Fetch all allocations for the site (IDs needed to filter constraints)
 	aDAO := cdbm.NewAllocationDAO(gmitsh.dbSession)
 	allocations, _, err := aDAO.GetAll(ctx, nil, cdbm.AllocationFilterInput{SiteIDs: siteIDs},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving allocations")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocations", nil)
@@ -547,8 +527,8 @@ func (gmitsh GetMachineInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	if len(allocationIDs) > 0 {
 		acDAO := cdbm.NewAllocationConstraintDAO(gmitsh.dbSession)
 		constraints, _, err = acDAO.GetAll(ctx, nil, allocationIDs,
-			cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs,
-			nil, nil, []string{"Allocation.Tenant"}, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+			cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs,
+			nil, nil, []string{"Allocation.Tenant"}, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving allocation constraints")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocation constraints", nil)
@@ -558,7 +538,7 @@ func (gmitsh GetMachineInstanceTypeStatsHandler) Handle(c echo.Context) error {
 	// 5. Fetch all instances for the site
 	iDAO := cdbm.NewInstanceDAO(gmitsh.dbSession)
 	instances, _, err := iDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{SiteIDs: siteIDs},
-		cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving instances")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve instances", nil)

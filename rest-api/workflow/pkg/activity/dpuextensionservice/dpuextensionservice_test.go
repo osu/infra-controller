@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package dpuextensionservice
 
@@ -24,23 +10,24 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/bun/extra/bundebug"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 
 	"os"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -118,13 +105,13 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 
 	// Create DPU Extension Services with different statuses
 	version1 := fmt.Sprintf("V1-T%d", time.Now().Unix()*1000000)
-	dpuExtensionService1 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-1", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cdb.GetStrPtr(version1), &cdbm.DpuExtensionServiceVersionInfo{
+	dpuExtensionService1 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-1", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr(version1), &cdbm.DpuExtensionServiceVersionInfo{
 		Version:        version1,
 		Data:           "test-data",
 		HasCredentials: false,
 		Created:        time.Now().UTC().Round(time.Microsecond),
 	}, []string{version1}, cdbm.DpuExtensionServiceStatusPending, user)
-	dpuExtensionService2 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-2", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cdb.GetStrPtr(version1), &cdbm.DpuExtensionServiceVersionInfo{
+	dpuExtensionService2 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-2", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr(version1), &cdbm.DpuExtensionServiceVersionInfo{
 		Version:        version1,
 		Data:           "test-data",
 		HasCredentials: false,
@@ -144,7 +131,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			},
 		},
 	}, []string{}, cdbm.DpuExtensionServiceStatusPending, user)
-	dpuExtensionService3 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-3", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cdb.GetStrPtr(version1), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, user)
+	dpuExtensionService3 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-3", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr(version1), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, user)
 	dpuExtensionService4 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-4", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, nil, nil, []string{}, cdbm.DpuExtensionServiceStatusPending, user)
 	dpuExtensionService5 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-5", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, nil, nil, []string{}, cdbm.DpuExtensionServiceStatusDeleting, user)
 
@@ -154,7 +141,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 
 	for i := 0; i < 34; i++ {
 		version := fmt.Sprintf("V1-T%d", time.Now().Unix()*1000000)
-		dpuExtService := util.TestBuildDpuExtensionService(t, dbSession, fmt.Sprintf("test-dpu-extension-service-paged-%d", i), st3, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cdb.GetStrPtr(version), &cdbm.DpuExtensionServiceVersionInfo{
+		dpuExtService := util.TestBuildDpuExtensionService(t, dbSession, fmt.Sprintf("test-dpu-extension-service-paged-%d", i), st3, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr(version), &cdbm.DpuExtensionServiceVersionInfo{
 			Version:        version,
 			Data:           "test-data",
 			HasCredentials: false,
@@ -376,7 +363,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 	dpuExtensionServiceDAO := cdbm.NewDpuExtensionServiceDAO(dbSession)
 	_, err := dpuExtensionServiceDAO.Update(ctx, nil, cdbm.DpuExtensionServiceUpdateInput{
 		DpuExtensionServiceID: dpuExtensionService5.ID,
-		Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusDeleting),
+		Status:                cutil.GetPtr(cdbm.DpuExtensionServiceStatusDeleting),
 	})
 	assert.NoError(t, err)
 

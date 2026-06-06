@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package authentication
 
@@ -28,14 +14,15 @@ import (
 	"testing"
 	"time"
 
-	config2 "github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/core/claim"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/processors"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/config"
+	config2 "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/core/claim"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/processors"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -88,10 +75,10 @@ func TestAuthProcessor(t *testing.T) {
 	// Add user entry
 	user := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 
 	_, err = dbSession.DB.NewInsert().Model(user).Exec(context.Background())
@@ -226,7 +213,7 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 	// Add user who has no first name, last name, email or NGC org data
 	noDataUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
 	}
 
 	_, err = dbSession.DB.NewInsert().Model(noDataUser).Exec(context.Background())
@@ -235,10 +222,10 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 	// Add user who has first name, last name, email and NGC org data
 	dataUser1 := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
-		Email:       cdb.GetStrPtr("john@test.com"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
+		Email:       cutil.GetPtr("john@test.com"),
 		OrgData: cdbm.OrgData{
 			"test-org": cdbm.Org{
 				Name:        "test-org",
@@ -251,10 +238,10 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 
 	dataUser2 := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
-		Email:       cdb.GetStrPtr("john@test.com"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
+		Email:       cutil.GetPtr("john@test.com"),
 		OrgData: cdbm.OrgData{
 			"test-org": cdbm.Org{
 				Name:        "test-org",
@@ -267,10 +254,10 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 
 	dataUser3 := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Dalton"),
-		Email:       cdb.GetStrPtr("jdalton@test.com"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Dalton"),
+		Email:       cutil.GetPtr("jdalton@test.com"),
 		OrgData: cdbm.OrgData{
 			"test-org": cdbm.Org{
 				Name:        "test-org",
@@ -315,9 +302,9 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 				logger:       zerolog.Logger{},
 			},
 			want: &cdbm.User{
-				FirstName: cdb.GetStrPtr("Jane"),
-				LastName:  cdb.GetStrPtr("Smith"),
-				Email:     cdb.GetStrPtr("jane@test.com"),
+				FirstName: cutil.GetPtr("Jane"),
+				LastName:  cutil.GetPtr("Smith"),
+				Email:     cutil.GetPtr("jane@test.com"),
 				OrgData: cdbm.OrgData{
 					"test-org": cdbm.Org{
 						Name:        "test-org",
@@ -343,8 +330,8 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 				logger:       zerolog.Logger{},
 			},
 			want: &cdbm.User{
-				LastName: cdb.GetStrPtr("Robert Smith"),
-				Email:    cdb.GetStrPtr("jrsmith@test.com"),
+				LastName: cutil.GetPtr("Robert Smith"),
+				Email:    cutil.GetPtr("jrsmith@test.com"),
 				OrgData: cdbm.OrgData{
 					"test-org": cdbm.Org{
 						Name:        "test-org",
@@ -370,7 +357,7 @@ func Test_getUpdatedUserFromHeaders(t *testing.T) {
 				logger:       zerolog.Logger{},
 			},
 			want: &cdbm.User{
-				Email: cdb.GetStrPtr("jdoe@test.com"),
+				Email: cutil.GetPtr("jdoe@test.com"),
 				OrgData: cdbm.OrgData{
 					"test-org": cdbm.Org{
 						Name:        "test-org",

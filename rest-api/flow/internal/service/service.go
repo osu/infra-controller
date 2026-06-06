@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package service
 
@@ -29,19 +15,20 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/certs"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/db/migrations"
-	inventorymanager "github.com/NVIDIA/infra-controller-rest/flow/internal/inventory/manager"
-	inventorystore "github.com/NVIDIA/infra-controller-rest/flow/internal/inventory/store"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/jobs/inventorysync"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/jobs/leakdetection"
-	taskschedule "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/taskschedule"
-	schedtypes "github.com/NVIDIA/infra-controller-rest/flow/internal/scheduler/types"
-	taskmanager "github.com/NVIDIA/infra-controller-rest/flow/internal/task/manager"
-	taskstore "github.com/NVIDIA/infra-controller-rest/flow/internal/task/store"
-	pb "github.com/NVIDIA/infra-controller-rest/flow/pkg/proto/v1"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/grpclog"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/migrations"
+	inventorymanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/manager"
+	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/jobs/inventorysync"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/jobs/leakdetection"
+	taskschedule "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/taskschedule"
+	schedtypes "github.com/NVIDIA/infra-controller/rest-api/flow/internal/scheduler/types"
+	taskmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/manager"
+	taskstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/store"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
 // Service is the top-level Flow service. It owns the gRPC server, database
@@ -210,7 +197,10 @@ func (s *Service) Start(ctx context.Context) (retErr error) {
 	s.taskScheduleDispatcher = dispatcher
 	log.Info().Msg("Task schedule dispatcher started")
 
-	s.grpcServer = grpc.NewServer(certOpt)
+	s.grpcServer = grpc.NewServer(
+		certOpt,
+		grpc.ChainUnaryInterceptor(grpclog.UnaryServerInterceptor()),
+	)
 
 	log.Info().Msg("gRPC server is running")
 
@@ -314,7 +304,6 @@ func (s *Service) startScheduler(ctx context.Context) error {
 		&s.conf.DBConf,
 		s.conf.ProviderRegistry,
 		s.conf.FlowConfig,
-		s.conf.CMConfig,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create inventory sync job: %w", err)

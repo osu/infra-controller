@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -27,16 +13,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -138,9 +125,9 @@ func testTrayBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string,
 		cdbm.UserCreateInput{
 			AuxiliaryID: nil,
 			StarfleetID: &starfleetID,
-			Email:       cdb.GetStrPtr("test@test.com"),
-			FirstName:   cdb.GetStrPtr("Test"),
-			LastName:    cdb.GetStrPtr("User"),
+			Email:       cutil.GetPtr("test@test.com"),
+			FirstName:   cutil.GetPtr("Test"),
+			LastName:    cutil.GetPtr("User"),
 			OrgData:     OrgData,
 		},
 	)
@@ -181,7 +168,7 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -189,7 +176,7 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -239,7 +226,7 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 			user:   providerUser,
 			trayID: trayID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 			wantErr:        true,
@@ -365,7 +352,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -373,7 +360,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -398,7 +385,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 	testComponents := []*flowv1.Component{
 		createMockComponent("tray-1", "Compute-001", "NVIDIA", "GB200", "comp-1", flowv1.ComponentType_COMPONENT_TYPE_COMPUTE, rackID),
 		createMockComponent("tray-2", "Compute-002", "NVIDIA", "GB200", "comp-2", flowv1.ComponentType_COMPONENT_TYPE_COMPUTE, rackID),
-		createMockComponent("tray-3", "Switch-001", "NVIDIA", "NVL-Switch", "comp-3", flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH, rackID),
+		createMockComponent("tray-3", "Switch-001", "NVIDIA", "NVL-Switch", "comp-3", flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH, rackID),
 		createMockComponent("tray-4", "Power-001", "NVIDIA", "PowerShelf", "comp-4", flowv1.ComponentType_COMPONENT_TYPE_POWERSHELF, rackID),
 		createMockComponent("tray-5", "ToRSwitch-001", "Dell", "S5248", "comp-5", flowv1.ComponentType_COMPONENT_TYPE_TORSWITCH, rackID),
 	}
@@ -427,7 +414,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -441,7 +428,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -455,7 +442,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents[:2], 2),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(2),
+			expectedTotal:  cutil.GetPtr(2),
 			wantErr:        false,
 		},
 		{
@@ -469,7 +456,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -484,7 +471,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents[:2], int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  2,
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -498,7 +485,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -512,7 +499,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			mockResponse:   createMockRLAResponse(testComponents, int32(len(testComponents))),
 			expectedStatus: http.StatusOK,
 			expectedCount:  len(testComponents),
-			expectedTotal:  cdb.GetIntPtr(len(testComponents)),
+			expectedTotal:  cutil.GetPtr(len(testComponents)),
 			wantErr:        false,
 		},
 		{
@@ -520,7 +507,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			reqOrg: org,
 			user:   providerUser,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			mockResponse:   nil,
 			expectedStatus: http.StatusPreconditionFailed,
@@ -724,7 +711,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -732,7 +719,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testTrayBuildUser(t, dbSession, "provider-user-validate-tray", org, []string{authz.ProviderAdminRole})
@@ -767,7 +754,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 				TotalDiffs:      0,
 				MissingCount:    0,
 				UnexpectedCount: 0,
-				DriftCount:      0,
+				MismatchCount:   0,
 				MatchCount:      1,
 			},
 			expectedStatus: http.StatusOK,
@@ -783,7 +770,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 			mockResponse: &flowv1.ValidateComponentsResponse{
 				Diffs: []*flowv1.ComponentDiff{
 					{
-						Type:        flowv1.DiffType_DIFF_TYPE_DRIFT,
+						Type:        flowv1.DiffType_DIFF_TYPE_MISMATCH,
 						ComponentId: "comp-1",
 						FieldDiffs: []*flowv1.FieldDiff{
 							{
@@ -797,7 +784,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 				TotalDiffs:      1,
 				MissingCount:    0,
 				UnexpectedCount: 0,
-				DriftCount:      1,
+				MismatchCount:   1,
 				MatchCount:      0,
 			},
 			expectedStatus: http.StatusOK,
@@ -808,7 +795,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 			user:   providerUser,
 			trayID: trayID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 		},
@@ -864,7 +851,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 					resp.TotalDiffs = tt.mockResponse.TotalDiffs
 					resp.MissingCount = tt.mockResponse.MissingCount
 					resp.UnexpectedCount = tt.mockResponse.UnexpectedCount
-					resp.DriftCount = tt.mockResponse.DriftCount
+					resp.MismatchCount = tt.mockResponse.MismatchCount
 					resp.MatchCount = tt.mockResponse.MatchCount
 				}).Return(nil)
 			} else {
@@ -928,7 +915,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -936,7 +923,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testTrayBuildUser(t, dbSession, "provider-user-validate-trays", org, []string{authz.ProviderAdminRole})
@@ -969,7 +956,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 				TotalDiffs:      0,
 				MissingCount:    0,
 				UnexpectedCount: 0,
-				DriftCount:      0,
+				MismatchCount:   0,
 				MatchCount:      10,
 			},
 			expectedStatus: http.StatusOK,
@@ -1114,7 +1101,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 			reqOrg: org,
 			user:   providerUser,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 		},
@@ -1157,7 +1144,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 					resp.TotalDiffs = tt.mockResponse.TotalDiffs
 					resp.MissingCount = tt.mockResponse.MissingCount
 					resp.UnexpectedCount = tt.mockResponse.UnexpectedCount
-					resp.DriftCount = tt.mockResponse.DriftCount
+					resp.MismatchCount = tt.mockResponse.MismatchCount
 					resp.MatchCount = tt.mockResponse.MatchCount
 				}).Return(nil)
 			} else {

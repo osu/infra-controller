@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -30,11 +16,11 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	temporalworkflow "go.temporal.io/sdk/workflow"
 
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	taskactivity "github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/activity"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
-	taskdef "github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	taskactivity "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
+	taskdef "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // --- WorkflowDescriptor.validate() ---
@@ -292,18 +278,16 @@ func TestRegistryNameDispatch(t *testing.T) {
 	)
 	env.RegisterWorkflowWithOptions(genericComponentStepWorkflow, temporalworkflow.RegisterOptions{Name: nameGenericComponentStepWorkflow})
 
+	registerTaskUpdateActivities(env)
 	env.RegisterActivityWithOptions(mockPowerControl, sdkactivity.RegisterOptions{
 		Name: taskactivity.NamePowerControl,
-	})
-	env.RegisterActivityWithOptions(mockUpdateTaskStatus, sdkactivity.RegisterOptions{
-		Name: taskactivity.NameUpdateTaskStatus,
 	})
 	env.RegisterActivityWithOptions(mockGetPowerStatus, sdkactivity.RegisterOptions{
 		Name: taskactivity.NameGetPowerStatus,
 	})
 
 	env.OnActivity(taskactivity.NamePowerControl, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	env.OnActivity(taskactivity.NameUpdateTaskStatus, mock.Anything, mock.Anything).Return(nil)
+	expectTaskUpdateActivities(env)
 	env.OnActivity(taskactivity.NameGetPowerStatus, mock.Anything, mock.Anything).Return(
 		map[string]operations.PowerStatus{"ext-compute-1": operations.PowerStatusOn}, nil,
 	)

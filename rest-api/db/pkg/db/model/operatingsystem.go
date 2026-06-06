@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,13 +8,15 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	"github.com/google/uuid"
+
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -124,6 +112,56 @@ type OperatingSystem struct {
 	Updated                     time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted                     *time.Time              `bun:"deleted,soft_delete"`
 	CreatedBy                   uuid.UUID               `bun:"type:uuid,notnull"`
+}
+
+// GetSiteID returns the OperatingSystem ID to use when communicating
+// with the Site: ControllerOperatingSystemID when present, otherwise
+// the OS's own ID. The Site treats both as opaque identifiers.
+func (os *OperatingSystem) GetSiteID() *uuid.UUID {
+	if os.ControllerOperatingSystemID != nil {
+		return os.ControllerOperatingSystemID
+	}
+	return &os.ID
+}
+
+// ToImageAttributesProto builds the OsImageAttributes proto used by
+// both the create and update workflows. tenantOrg is the owning
+// tenant's organization id (not stored on the entity directly).
+//
+// The same proto shape is sent for both create and update flows, so
+// this entity-level method is the canonical entity-to-proto for OS
+// image data; the request-shape ToProto methods on
+// APIOperatingSystemCreateRequest and APIOperatingSystemUpdateRequest
+// layer on top of it without altering the wire fields.
+//
+// Per the proto-conversion convention, the method trusts the caller:
+// the request must have been Validated and the handler must have
+// performed the cross-context check that the OS is image-typed (the
+// dereferences below assume ImageURL and ImageSHA are non-nil, which
+// holds for image-typed records after validation).
+func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *cwssaws.OsImageAttributes {
+	return &cwssaws.OsImageAttributes{
+		Id:                   &cwssaws.UUID{Value: os.GetSiteID().String()},
+		Name:                 &os.Name,
+		TenantOrganizationId: tenantOrg,
+		Description:          os.Description,
+		SourceUrl:            *os.ImageURL,
+		Digest:               *os.ImageSHA,
+		CreateVolume:         os.EnableBlockStorage,
+		AuthType:             os.ImageAuthType,
+		AuthToken:            os.ImageAuthToken,
+		RootfsId:             os.RootFsID,
+		RootfsLabel:          os.RootFsLabel,
+	}
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site
+// to delete this OS image.
+func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *cwssaws.DeleteOsImageRequest {
+	return &cwssaws.DeleteOsImageRequest{
+		Id:                   &cwssaws.UUID{Value: os.GetSiteID().String()},
+		TenantOrganizationId: tenantOrg,
+	}
 }
 
 // OperatingSystemCreateInput input parameters for Create method

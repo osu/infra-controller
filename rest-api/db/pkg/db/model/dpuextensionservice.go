@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,14 +8,15 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -168,6 +155,25 @@ type DpuExtensionService struct {
 	Updated         time.Time                       `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted         time.Time                       `bun:"deleted,nullzero,default:null"`
 	CreatedBy       uuid.UUID                       `bun:"created_by,type:uuid,notnull"`
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site to
+// delete this DPU Extension Service.
+func (des *DpuExtensionService) ToDeletionRequestProto() *cwssaws.DeleteDpuExtensionServiceRequest {
+	return &cwssaws.DeleteDpuExtensionServiceRequest{
+		ServiceId: des.ID.String(),
+	}
+}
+
+// ToVersionDeletionRequestProto builds the workflow request that asks a
+// Site to delete a single version of this DPU Extension Service. Shares
+// the `DeleteDpuExtensionServiceRequest` proto with the whole-service
+// delete; the populated `Versions` field is what scopes the request.
+func (des *DpuExtensionService) ToVersionDeletionRequestProto(versionID string) *cwssaws.DeleteDpuExtensionServiceRequest {
+	return &cwssaws.DeleteDpuExtensionServiceRequest{
+		ServiceId: des.ID.String(),
+		Versions:  []string{versionID},
+	}
 }
 
 var _ bun.BeforeAppendModelHook = (*DpuExtensionService)(nil)

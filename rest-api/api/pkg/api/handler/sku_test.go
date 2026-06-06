@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -24,12 +10,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -160,7 +147,7 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 	// Helper function to create mock user with provider role
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -176,7 +163,7 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 	// Helper function to create mock user with tenant role
 	createTenantMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-tenant-user"),
+			StarfleetID: cutil.GetPtr("test-tenant-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          456,
@@ -443,7 +430,7 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 	// Helper function to create mock user with provider role
 	createMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-user"),
+			StarfleetID: cutil.GetPtr("test-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          123,
@@ -459,7 +446,7 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 	// Helper function to create mock user with tenant role
 	createTenantMockUser := func(org string) *cdbm.User {
 		return &cdbm.User{
-			StarfleetID: cdb.GetStrPtr("test-tenant-user"),
+			StarfleetID: cutil.GetPtr("test-tenant-user"),
 			OrgData: cdbm.OrgData{
 				org: cdbm.Org{
 					ID:          456,

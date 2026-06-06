@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package migrations
 
@@ -23,11 +9,12 @@ import (
 	"testing"
 	"time"
 
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,8 +94,8 @@ func Test_vpcProviderIDUpMigration(t *testing.T) {
 	nsg1 := model.TestBuildNetworkSecurityGroup(t, dbSession, "Test NSG1", tn, site1)
 	nsg2 := model.TestBuildNetworkSecurityGroup(t, dbSession, "Test NSG2", tn, site2)
 
-	vpc1 := model.TestBuildVPC(t, dbSession, "Test VPC 1", ip, tn, site1, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, &nsg1.ID)
-	vpc2 := model.TestBuildVPC(t, dbSession, "Test VPC 2", ip, tn, site2, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, &nsg2.ID)
+	vpc1 := model.TestBuildVPC(t, dbSession, "Test VPC 1", ip, tn, site1, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, &nsg1.ID)
+	vpc2 := model.TestBuildVPC(t, dbSession, "Test VPC 2", ip, tn, site2, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, &nsg2.ID)
 
 	// Delete VPC2 and Site2 to test that the migration will not fail because of deleted rows
 	_, err := dbSession.DB.NewDelete().Model(vpc2).WherePK().Exec(ctx)
@@ -178,12 +165,12 @@ func Test_subnetSiteIDUpMigration(t *testing.T) {
 	tn := model.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, tnu)
 
 	site1 := model.TestBuildSite(t, dbSession, ip, "Test Site 1", ipu)
-	vpc1 := model.TestBuildVPC(t, dbSession, "Test VPC 1", ip, tn, site1, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, nil)
+	vpc1 := model.TestBuildVPC(t, dbSession, "Test VPC 1", ip, tn, site1, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, nil)
 	ipv4Block1 := model.TestBuildIPBlock(t, dbSession, "Test IPv4 Block 1", site1, tn, model.IPBlockRoutingTypeDatacenterOnly, "192.0.2.0", 24, model.IPBlockProtocolVersionV4)
 	subnet1 := model.TestBuildSubnet(t, dbSession, "Test Subnet 1", tn, vpc1, nil, ipv4Block1, model.SubnetStatusPending, tnu)
 
 	site2 := model.TestBuildSite(t, dbSession, ip, "Test Site 2", ipu)
-	vpc2 := model.TestBuildVPC(t, dbSession, "Test VPC 2", ip, tn, site2, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, nil)
+	vpc2 := model.TestBuildVPC(t, dbSession, "Test VPC 2", ip, tn, site2, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusReady, tnu, nil)
 	ipv4Block2 := model.TestBuildIPBlock(t, dbSession, "Test IPv4 Block 2", site2, tn, model.IPBlockRoutingTypeDatacenterOnly, "192.0.3.0", 24, model.IPBlockProtocolVersionV4)
 	subnet2 := model.TestBuildSubnet(t, dbSession, "Test Subnet 2", tn, vpc2, nil, ipv4Block2, model.SubnetStatusPending, tnu)
 
@@ -530,7 +517,7 @@ func Test_subnetIPBlockSizeRenameUpMigration(t *testing.T) {
 	ip := model.TestBuildInfrastructureProvider(t, dbSession, "Test Provider", ipOrg, ipu)
 	site := model.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 	tenant := model.TestBuildTenant(t, dbSession, "testTen", "testOrg", ipu)
-	vpc := model.TestBuildVPC(t, dbSession, "testvpc", ip, tenant, site, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusProvisioning, ipu, nil)
+	vpc := model.TestBuildVPC(t, dbSession, "testvpc", ip, tenant, site, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusProvisioning, ipu, nil)
 	ipb := model.TestBuildIPBlock(t, dbSession, "test-ipb", site, tenant, model.IPBlockRoutingTypeDatacenterOnly, "192.168.1.0", 24, model.IPBlockProtocolVersionV4)
 	subnet := model.TestBuildSubnet(t, dbSession, "testsubnet", tenant, vpc, nil, ipb, model.SubnetStatusProvisioning, ipu)
 
@@ -581,7 +568,7 @@ func Test_renameInstanceSubnetToInterfaceUpMigration(t *testing.T) {
 	it := model.TestBuildInstanceType(t, dbSession, "test-instance-type", ip, st, ipu)
 	model.TestBuildAllocationConstraint(t, dbSession, al, it, nil, 40, ipu)
 
-	vpc := model.TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusProvisioning, ipu, nil)
+	vpc := model.TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusProvisioning, ipu, nil)
 	ipb := model.TestBuildIPBlock(t, dbSession, "test-ipb", st, tn, model.IPBlockRoutingTypeDatacenterOnly, "192.168.1.0", 24, model.IPBlockProtocolVersionV4)
 	sb := model.TestBuildSubnet(t, dbSession, "test-subnet", tn, vpc, nil, ipb, model.SubnetStatusProvisioning, ipu)
 	os := model.TestBuildOperatingSystem(t, dbSession, "test-os", tn, model.OperatingSystemStatusReady, ipu)
@@ -603,7 +590,7 @@ func Test_renameInstanceSubnetToInterfaceUpMigration(t *testing.T) {
 
 	// GetAll Interfaces and verify
 	ifcDAO := model.NewInterfaceDAO(dbSession)
-	_, tot, err := ifcDAO.GetAll(context.Background(), nil, model.InterfaceFilterInput{}, paginator.PageInput{Limit: db.GetIntPtr(paginator.TotalLimit)}, nil)
+	_, tot, err := ifcDAO.GetAll(context.Background(), nil, model.InterfaceFilterInput{}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, ifcCount, tot)
 }
@@ -800,7 +787,7 @@ func Test_alterMachineIDUpMigration(t *testing.T) {
 
 	// Check that all Machine IDs are now strings
 	mDAO := model.NewMachineDAO(dbSession)
-	ms, tot, err := mDAO.GetAll(context.Background(), nil, model.MachineFilterInput{}, paginator.PageInput{Limit: db.GetIntPtr(paginator.TotalLimit)}, nil)
+	ms, tot, err := mDAO.GetAll(context.Background(), nil, model.MachineFilterInput{}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, tot, mCount)
 
@@ -858,7 +845,7 @@ func Test_operatingSystemImageAttributeUpMigration(t *testing.T) {
 	ip := model.TestBuildInfrastructureProvider(t, dbSession, "Test Provider", ipOrg, ipu)
 	site := model.TestBuildSite(t, dbSession, ip, "Test Site", ipu)
 	tenant := model.TestBuildTenant(t, dbSession, "testTen", "testOrg", ipu)
-	vpc := model.TestBuildVPC(t, dbSession, "testvpc", ip, tenant, site, db.GetStrPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusProvisioning, ipu, nil)
+	vpc := model.TestBuildVPC(t, dbSession, "testvpc", ip, tenant, site, cutil.GetPtr(model.VpcEthernetVirtualizer), nil, nil, model.VpcStatusProvisioning, ipu, nil)
 	ipb := model.TestBuildIPBlock(t, dbSession, "test-ipb", site, tenant, model.IPBlockRoutingTypeDatacenterOnly, "192.168.1.0", 24, model.IPBlockProtocolVersionV4)
 	_ = model.TestBuildSubnet(t, dbSession, "testsubnet", tenant, vpc, nil, ipb, model.SubnetStatusProvisioning, ipu)
 	_ = model.TestBuildOperatingSystem(t, dbSession, "testos", tenant, model.OperatingSystemStatusProvisioning, ipu)
@@ -869,7 +856,7 @@ func Test_operatingSystemImageAttributeUpMigration(t *testing.T) {
 
 	// GetAll operating systems and verify
 	osDAO := model.NewOperatingSystemDAO(dbSession)
-	oss, tos, err := osDAO.GetAll(context.Background(), nil, model.OperatingSystemFilterInput{}, paginator.PageInput{Limit: db.GetIntPtr(paginator.TotalLimit)}, nil)
+	oss, tos, err := osDAO.GetAll(context.Background(), nil, model.OperatingSystemFilterInput{}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	assert.Equal(t, tos, len(oss))
 	assert.Equal(t, 1, tos)
 	assert.Nil(t, err)

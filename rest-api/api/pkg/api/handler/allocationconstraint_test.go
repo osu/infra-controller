@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -26,13 +12,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -77,11 +63,11 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
 
 	// Setup Instance Types
-	it1 := common.TestBuildInstanceType(t, dbSession, "testIT", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it1 := common.TestBuildInstanceType(t, dbSession, "testIT", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-1",
 		"description": "Test Instance Type 1 Description",
 	}, ipu)
-	it2 := common.TestBuildInstanceType(t, dbSession, "testIT2", cdb.GetUUIDPtr(uuid.New()), site, map[string]string{
+	it2 := common.TestBuildInstanceType(t, dbSession, "testIT2", cutil.GetPtr(uuid.New()), site, map[string]string{
 		"name":        "test-instance-type-2",
 		"description": "Test Instance Type 2 Description",
 	}, ipu)
@@ -90,12 +76,12 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 	// (this test's allocations plus tenant2's it1 allocation) stay below the Machine count when
 	// CheckMachinesForInstanceTypeAllocation adds an increase delta.
 	for i := 1; i <= 40; i++ {
-		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc)
 		mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc, it1)
 		assert.NotNil(t, mcinst1)
 
-		mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetBoolPtr(false), nil)
+		mc2 := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
 		assert.NotNil(t, mc2)
 		mcinst2 := testInstanceBuildMachineInstanceType(t, dbSession, mc2, it2)
 		assert.NotNil(t, mcinst2)
@@ -122,9 +108,9 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 	acGoodIT1 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 22}
 	acGoodIPB1 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 
-	okABodyIT1, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit1", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT1}})
+	okABodyIT1, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit1", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT1}})
 	assert.Nil(t, err)
-	okABodyIPB1, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb1", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB1}})
+	okABodyIPB1, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb1", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB1}})
 	assert.Nil(t, err)
 
 	acGoodIT2 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it2.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 22}
@@ -132,13 +118,13 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 	acGoodIPB3 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeIPBlock, ResourceTypeID: ipb3.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 24}
 	acGoodITTenant2 := model.APIAllocationConstraintCreateRequest{ResourceType: cdbm.AllocationResourceTypeInstanceType, ResourceTypeID: it1.ID.String(), ConstraintType: cdbm.AllocationConstraintTypeReserved, ConstraintValue: 7}
 
-	okABodyIT2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit2", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
+	okABodyIT2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit2", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIT2}})
 	assert.Nil(t, err)
-	okABodyIPB2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb2", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB2}})
+	okABodyIPB2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb2", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB2}})
 	assert.Nil(t, err)
-	okABodyIPB3, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb3", Description: cdb.GetStrPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB3}})
+	okABodyIPB3, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okipb3", Description: cutil.GetPtr(""), TenantID: tenant1.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodIPB3}})
 	assert.Nil(t, err)
-	okABodyITTenant2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit-tenant-2", Description: cdb.GetStrPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodITTenant2}})
+	okABodyITTenant2, err := json.Marshal(model.APIAllocationCreateRequest{Name: "okit-tenant-2", Description: cutil.GetPtr(""), TenantID: tenant2.ID.String(), SiteID: site.ID.String(), AllocationConstraints: []model.APIAllocationConstraintCreateRequest{acGoodITTenant2}})
 	assert.Nil(t, err)
 
 	// Allocation 1
@@ -451,7 +437,7 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 			expectedErr:             false,
 			expectedStatus:          http.StatusOK,
 			expectedConstraintValue: 16,
-			checkFullGrant:          cdb.GetBoolPtr(true),
+			checkFullGrant:          cutil.GetPtr(true),
 		},
 		{
 			name:                    "successfully updating Allocation Constraint value for IP Block resource away from full grant",
@@ -464,7 +450,7 @@ func TestAllocationConstraintHandler_Update(t *testing.T) {
 			expectedErr:             false,
 			expectedStatus:          http.StatusOK,
 			expectedConstraintValue: 26,
-			checkFullGrant:          cdb.GetBoolPtr(false),
+			checkFullGrant:          cutil.GetPtr(false),
 		},
 		{
 			name:                    "success updating Allocation Constraint when Instance count is below new value",

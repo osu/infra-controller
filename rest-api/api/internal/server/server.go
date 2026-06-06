@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package server
 
@@ -24,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	handler "github.com/NVIDIA/infra-controller-rest/auth/pkg/api"
+	handler "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/api"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/middleware"
-	cconfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
-	cerr "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/middleware"
+	cconfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	cerr "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
 	"github.com/getsentry/sentry-go"
 	sentryZerolog "github.com/getsentry/sentry-go/zerolog"
@@ -44,14 +30,14 @@ import (
 	tsdkClient "go.temporal.io/sdk/client"
 	tsdkConverter "go.temporal.io/sdk/converter"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	authn "github.com/NVIDIA/infra-controller-rest/auth/pkg/authentication"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	authn "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authentication"
 	otprop "go.opentelemetry.io/contrib/propagators/ot"
 	"go.opentelemetry.io/otel"
 	"go.temporal.io/sdk/contrib/opentelemetry"
@@ -59,7 +45,7 @@ import (
 	"golang.org/x/time/rate"
 
 	// Imports for API doc generation
-	_ "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
+	_ "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 )
 
 func InitTemporalClients(tcfg *cconfig.TemporalConfig, tracingEnabled bool) (tsdkClient.Client, tsdkClient.NamespaceClient, error) {
@@ -245,6 +231,13 @@ func InitAPIServer(cfg *config.Config, dbSession *cdb.Session, tc tsdkClient.Cli
 	for _, commonAPIRoute := range commonAPIRoutes {
 		// Register route
 		e.Add(commonAPIRoute.Method, commonAPIRoute.Path, commonAPIRoute.Handler.Handle)
+	}
+
+	// Public .well-known/* tenant-identity routes — no auth, JWT verifiers
+	wellKnownRoutes := api.NewWellKnownRoutes(dbSession, scp, cfg)
+	versionPrefix := "/" + cfg.GetAPIRouteVersion()
+	for _, r := range wellKnownRoutes {
+		e.Add(r.Method, versionPrefix+r.Path, r.Handler.Handle)
 	}
 
 	// Versioned routes

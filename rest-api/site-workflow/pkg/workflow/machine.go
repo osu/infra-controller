@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -25,9 +11,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	"github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
+	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
 // SetMachineMaintenance is a workflow to set Machine maintenance mode using SetMaintenanceOnSite activity
@@ -98,6 +84,60 @@ func UpdateMachineMetadata(ctx workflow.Context, request *cwssaws.MachineMetadat
 
 	logger.Info().Msg("Completing workflow")
 
+	return nil
+}
+
+// CreateMachineHealthReport inserts the tenant-reported OnlineRepair health report on Site.
+func CreateMachineHealthReport(ctx workflow.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
+	logger := log.With().Str("Workflow", "CreateMachineHealthReport").Logger()
+	logger.Info().Msg("Starting workflow")
+
+	retrypolicy := &temporal.RetryPolicy{
+		InitialInterval:    1 * time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    10 * time.Second,
+		MaximumAttempts:    2,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy:         retrypolicy,
+	}
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var machineManager activity.ManageMachine
+	if err := workflow.ExecuteActivity(ctx, machineManager.CreateMachineHealthReportOnSite, request).Get(ctx, nil); err != nil {
+		logger.Error().Err(err).Str("Activity", "CreateMachineHealthReportOnSite").Msg("Failed to execute activity from workflow")
+		return err
+	}
+
+	logger.Info().Msg("Completing workflow")
+	return nil
+}
+
+// DeleteMachineHealthReport removes the tenant-reported OnlineRepair health report on Site.
+func DeleteMachineHealthReport(ctx workflow.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
+	logger := log.With().Str("Workflow", "DeleteMachineHealthReport").Logger()
+	logger.Info().Msg("Starting workflow")
+
+	retrypolicy := &temporal.RetryPolicy{
+		InitialInterval:    1 * time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    10 * time.Second,
+		MaximumAttempts:    2,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy:         retrypolicy,
+	}
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var machineManager activity.ManageMachine
+	if err := workflow.ExecuteActivity(ctx, machineManager.DeleteMachineHealthReportOnSite, request).Get(ctx, nil); err != nil {
+		logger.Error().Err(err).Str("Activity", "DeleteMachineHealthReportOnSite").Msg("Failed to execute activity from workflow")
+		return err
+	}
+
+	logger.Info().Msg("Completing workflow")
 	return nil
 }
 

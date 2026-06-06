@@ -11,25 +11,11 @@ import (
 
 const (
 	LicenseHeader = `
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 `
 
-	goPackageOption = `option go_package = "github.com/NVIDIA/infra-controller-rest/workflow-schema/proto";`
+	goPackageOption = `option go_package = "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/proto";`
 
 	additionalExpectedMachineAttributes = `
 // WARNING: Following fields are not present in Core, but added directly in REST snapshot
@@ -280,6 +266,7 @@ func normalizeNICo(content string) string {
 	content = nicoMoveValidationEnums(content)
 	content = nicoRemoveDomainTypes(content)
 	content = nicoUpdatePxeDomain(content)
+	content = nicoPreserveVpcNameFields(content)
 	content = nicoExpandExpectedObject(content, "ExpectedPowerShelf", additionalPowerShelfAttributes)
 	content = nicoExpandExpectedObject(content, "ExpectedSwitch", additionalExpectedSwitchAttributes)
 	content = nicoExpandExpectedObject(content, "ExpectedMachine", additionalExpectedMachineAttributes)
@@ -369,6 +356,35 @@ func nicoUpdatePxeDomain(content string) string {
 	warning := "    // WARNING: Updated to correct legacy type\n"
 	content = strings.Replace(content, "    Domain legacy_domain = 2;", warning+"    DomainLegacy legacy_domain = 2;", 1)
 	return content
+}
+
+func nicoPreserveVpcNameFields(content string) string {
+	comment := "Removed in v0.9.x and above, retained here for backwards compatibility"
+	content = nicoPreserveField(content, "Vpc", "reserved 2;", "string name = 2; // "+comment)
+	content = nicoPreserveField(content, "VpcCreationRequest", "reserved 2;", "string name = 2; // "+comment)
+	content = nicoPreserveField(content, "VpcUpdateRequest", "reserved 3;", "string name = 3; // "+comment)
+	content = nicoPreserveField(content, "VpcPrefix", "reserved 3;", "string name = 3; // "+comment)
+	content = nicoPreserveField(content, "VpcPrefixCreationRequest", "reserved 3;", "string name = 3; // "+comment)
+	content = nicoPreserveField(content, "VpcPrefixUpdateRequest", "reserved 3;", "optional string name = 3; // "+comment)
+	return content
+}
+
+func nicoPreserveField(content string, messageName string, reservedField string, legacyField string) string {
+	re := regexp.MustCompile(`message ` + messageName + ` \{[^}]*\}`)
+	loc := re.FindStringIndex(content)
+	if loc == nil {
+		return content
+	}
+
+	block := content[loc[0]:loc[1]]
+	if strings.Contains(block, legacyField) {
+		return content
+	}
+
+	reservedRe := regexp.MustCompile(`(?m)^(\s*)` + regexp.QuoteMeta(reservedField) + `.*$`)
+	block = reservedRe.ReplaceAllString(block, "${1}"+legacyField)
+
+	return content[:loc[0]] + block + content[loc[1]:]
 }
 
 func nicoExpandExpectedObject(content string, objectType string, additionalAttributes string) string {

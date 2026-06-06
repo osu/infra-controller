@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,21 +10,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAPIInstance(t *testing.T) {
 	dbs := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-name",
-		Description:              cdb.GetStrPtr("Test Description"),
+		Description:              cutil.GetPtr("Test Description"),
 		InfrastructureProviderID: uuid.New(),
-		SerialConsoleHostname:    cdb.GetStrPtr("test-hostname"),
+		SerialConsoleHostname:    cutil.GetPtr("test-hostname"),
 	}
 
 	instanceTypeID := uuid.New()
@@ -50,16 +38,16 @@ func TestNewAPIInstance(t *testing.T) {
 		SiteID:                   dbs.ID,
 		InstanceTypeID:           &instanceTypeID,
 		VpcID:                    uuid.New(),
-		MachineID:                cdb.GetStrPtr(uuid.NewString()),
-		ControllerInstanceID:     cdb.GetUUIDPtr(uuid.New()),
+		MachineID:                cutil.GetPtr(uuid.NewString()),
+		ControllerInstanceID:     cutil.GetPtr(uuid.New()),
 		OperatingSystemID:        nil,
-		IpxeScript:               cdb.GetStrPtr("test"),
+		IpxeScript:               cutil.GetPtr("test"),
 		AlwaysBootWithCustomIpxe: true,
-		UserData:                 cdb.GetStrPtr("test"),
+		UserData:                 cutil.GetPtr("test"),
 		Labels: map[string]string{
 			"test": "test",
 		},
-		TpmEkCertificate: cdb.GetStrPtr("test"),
+		TpmEkCertificate: cutil.GetPtr("test"),
 		Status:           cdbm.InstanceStatusPending,
 		Created:          time.Now(),
 		Updated:          time.Now(),
@@ -69,7 +57,7 @@ func TestNewAPIInstance(t *testing.T) {
 		ID:       uuid.New(),
 		EntityID: dbi1.ID.String(),
 		Status:   cdbm.InstanceStatusPending,
-		Message:  cdb.GetStrPtr("test-message"),
+		Message:  cutil.GetPtr("test-message"),
 		Created:  time.Now(),
 		Updated:  time.Now(),
 	}
@@ -77,9 +65,9 @@ func TestNewAPIInstance(t *testing.T) {
 	dbis1 := cdbm.Interface{
 		ID:          uuid.New(),
 		InstanceID:  dbi1.ID,
-		SubnetID:    cdb.GetUUIDPtr(uuid.New()),
+		SubnetID:    cutil.GetPtr(uuid.New()),
 		IsPhysical:  true,
-		MacAddress:  cdb.GetStrPtr("test-mac-address"),
+		MacAddress:  cutil.GetPtr("test-mac-address"),
 		IPAddresses: []string{"12.70.0.1"},
 		Status:      cdbm.InterfaceStatusPending,
 		Created:     time.Now(),
@@ -92,7 +80,7 @@ func TestNewAPIInstance(t *testing.T) {
 	dbis1Secondary1 := cdbm.Interface{
 		ID:          uuid.New(),
 		InstanceID:  dbi1.ID,
-		VpcPrefixID: cdb.GetUUIDPtr(uuid.New()),
+		VpcPrefixID: cutil.GetPtr(uuid.New()),
 		VpcPrefix: &cdbm.VpcPrefix{
 			ID:    uuid.New(),
 			VpcID: secondaryVpcID1,
@@ -106,7 +94,7 @@ func TestNewAPIInstance(t *testing.T) {
 	dbis1Secondary2 := cdbm.Interface{
 		ID:          uuid.New(),
 		InstanceID:  dbi1.ID,
-		VpcPrefixID: cdb.GetUUIDPtr(uuid.New()),
+		VpcPrefixID: cutil.GetPtr(uuid.New()),
 		VpcPrefix: &cdbm.VpcPrefix{
 			ID:    uuid.New(),
 			VpcID: secondaryVpcID2,
@@ -124,7 +112,7 @@ func TestNewAPIInstance(t *testing.T) {
 		InfiniBandPartitionID: uuid.New(),
 		DeviceInstance:        2,
 		IsPhysical:            false,
-		VirtualFunctionID:     cdb.GetIntPtr(2),
+		VirtualFunctionID:     cutil.GetPtr(2),
 		Status:                cdbm.InfiniBandInterfaceStatusPending,
 		Created:               time.Now(),
 		Updated:               time.Now(),
@@ -135,7 +123,7 @@ func TestNewAPIInstance(t *testing.T) {
 		InstanceID:               dbi1.ID,
 		SiteID:                   dbi1.SiteID,
 		NVLinkLogicalPartitionID: uuid.New(),
-		Device:                   cdb.GetStrPtr("NVIDIA GB200"),
+		Device:                   cutil.GetPtr("NVIDIA GB200"),
 		DeviceInstance:           0,
 		Status:                   cdbm.NVLinkInterfaceStatusPending,
 		Created:                  time.Now(),
@@ -151,15 +139,15 @@ func TestNewAPIInstance(t *testing.T) {
 		SiteID:                   uuid.New(),
 		InstanceTypeID:           &instanceTypeID,
 		VpcID:                    uuid.New(),
-		MachineID:                cdb.GetStrPtr(uuid.NewString()),
-		ControllerInstanceID:     cdb.GetUUIDPtr(uuid.New()),
-		OperatingSystemID:        cdb.GetUUIDPtr(uuid.New()),
-		IpxeScript:               cdb.GetStrPtr("test"),
+		MachineID:                cutil.GetPtr(uuid.NewString()),
+		ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+		OperatingSystemID:        cutil.GetPtr(uuid.New()),
+		IpxeScript:               cutil.GetPtr("test"),
 		AlwaysBootWithCustomIpxe: true,
-		UserData:                 cdb.GetStrPtr("test"),
+		UserData:                 cutil.GetPtr("test"),
 		Status:                   cdbm.InstanceStatusReady,
-		TpmEkCertificate:         cdb.GetStrPtr("test"),
-		PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+		TpmEkCertificate:         cutil.GetPtr("test"),
+		PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 		Created:                  time.Now(),
 		Updated:                  time.Now(),
 	}
@@ -168,7 +156,7 @@ func TestNewAPIInstance(t *testing.T) {
 		ID:       uuid.New(),
 		EntityID: dbi1.ID.String(),
 		Status:   cdbm.InstanceStatusReady,
-		Message:  cdb.GetStrPtr("test-message"),
+		Message:  cutil.GetPtr("test-message"),
 		Created:  time.Now(),
 		Updated:  time.Now(),
 	}
@@ -176,8 +164,8 @@ func TestNewAPIInstance(t *testing.T) {
 	dbis2 := cdbm.Interface{
 		ID:                 uuid.New(),
 		InstanceID:         dbi1.ID,
-		SubnetID:           cdb.GetUUIDPtr(uuid.New()),
-		MachineInterfaceID: cdb.GetUUIDPtr(uuid.New()),
+		SubnetID:           cutil.GetPtr(uuid.New()),
+		MachineInterfaceID: cutil.GetPtr(uuid.New()),
 		Status:             cdbm.InterfaceStatusPending,
 		Created:            time.Now(),
 		Updated:            time.Now(),
@@ -187,7 +175,7 @@ func TestNewAPIInstance(t *testing.T) {
 		ID:          uuid.New(),
 		Name:        "test-service",
 		ServiceType: "test-type",
-		Version:     cdb.GetStrPtr("v1"),
+		Version:     cutil.GetPtr("v1"),
 		VersionInfo: &cdbm.DpuExtensionServiceVersionInfo{
 			Version:        "v1",
 			Data:           "apiVersion: v1\nkind: Pod",
@@ -215,7 +203,7 @@ func TestNewAPIInstance(t *testing.T) {
 	dbskg := cdbm.SSHKeyGroup{
 		ID:      uuid.New(),
 		Name:    "test-group",
-		Version: cdb.GetStrPtr("1213123"),
+		Version: cutil.GetPtr("1213123"),
 		Status:  cdbm.SSHKeyGroupStatusSynced,
 		Created: time.Now(),
 		Updated: time.Now(),
@@ -224,7 +212,7 @@ func TestNewAPIInstance(t *testing.T) {
 	dbskg2 := cdbm.SSHKeyGroup{
 		ID:      uuid.New(),
 		Name:    "test-group-2",
-		Version: cdb.GetStrPtr("1213123"),
+		Version: cutil.GetPtr("1213123"),
 		Status:  cdbm.SSHKeyGroupStatusSynced,
 		Created: time.Now(),
 		Updated: time.Now(),
@@ -404,21 +392,21 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			name: "test valid Instance with subnet create request",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -429,18 +417,18 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			name: "test valid Instance with InfiniBand interface create request",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				InfiniBandInterfaces: []APIInfiniBandInterfaceCreateOrUpdateRequest{
@@ -465,18 +453,18 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			name: "test valid Instance create request - DpuExtensionServiceDeployment create request",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				DpuExtensionServiceDeployments: []APIDpuExtensionServiceDeploymentRequest{
@@ -498,19 +486,19 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID:   cdb.GetStrPtr(uuid.NewString()),
+						SubnetID:   cutil.GetPtr(uuid.NewString()),
 						IsPhysical: true,
 					},
 					{
-						SubnetID:   cdb.GetStrPtr(uuid.NewString()),
+						SubnetID:   cutil.GetPtr(uuid.NewString()),
 						IsPhysical: false,
 					},
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -523,11 +511,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -537,15 +525,15 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			name: "test valid Instance create request - invalid description are specified description exceeded 1024 char",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("rkbfdrkybjqtrvgeqjubtkeoolyhxicmnisgpaffhdldzgciilwbwqglwglqiibcntguwihfxttrwqvyneomiqaseaxfaeblkavuskxhpbxjbzvbtdbxmrqmgekhqtbsqhgiuirtppkurmwtzemljjzajnwqaqijefyvoqufjopbkepizjurtgezlivtwkmemfdjtkdskbtqkrkcpozdwjplhszfabwhfygxonkgjgctlulkvkqzxrngzuqgrkunwcafpamvynsjtvayqdlrbafirygnlrngxhkxccowqygidzocwbnyhebvtisdimfjqnceznffsiscdshbsrdhnggyskqawlltbmidtisehwryfwmfpvisjyqgcoekxemhixvsxgrwkhlqmkhbtrcnhrdfsakumvqtggmymnomwxvxnqdlcqzlerjrvzuxhunmdilxawtuxgmsnljhdromaoelxgzfsgnhttulfqwzxvufqpoxadlbnmbtlckxgrzfirvscbpzanhrhgvrsdmkqfahfridkdlhgbjvdenhibsfjdgbaiszwyqilhslwvxtstrtmdvumdtpruduviujwytepzxzexbjnuizhpvufzcjicrlaqsvufrivvsgbcrqaztasucyjtfefbxoolzmgshhjeegmwcziqgjhninqphkvgpguquikakbljemkvbpfajumhlaiahaijvdsodklqsxorsdtiksqfhmnrutafnyqqswfmfzahwmucyhwzgxthnedcfuaptaqzylwuljaxybgyenybekgkfgmpxmkcvcmyxyazykchibcugfcwxezqcwmghjweppuisyttkaodulvgzpwfzdtstvvotulpookzpwxoyqhdzcljsguieoijbsoprtfbgzuoiiogudmjpabkfiydqyatymujnfpdhugbijaawzbohqfkvlbaojsasbyrxrapdphqmnqabpbrcowvxfwlfabbmijdabqacvpokeogjhhmoswfqulgzly"),
+				Description:       cutil.GetPtr("rkbfdrkybjqtrvgeqjubtkeoolyhxicmnisgpaffhdldzgciilwbwqglwglqiibcntguwihfxttrwqvyneomiqaseaxfaeblkavuskxhpbxjbzvbtdbxmrqmgekhqtbsqhgiuirtppkurmwtzemljjzajnwqaqijefyvoqufjopbkepizjurtgezlivtwkmemfdjtkdskbtqkrkcpozdwjplhszfabwhfygxonkgjgctlulkvkqzxrngzuqgrkunwcafpamvynsjtvayqdlrbafirygnlrngxhkxccowqygidzocwbnyhebvtisdimfjqnceznffsiscdshbsrdhnggyskqawlltbmidtisehwryfwmfpvisjyqgcoekxemhixvsxgrwkhlqmkhbtrcnhrdfsakumvqtggmymnomwxvxnqdlcqzlerjrvzuxhunmdilxawtuxgmsnljhdromaoelxgzfsgnhttulfqwzxvufqpoxadlbnmbtlckxgrzfirvscbpzanhrhgvrsdmkqfahfridkdlhgbjvdenhibsfjdgbaiszwyqilhslwvxtstrtmdvumdtpruduviujwytepzxzexbjnuizhpvufzcjicrlaqsvufrivvsgbcrqaztasucyjtfefbxoolzmgshhjeegmwcziqgjhninqphkvgpguquikakbljemkvbpfajumhlaiahaijvdsodklqsxorsdtiksqfhmnrutafnyqqswfmfzahwmucyhwzgxthnedcfuaptaqzylwuljaxybgyenybekgkfgmpxmkcvcmyxyazykchibcugfcwxezqcwmghjweppuisyttkaodulvgzpwfzdtstvvotulpookzpwxoyqhdzcljsguieoijbsoprtfbgzuoiiogudmjpabkfiydqyatymujnfpdhugbijaawzbohqfkvlbaojsasbyrxrapdphqmnqabpbrcowvxfwlfabbmijdabqacvpokeogjhhmoswfqulgzly"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -555,23 +543,23 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 			name: "test valid Instance create request - accept description as empty string",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr(""),
+				Description:       cutil.GetPtr(""),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID:   cdb.GetStrPtr(uuid.NewString()),
+						SubnetID:   cutil.GetPtr(uuid.NewString()),
 						IsPhysical: true,
 					},
 					{
-						SubnetID:   cdb.GetStrPtr(uuid.NewString()),
+						SubnetID:   cutil.GetPtr(uuid.NewString()),
 						IsPhysical: false,
 					},
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -584,11 +572,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             "invalid-uuid",
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -601,11 +589,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr("invalid-uuid"),
+						SubnetID: cutil.GetPtr("invalid-uuid"),
 					},
 				},
 			},
@@ -618,7 +606,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces:        []APIInterfaceCreateOrUpdateRequest{},
 			},
@@ -631,15 +619,15 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID:   cdb.GetStrPtr(uuid.NewString()),
+						SubnetID:   cutil.GetPtr(uuid.NewString()),
 						IsPhysical: true,
 					},
 					{
-						SubnetID:   cdb.GetStrPtr(uuid.NewString()),
+						SubnetID:   cutil.GetPtr(uuid.NewString()),
 						IsPhysical: true,
 					},
 				},
@@ -653,11 +641,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				DpuExtensionServiceDeployments: []APIDpuExtensionServiceDeploymentRequest{
@@ -676,11 +664,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				DpuExtensionServiceDeployments: []APIDpuExtensionServiceDeploymentRequest{
@@ -703,7 +691,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 			},
 			wantErr: true,
@@ -715,11 +703,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -732,11 +720,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+						VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 						IsPhysical:  true,
 					},
 				},
@@ -750,14 +738,14 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 					{
-						VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+						VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -770,11 +758,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:       uuid.NewString(),
 				InstanceTypeID: uuid.NewString(),
 				VpcID:          uuid.NewString(),
-				IpxeScript:     cdb.GetStrPtr("test-ipxe-script"),
-				UserData:       cdb.GetStrPtr("test-user-data"),
+				IpxeScript:     cutil.GetPtr("test-ipxe-script"),
+				UserData:       cutil.GetPtr("test-user-data"),
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -787,11 +775,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:       uuid.NewString(),
 				InstanceTypeID: uuid.NewString(),
 				VpcID:          uuid.NewString(),
-				IpxeScript:     cdb.GetStrPtr(""),
-				UserData:       cdb.GetStrPtr("test-user-data"),
+				IpxeScript:     cutil.GetPtr(""),
+				UserData:       cutil.GetPtr("test-user-data"),
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -804,11 +792,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				Labels: map[string]string{
@@ -825,11 +813,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				Labels: map[string]string{
@@ -846,11 +834,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				Labels: map[string]string{
@@ -867,11 +855,11 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 				Labels: map[string]string{
@@ -889,10 +877,10 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
 				SecondaryVpcIDs:   []string{uuid.NewString()},
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -906,7 +894,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				NVLinkInterfaces: []APINVLinkInterfaceCreateOrUpdateRequest{
 					{
@@ -916,7 +904,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				},
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -929,7 +917,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 				NVLinkInterfaces: []APINVLinkInterfaceCreateOrUpdateRequest{
 					{
@@ -939,7 +927,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				},
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
@@ -1000,9 +988,9 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:       uuid.NewString(),
 				InstanceTypeID: uuid.NewString(),
 				VpcID:          uuid.NewString(),
-				IpxeScript:     cdb.GetStrPtr("test ipxe"),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
-					{SubnetID: cdb.GetStrPtr(uuid.NewString())},
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
 				},
 			},
 			wantErr: false,
@@ -1015,11 +1003,11 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 				TenantID:       uuid.NewString(),
 				InstanceTypeID: uuid.NewString(),
 				VpcID:          uuid.NewString(),
-				IpxeScript:     cdb.GetStrPtr("test ipxe"),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
-						IPAddress:   cdb.GetStrPtr("10.0.0.11"),
+						VpcPrefixID: cutil.GetPtr(uuid.NewString()),
+						IPAddress:   cutil.GetPtr("10.0.0.11"),
 					},
 				},
 			},
@@ -1065,8 +1053,8 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 	os := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr(util.TestCommonCloudInit),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(util.TestCommonCloudInit),
 		PhoneHomeEnabled: true,
 		IsActive:         true,
 		Status:           cdbm.OperatingSystemStatusReady,
@@ -1078,8 +1066,8 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 	osNoOverride := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr(util.TestCommonCloudInit),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr(util.TestCommonCloudInit),
 		PhoneHomeEnabled: true,
 		IsActive:         true,
 		Status:           cdbm.OperatingSystemStatusReady,
@@ -1118,12 +1106,12 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "ipxe os selected, os has user-data, no override allowed, user-data specified, should fail",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr("some user data"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr("some user data"),
 			},
 			os:      osNoOverride,
 			cfg:     cfg1,
@@ -1133,11 +1121,11 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "ipxe os selected, os has user-data, no override allowed, user-data not specified, should succeed",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				UserData:          nil,
 			},
 			os:      osNoOverride,
@@ -1148,12 +1136,12 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "image os selected, iPXE specified, should fail",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
 				UserData:          nil,
 			},
 			os:      imageOs,
@@ -1164,14 +1152,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "image os selected, phone-enabled, should succeed",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				IpxeScript:        nil,
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			os:      imageOs,
 			cfg:     cfg1,
@@ -1181,12 +1169,12 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "deactivated image os selected, should fail",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
 				UserData:          nil,
 			},
 			os:      imageOSDeactivated,
@@ -1197,15 +1185,15 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "image os selected, AlwaysBootWithCustomIpxe selected, should fail",
 			fields: fields{
 				Name:                     "test-name",
-				Description:              cdb.GetStrPtr("Test description"),
+				Description:              cutil.GetPtr("Test description"),
 				TenantID:                 uuid.NewString(),
 				InstanceTypeID:           uuid.NewString(),
 				VpcID:                    uuid.NewString(),
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
 				IpxeScript:               nil,
 				UserData:                 nil,
 				PhoneHomeEnabled:         nil,
-				AlwaysBootWithCustomIpxe: cdb.GetBoolPtr(true),
+				AlwaysBootWithCustomIpxe: cutil.GetPtr(true),
 			},
 			os:      imageOs,
 			cfg:     cfg1,
@@ -1215,14 +1203,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "os is nil, no iPXE specified, should fail",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 				IpxeScript:        nil,
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr: true,
 			cfg:     cfg1,
@@ -1231,14 +1219,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when userData is nil when OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr: false,
 			cfg:     cfg1,
@@ -1247,14 +1235,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when userData is invalid when OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr("test"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr("test"),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr: true,
 			cfg:     cfg1,
@@ -1263,14 +1251,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance create request when phone home flag is disabled, userData is non YAML and OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr("test-user-data"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr("test-user-data"),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr: false,
 			cfg:     cfg1,
@@ -1279,13 +1267,13 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance create request when phone home flag is not specified, userData is non YAML and OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr("test-user-data"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr("test-user-data"),
 			},
 			wantErr: false,
 			cfg:     cfg1,
@@ -1294,16 +1282,16 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance create request when phone home flag is specified but disabled, userData is non YAML, and OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr("test-user-data:\ninvalid\n"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr("test-user-data:\ninvalid\n"),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
-			wantUserData: cdb.GetStrPtr("test-user-data:\ninvalid\n"),
+			wantUserData: cutil.GetPtr("test-user-data:\ninvalid\n"),
 			wantErr:      false,
 			cfg:          cfg1,
 		},
@@ -1311,14 +1299,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when userData is valid when OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr(util.TestCommonCloudInit),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr(util.TestCommonCloudInit),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr: false,
 			cfg:     cfg1,
@@ -1327,14 +1315,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when userData is technically valid but functionally empty when OS in nil",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr("#cloud-config"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr("#cloud-config"),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 			},
 			wantErr: true,
 			cfg:     cfg1,
@@ -1343,14 +1331,14 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when userData is technically valid but functionally empty when OS in nil, but phonehome disabled",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				UserData:          cdb.GetStrPtr("#cloud-config"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				UserData:          cutil.GetPtr("#cloud-config"),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr: false,
 			cfg:     cfg1,
@@ -1359,11 +1347,11 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when OS in present with phonehome",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(os.ID.String()),
+				OperatingSystemID: cutil.GetPtr(os.ID.String()),
 				UserData:          nil,
 				PhoneHomeEnabled:  nil,
 			},
@@ -1375,13 +1363,13 @@ func TestAPIInstanceCreateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 			name: "test valid Instance PhoneHome enabled create request when OS in present with phonehome, userData does't contain phone home url",
 			fields: fields{
 				Name:              "test-name",
-				Description:       cdb.GetStrPtr("Test description"),
+				Description:       cutil.GetPtr("Test description"),
 				TenantID:          uuid.NewString(),
 				InstanceTypeID:    uuid.NewString(),
 				VpcID:             uuid.NewString(),
-				OperatingSystemID: cdb.GetStrPtr(os.ID.String()),
+				OperatingSystemID: cutil.GetPtr(os.ID.String()),
 				UserData:          nil,
-				PhoneHomeEnabled:  cdb.GetBoolPtr(false),
+				PhoneHomeEnabled:  cutil.GetPtr(false),
 			},
 			wantErr: false,
 			cfg:     cfg1,
@@ -1459,16 +1447,16 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "test valid Instance config update request",
 			fields: fields{
-				Name:              cdb.GetStrPtr("test-name"),
-				Description:       cdb.GetStrPtr("Test description"),
+				Name:              cutil.GetPtr("test-name"),
+				Description:       cutil.GetPtr("Test description"),
 				Labels:            map[string]string{"name": "test-name", "description": "Test description"},
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 				SecondaryVpcIDs:   []string{uuid.NewString()},
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+						VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 						IsPhysical:  false,
 					},
 				},
@@ -1487,48 +1475,48 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 					},
 				},
 				SSHKeyGroupIDs:         []string{uuid.NewString()},
-				NetworkSecurityGroupID: cdb.GetStrPtr(uuid.NewString()),
+				NetworkSecurityGroupID: cutil.GetPtr(uuid.NewString()),
 			},
 			wantErr:           false,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test valid Instance reboot request",
 			fields: fields{
-				TriggerReboot:        cdb.GetBoolPtr(true),
-				RebootWithCustomIpxe: cdb.GetBoolPtr(true),
-				ApplyUpdatesOnReboot: cdb.GetBoolPtr(true),
+				TriggerReboot:        cutil.GetPtr(true),
+				RebootWithCustomIpxe: cutil.GetPtr(true),
+				ApplyUpdatesOnReboot: cutil.GetPtr(true),
 			},
 			wantErr:           false,
-			wantUpdateRequest: cdb.GetBoolPtr(false),
+			wantUpdateRequest: cutil.GetPtr(false),
 		},
 		{
 			name: "test invalid Instance update request, name exceeded 256 char",
 			fields: fields{
-				Name:        cdb.GetStrPtr("apvhhigcgctlgiwtbrgldkegmnwuqcibutndlholygxvhzrpinziepszvpmopvzkybykrwgvzojtssorabkrnawgjzeuuerphsnecipubeuzrpewkfuvwoeybagaxpvjvzvbzqznyfmcpbxrhbdkhewiepykfjeejeqatswgrlhqkgnvwqmatejufnsjgelcugcoccybywdrnlyvsegsegorygwdvurgktpuzyrsoutspsnyzynliaxwseazqmimp"),
-				Description: cdb.GetStrPtr("Test description"),
+				Name:        cutil.GetPtr("apvhhigcgctlgiwtbrgldkegmnwuqcibutndlholygxvhzrpinziepszvpmopvzkybykrwgvzojtssorabkrnawgjzeuuerphsnecipubeuzrpewkfuvwoeybagaxpvjvzvbzqznyfmcpbxrhbdkhewiepykfjeejeqatswgrlhqkgnvwqmatejufnsjgelcugcoccybywdrnlyvsegsegorygwdvurgktpuzyrsoutspsnyzynliaxwseazqmimp"),
+				Description: cutil.GetPtr("Test description"),
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test invalid Instance update request, description exceeded 1024 char",
 			fields: fields{
-				Name:        cdb.GetStrPtr("test-name"),
-				Description: cdb.GetStrPtr("rkbfdrkybjqtrvgeqjubtkeoolyhxicmnisgpaffhdldzgciilwbwqglwglqiibcntguwihfxttrwqvyneomiqaseaxfaeblkavuskxhpbxjbzvbtdbxmrqmgekhqtbsqhgiuirtppkurmwtzemljjzajnwqaqijefyvoqufjopbkepizjurtgezlivtwkmemfdjtkdskbtqkrkcpozdwjplhszfabwhfygxonkgjgctlulkvkqzxrngzuqgrkunwcafpamvynsjtvayqdlrbafirygnlrngxhkxccowqygidzocwbnyhebvtisdimfjqnceznffsiscdshbsrdhnggyskqawlltbmidtisehwryfwmfpvisjyqgcoekxemhixvsxgrwkhlqmkhbtrcnhrdfsakumvqtggmymnomwxvxnqdlcqzlerjrvzuxhunmdilxawtuxgmsnljhdromaoelxgzfsgnhttulfqwzxvufqpoxadlbnmbtlckxgrzfirvscbpzanhrhgvrsdmkqfahfridkdlhgbjvdenhibsfjdgbaiszwyqilhslwvxtstrtmdvumdtpruduviujwytepzxzexbjnuizhpvufzcjicrlaqsvufrivvsgbcrqaztasucyjtfefbxoolzmgshhjeegmwcziqgjhninqphkvgpguquikakbljemkvbpfajumhlaiahaijvdsodklqsxorsdtiksqfhmnrutafnyqqswfmfzahwmucyhwzgxthnedcfuaptaqzylwuljaxybgyenybekgkfgmpxmkcvcmyxyazykchibcugfcwxezqcwmghjweppuisyttkaodulvgzpwfzdtstvvotulpookzpwxoyqhdzcljsguieoijbsoprtfbgzuoiiogudmjpabkfiydqyatymujnfpdhugbijaawzbohqfkvlbaojsasbyrxrapdphqmnqabpbrcowvxfwlfabbmijdabqacvpokeogjhhmoswfqulgzly"),
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("rkbfdrkybjqtrvgeqjubtkeoolyhxicmnisgpaffhdldzgciilwbwqglwglqiibcntguwihfxttrwqvyneomiqaseaxfaeblkavuskxhpbxjbzvbtdbxmrqmgekhqtbsqhgiuirtppkurmwtzemljjzajnwqaqijefyvoqufjopbkepizjurtgezlivtwkmemfdjtkdskbtqkrkcpozdwjplhszfabwhfygxonkgjgctlulkvkqzxrngzuqgrkunwcafpamvynsjtvayqdlrbafirygnlrngxhkxccowqygidzocwbnyhebvtisdimfjqnceznffsiscdshbsrdhnggyskqawlltbmidtisehwryfwmfpvisjyqgcoekxemhixvsxgrwkhlqmkhbtrcnhrdfsakumvqtggmymnomwxvxnqdlcqzlerjrvzuxhunmdilxawtuxgmsnljhdromaoelxgzfsgnhttulfqwzxvufqpoxadlbnmbtlckxgrzfirvscbpzanhrhgvrsdmkqfahfridkdlhgbjvdenhibsfjdgbaiszwyqilhslwvxtstrtmdvumdtpruduviujwytepzxzexbjnuizhpvufzcjicrlaqsvufrivvsgbcrqaztasucyjtfefbxoolzmgshhjeegmwcziqgjhninqphkvgpguquikakbljemkvbpfajumhlaiahaijvdsodklqsxorsdtiksqfhmnrutafnyqqswfmfzahwmucyhwzgxthnedcfuaptaqzylwuljaxybgyenybekgkfgmpxmkcvcmyxyazykchibcugfcwxezqcwmghjweppuisyttkaodulvgzpwfzdtstvvotulpookzpwxoyqhdzcljsguieoijbsoprtfbgzuoiiogudmjpabkfiydqyatymujnfpdhugbijaawzbohqfkvlbaojsasbyrxrapdphqmnqabpbrcowvxfwlfabbmijdabqacvpokeogjhhmoswfqulgzly"),
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test valid Instance update request, accept description as empty string",
 			fields: fields{
-				Name:              cdb.GetStrPtr("test-name"),
-				Description:       cdb.GetStrPtr(""),
+				Name:              cutil.GetPtr("test-name"),
+				Description:       cutil.GetPtr(""),
 				Labels:            map[string]string{"name": "test-name", "description": ""},
-				IpxeScript:        cdb.GetStrPtr("#ipxe\ndefault"),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
+				IpxeScript:        cutil.GetPtr("#ipxe\ndefault"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
 				InfiniBandInterfaces: []APIInfiniBandInterfaceCreateOrUpdateRequest{
 					{
 						InfiniBandPartitionID: uuid.NewString(),
@@ -1538,26 +1526,26 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 					},
 				},
 				SSHKeyGroupIDs:         []string{uuid.NewString()},
-				NetworkSecurityGroupID: cdb.GetStrPtr(uuid.NewString()),
+				NetworkSecurityGroupID: cutil.GetPtr(uuid.NewString()),
 			},
 			wantErr:           false,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test valid Instance update request ApplyUpdatesOnReboot can't be specifed",
 			fields: fields{
-				Name:                 cdb.GetStrPtr("test-name"),
-				Description:          cdb.GetStrPtr("Test description"),
-				ApplyUpdatesOnReboot: cdb.GetBoolPtr(true),
+				Name:                 cutil.GetPtr("test-name"),
+				Description:          cutil.GetPtr("Test description"),
+				ApplyUpdatesOnReboot: cutil.GetPtr(true),
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test invalid Instance config update request, invalid InfiniBand Interface device instance",
 			fields: fields{
-				Name:        cdb.GetStrPtr("test-name"),
-				Description: cdb.GetStrPtr("Test description"),
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("Test description"),
 				InfiniBandInterfaces: []APIInfiniBandInterfaceCreateOrUpdateRequest{
 					{
 						InfiniBandPartitionID: uuid.NewString(),
@@ -1567,35 +1555,35 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 					},
 				},
 				SSHKeyGroupIDs:         []string{uuid.NewString()},
-				NetworkSecurityGroupID: cdb.GetStrPtr(uuid.NewString()),
+				NetworkSecurityGroupID: cutil.GetPtr(uuid.NewString()),
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test invalid Instance config update request, invalid Interface device instance",
 			fields: fields{
-				Name:        cdb.GetStrPtr("test-name"),
-				Description: cdb.GetStrPtr("Test description"),
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("Test description"),
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						VpcPrefixID:    cdb.GetStrPtr(uuid.NewString()),
-						Device:         cdb.GetStrPtr("MT28908 Family [ConnectX-6]"),
-						DeviceInstance: cdb.GetIntPtr(-1),
+						VpcPrefixID:    cutil.GetPtr(uuid.NewString()),
+						Device:         cutil.GetPtr("MT28908 Family [ConnectX-6]"),
+						DeviceInstance: cutil.GetPtr(-1),
 						IsPhysical:     true,
 					},
 				},
 				SSHKeyGroupIDs:         []string{uuid.NewString()},
-				NetworkSecurityGroupID: cdb.GetStrPtr(uuid.NewString()),
+				NetworkSecurityGroupID: cutil.GetPtr(uuid.NewString()),
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test invalid Instance update request, NVLink Interfaces specified with device instance out of range",
 			fields: fields{
-				Name:        cdb.GetStrPtr("test-invalid-nvlink-interfaces-device-instance-out-of-range"),
-				Description: cdb.GetStrPtr("Test description"),
+				Name:        cutil.GetPtr("test-invalid-nvlink-interfaces-device-instance-out-of-range"),
+				Description: cutil.GetPtr("Test description"),
 				NVLinkInterfaces: []APINVLinkInterfaceCreateOrUpdateRequest{
 					{
 						NVLinkLogicalPartitionID: uuid.NewString(),
@@ -1604,12 +1592,12 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				},
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						VpcPrefixID: cdb.GetStrPtr(uuid.NewString()),
+						VpcPrefixID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test invalid Instance update request, secondary VPCs require interfaces",
@@ -1617,7 +1605,7 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				SecondaryVpcIDs: []string{uuid.NewString()},
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 		{
 			name: "test invalid Instance update request, secondary VPCs require vpcPrefix interfaces",
@@ -1625,12 +1613,12 @@ func TestAPIInstanceUpdateRequest_Validate(t *testing.T) {
 				SecondaryVpcIDs: []string{uuid.NewString()},
 				Interfaces: []APIInterfaceCreateOrUpdateRequest{
 					{
-						SubnetID: cdb.GetStrPtr(uuid.NewString()),
+						SubnetID: cutil.GetPtr(uuid.NewString()),
 					},
 				},
 			},
 			wantErr:           true,
-			wantUpdateRequest: cdb.GetBoolPtr(true),
+			wantUpdateRequest: cutil.GetPtr(true),
 		},
 	}
 	for _, tt := range tests {
@@ -1682,8 +1670,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		ID:               uuid.New(),
 		Name:             "ab",
 		Type:             cdbm.OperatingSystemTypeIPXE,
-		IpxeScript:       cdb.GetStrPtr("925e37ee-29b5-11ef-ba3c-8752bb7488f6"),
-		UserData:         cdb.GetStrPtr("{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
+		IpxeScript:       cutil.GetPtr("925e37ee-29b5-11ef-ba3c-8752bb7488f6"),
+		UserData:         cutil.GetPtr("{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
 		PhoneHomeEnabled: true,
 		IsActive:         true,
 		AllowOverride:    true,
@@ -1693,8 +1681,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		ID:               uuid.New(),
 		Name:             "ab",
 		Type:             cdbm.OperatingSystemTypeIPXE,
-		IpxeScript:       cdb.GetStrPtr("925e37ee-29b5-11ef-ba3c-8752bb7488f6"),
-		UserData:         cdb.GetStrPtr("{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
+		IpxeScript:       cutil.GetPtr("925e37ee-29b5-11ef-ba3c-8752bb7488f6"),
+		UserData:         cutil.GetPtr("{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
 		PhoneHomeEnabled: true,
 		AllowOverride:    false,
 	}
@@ -1704,7 +1692,7 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		ID:            uuid.New(),
 		Name:          "ab",
 		Type:          cdbm.OperatingSystemTypeImage,
-		UserData:      cdb.GetStrPtr("{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
+		UserData:      cutil.GetPtr("{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
 		IsActive:      true,
 		AllowOverride: true,
 	}
@@ -1729,10 +1717,10 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 	instanceWithVals := &cdbm.Instance{
 		ID:                       uuid.New(),
 		Name:                     "",
-		IpxeScript:               cdb.GetStrPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
+		IpxeScript:               cutil.GetPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
 		AlwaysBootWithCustomIpxe: true,
 		PhoneHomeEnabled:         true,
-		UserData:                 cdb.GetStrPtr("{'hostname': '815f5bd8-29b2-11ef-b3b1-ab4be50a4e4d'}"),
+		UserData:                 cutil.GetPtr("{'hostname': '815f5bd8-29b2-11ef-b3b1-ab4be50a4e4d'}"),
 	}
 
 	tests := []struct {
@@ -1746,8 +1734,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os nil, ipxe not set, expect error",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
 				IpxeScript:               nil,
 				PhoneHomeEnabled:         nil,
@@ -1763,13 +1751,13 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os nil, ipxe in instance, expect failure",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
 				IpxeScript:               nil,
 				PhoneHomeEnabled:         nil,
 				AlwaysBootWithCustomIpxe: nil,
-				OperatingSystemID:        cdb.GetStrPtr(""),
+				OperatingSystemID:        cutil.GetPtr(""),
 			},
 			cfg:      cfg1,
 			os:       nil,
@@ -1779,11 +1767,11 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os image, ipxe set, expect error",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
-				IpxeScript:               cdb.GetStrPtr("anything"),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
+				IpxeScript:               cutil.GetPtr("anything"),
 				PhoneHomeEnabled:         nil,
 				AlwaysBootWithCustomIpxe: nil,
 			},
@@ -1795,13 +1783,13 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os image, no ipxe set, always boot ipxe set in req, expect error",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
 				IpxeScript:               nil,
 				PhoneHomeEnabled:         nil,
-				AlwaysBootWithCustomIpxe: cdb.GetBoolPtr(true),
+				AlwaysBootWithCustomIpxe: cutil.GetPtr(true),
 			},
 			cfg:      cfg1,
 			os:       osImage,
@@ -1811,10 +1799,10 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os image, no ipxe set, always boot ipxe set in instance, expect error",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
 				IpxeScript:               nil,
 				PhoneHomeEnabled:         nil,
 				AlwaysBootWithCustomIpxe: nil,
@@ -1827,12 +1815,12 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os image, no ipxe set, phone home set in req, expect no error",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
 				IpxeScript:               nil,
-				PhoneHomeEnabled:         cdb.GetBoolPtr(true),
+				PhoneHomeEnabled:         cutil.GetPtr(true),
 				AlwaysBootWithCustomIpxe: nil,
 			},
 			cfg:      cfg1,
@@ -1843,10 +1831,10 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "os image, no ipxe set, phone home set in instance, expect error",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
 				IpxeScript:               nil,
 				PhoneHomeEnabled:         nil,
 				AlwaysBootWithCustomIpxe: nil,
@@ -1859,10 +1847,10 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nonnil, os nonnil ipxe, instance values nil, req values nil, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
-				OperatingSystemID:        cdb.GetStrPtr(uuid.NewString()),
+				OperatingSystemID:        cutil.GetPtr(uuid.NewString()),
 				IpxeScript:               nil,
 				PhoneHomeEnabled:         nil,
 				AlwaysBootWithCustomIpxe: nil,
@@ -1875,8 +1863,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, instance values nonnil, req values nil, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
 				OperatingSystemID:        nil,
 				IpxeScript:               nil,
@@ -1891,8 +1879,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, instance values nil, req values nonnil, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 instanceWithVals.UserData,
 				OperatingSystemID:        nil,
 				IpxeScript:               instanceWithVals.IpxeScript,
@@ -1907,8 +1895,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, original os has user-data, override not allowed, instance values nil, req values nonnil, expect failure",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 instanceWithVals.UserData,
 				OperatingSystemID:        nil,
 				IpxeScript:               instanceWithVals.IpxeScript,
@@ -1923,8 +1911,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, original os has user-data, override not allowed, instance values nil, req user-data nil, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 nil,
 				OperatingSystemID:        nil,
 				IpxeScript:               instanceWithVals.IpxeScript,
@@ -1939,8 +1927,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, instance values nil, req values nil, expect failure",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
 				UserData:                 instanceWithVals.UserData,
 				OperatingSystemID:        nil,
 				IpxeScript:               nil,
@@ -1955,13 +1943,13 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, set valid but technically empty user-data, phonehome enabled, expect failure",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
-				UserData:                 cdb.GetStrPtr("#cloud-config"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
+				UserData:                 cutil.GetPtr("#cloud-config"),
 				OperatingSystemID:        nil,
-				IpxeScript:               cdb.GetStrPtr("anything"),
-				PhoneHomeEnabled:         cdb.GetBoolPtr(true),
-				AlwaysBootWithCustomIpxe: cdb.GetBoolPtr(false),
+				IpxeScript:               cutil.GetPtr("anything"),
+				PhoneHomeEnabled:         cutil.GetPtr(true),
+				AlwaysBootWithCustomIpxe: cutil.GetPtr(false),
 			},
 			cfg:      cfg1,
 			os:       osPxe,
@@ -1971,13 +1959,13 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData(t *testing.T
 		{
 			name: "OS ID nil, os nonnil ipxe, set valid but technically empty user-data, phonehome disabled, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:                     cdb.GetStrPtr("test-name"),
-				Description:              cdb.GetStrPtr("Test description"),
-				UserData:                 cdb.GetStrPtr("#cloud-config"),
+				Name:                     cutil.GetPtr("test-name"),
+				Description:              cutil.GetPtr("Test description"),
+				UserData:                 cutil.GetPtr("#cloud-config"),
 				OperatingSystemID:        nil,
-				IpxeScript:               cdb.GetStrPtr("anything"),
-				PhoneHomeEnabled:         cdb.GetBoolPtr(false),
-				AlwaysBootWithCustomIpxe: cdb.GetBoolPtr(false),
+				IpxeScript:               cutil.GetPtr("anything"),
+				PhoneHomeEnabled:         cutil.GetPtr(false),
+				AlwaysBootWithCustomIpxe: cutil.GetPtr(false),
 			},
 			cfg:      cfg1,
 			os:       osPxe,
@@ -2007,8 +1995,8 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 	os1 := &cdbm.OperatingSystem{
 		ID:               uuid.New(),
 		Name:             "ab",
-		IpxeScript:       cdb.GetStrPtr("original ipxe"),
-		UserData:         cdb.GetStrPtr("#cloud-config\n{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
+		IpxeScript:       cutil.GetPtr("original ipxe"),
+		UserData:         cutil.GetPtr("#cloud-config\n{'hostname': 'd2def8d8-29b2-11ef-81e6-07a09293ef16'}"),
 		PhoneHomeEnabled: true,
 		IsActive:         true,
 		Status:           cdbm.OperatingSystemStatusReady,
@@ -2020,17 +2008,17 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 	instance1 := &cdbm.Instance{
 		ID:                       uuid.New(),
 		Name:                     "",
-		IpxeScript:               cdb.GetStrPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
+		IpxeScript:               cutil.GetPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
 		AlwaysBootWithCustomIpxe: true,
 		PhoneHomeEnabled:         true,
-		UserData:                 cdb.GetStrPtr("#cloud-config\n{'hostname': '815f5bd8-29b2-11ef-b3b1-ab4be50a4e4d'}"),
+		UserData:                 cutil.GetPtr("#cloud-config\n{'hostname': '815f5bd8-29b2-11ef-b3b1-ab4be50a4e4d'}"),
 	}
 
 	// Instance with ipxe and user-data.
 	instance2 := &cdbm.Instance{
 		ID:                       uuid.New(),
 		Name:                     "",
-		IpxeScript:               cdb.GetStrPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
+		IpxeScript:               cutil.GetPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
 		AlwaysBootWithCustomIpxe: true,
 		PhoneHomeEnabled:         true,
 	}
@@ -2039,7 +2027,7 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 	instance3 := &cdbm.Instance{
 		ID:                       uuid.New(),
 		Name:                     "",
-		IpxeScript:               cdb.GetStrPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
+		IpxeScript:               cutil.GetPtr("#!ipxe 9ea0c946-29af-11ef-b798-df4626ad0292"),
 		AlwaysBootWithCustomIpxe: true,
 		PhoneHomeEnabled:         false,
 	}
@@ -2058,11 +2046,11 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "test valid Instance PhoneHome enabled update request when userData is nil when OS is nil, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:             cdb.GetStrPtr("test-name"),
-				Description:      cdb.GetStrPtr("Test description"),
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
 				UserData:         nil,
-				IpxeScript:       cdb.GetStrPtr("#!ipxe d5b692a8-29af-11ef-90ef-d392e60d87b2"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				IpxeScript:       cutil.GetPtr("#!ipxe d5b692a8-29af-11ef-90ef-d392e60d87b2"),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			cfg:      cfg1,
 			instance: instance1,
@@ -2078,11 +2066,11 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "test invalid Instance PhoneHome enabled update request when userData is invalid and OS is nil, expect failure",
 			request: &APIInstanceUpdateRequest{
-				Name:             cdb.GetStrPtr("test-name"),
-				Description:      cdb.GetStrPtr("Test description"),
-				UserData:         cdb.GetStrPtr("test-user-data"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
-				IpxeScript:       cdb.GetStrPtr("#!ipxe e9d97138-29af-11ef-8b2c-57634a01308c"),
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				UserData:         cutil.GetPtr("test-user-data"),
+				PhoneHomeEnabled: cutil.GetPtr(true),
+				IpxeScript:       cutil.GetPtr("#!ipxe e9d97138-29af-11ef-8b2c-57634a01308c"),
 			},
 			wantErr:  true,
 			instance: instance1,
@@ -2091,11 +2079,11 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "test valid Instance update request when phone home flag is disabled, userData is non-YAML and OS is nil",
 			request: &APIInstanceUpdateRequest{
-				Name:             cdb.GetStrPtr("test-name"),
-				Description:      cdb.GetStrPtr("Test description"),
-				UserData:         cdb.GetStrPtr("test-user-data"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(false),
-				IpxeScript:       cdb.GetStrPtr("#!ipxe e9d97138-29af-11ef-8b2c-57634a01308c"),
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				UserData:         cutil.GetPtr("test-user-data"),
+				PhoneHomeEnabled: cutil.GetPtr(false),
+				IpxeScript:       cutil.GetPtr("#!ipxe e9d97138-29af-11ef-8b2c-57634a01308c"),
 			},
 			wantErr:  false,
 			instance: instance1,
@@ -2104,10 +2092,10 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "test valid Instance update request when phone home flag is unspecified, userData is non-YAML and OS is nil",
 			request: &APIInstanceUpdateRequest{
-				Name:        cdb.GetStrPtr("test-name"),
-				Description: cdb.GetStrPtr("Test description"),
-				UserData:    cdb.GetStrPtr("test-user-data"),
-				IpxeScript:  cdb.GetStrPtr("#!ipxe e9d97138-29af-11ef-8b2c-57634a01308c"),
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("Test description"),
+				UserData:    cutil.GetPtr("test-user-data"),
+				IpxeScript:  cutil.GetPtr("#!ipxe e9d97138-29af-11ef-8b2c-57634a01308c"),
 			},
 			wantErr:  false,
 			instance: instance3,
@@ -2116,11 +2104,11 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "test valid Instance PhoneHome enabled update request when userData is valid when OS is nil",
 			request: &APIInstanceUpdateRequest{
-				Name:             cdb.GetStrPtr("test-name"),
-				Description:      cdb.GetStrPtr("Test description"),
-				IpxeScript:       cdb.GetStrPtr("#!ipxe ecf9ec1c-29af-11ef-a963-8f9524fd4f22"),
-				UserData:         cdb.GetStrPtr(util.TestCommonCloudInit),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				IpxeScript:       cutil.GetPtr("#!ipxe ecf9ec1c-29af-11ef-a963-8f9524fd4f22"),
+				UserData:         cutil.GetPtr(util.TestCommonCloudInit),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			wantErr:  false,
 			instance: instance1,
@@ -2136,10 +2124,10 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "test valid Instance PhoneHome enabled update request when OS in present with phonehome, userData doesn't contain phone home url",
 			request: &APIInstanceUpdateRequest{
-				Name:             cdb.GetStrPtr("test-name"),
-				Description:      cdb.GetStrPtr("Test description"),
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
 				UserData:         nil,
-				PhoneHomeEnabled: cdb.GetBoolPtr(false),
+				PhoneHomeEnabled: cutil.GetPtr(false),
 			},
 			wantErr:  false,
 			cfg:      cfg1,
@@ -2152,9 +2140,9 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "PhoneHome enabled in request, no base os change, os nonnil, expect instance user-data, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:             cdb.GetStrPtr("test-name"),
-				Description:      cdb.GetStrPtr("Test description"),
-				PhoneHomeEnabled: cdb.GetBoolPtr(true),
+				Name:             cutil.GetPtr("test-name"),
+				Description:      cutil.GetPtr("Test description"),
+				PhoneHomeEnabled: cutil.GetPtr(true),
 			},
 			wantErr:  false,
 			cfg:      cfg1,
@@ -2169,24 +2157,24 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "PhoneHome enabled in request, base os change, os nonnil, empty user-data, expect instance user-data, expect success",
 			request: &APIInstanceUpdateRequest{
-				Name:              cdb.GetStrPtr("test-name"),
-				Description:       cdb.GetStrPtr("Test description"),
-				PhoneHomeEnabled:  cdb.GetBoolPtr(true),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
-				UserData:          cdb.GetStrPtr(""),
+				Name:              cutil.GetPtr("test-name"),
+				Description:       cutil.GetPtr("Test description"),
+				PhoneHomeEnabled:  cutil.GetPtr(true),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				UserData:          cutil.GetPtr(""),
 			},
 			wantErr:            false,
 			cfg:                cfg1,
 			instance:           instance1,
 			os:                 os1,
-			userDataExactMatch: cdb.GetStrPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg1.GetSitePhoneHomeUrl())),
+			userDataExactMatch: cutil.GetPtr(fmt.Sprintf(SitePhoneHomeCloudInit, cfg1.GetSitePhoneHomeUrl())),
 		},
 		{
 			name: "PhoneHome enabled in instance and request updates only base OS",
 			request: &APIInstanceUpdateRequest{
-				Name:              cdb.GetStrPtr("test-name"),
-				Description:       cdb.GetStrPtr("Test description"),
-				OperatingSystemID: cdb.GetStrPtr(uuid.NewString()),
+				Name:              cutil.GetPtr("test-name"),
+				Description:       cutil.GetPtr("Test description"),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
 			},
 			wantErr:  false,
 			cfg:      cfg1,
@@ -2200,9 +2188,9 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "PhoneHome enabled in instance and request updates only user-data",
 			request: &APIInstanceUpdateRequest{
-				Name:        cdb.GetStrPtr("test-name"),
-				Description: cdb.GetStrPtr("Test description"),
-				UserData:    cdb.GetStrPtr("{'hostname': '563d2b4c-29b2-11ef-ad4f-df06abe3358c'}"),
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("Test description"),
+				UserData:    cutil.GetPtr("{'hostname': '563d2b4c-29b2-11ef-ad4f-df06abe3358c'}"),
 			},
 			wantErr:  false,
 			cfg:      cfg1,
@@ -2217,9 +2205,9 @@ func TestAPIInstanceUpdateRequest_ValidateAndSetOperatingSystemData_Phonehome(t 
 		{
 			name: "PhoneHome enabled in instance with no user-data and request updates only user-data",
 			request: &APIInstanceUpdateRequest{
-				Name:        cdb.GetStrPtr("test-name"),
-				Description: cdb.GetStrPtr("Test description"),
-				UserData:    cdb.GetStrPtr("{'hostname': '563d2b4c-29b2-11ef-ad4f-df06abe3358c'}"),
+				Name:        cutil.GetPtr("test-name"),
+				Description: cutil.GetPtr("Test description"),
+				UserData:    cutil.GetPtr("{'hostname': '563d2b4c-29b2-11ef-ad4f-df06abe3358c'}"),
 			},
 			wantErr:  false,
 			cfg:      cfg1,
@@ -2284,7 +2272,7 @@ func Test_getAggregatedInstanceStatus(t *testing.T) {
 			name: "test get aggregated Instance status when Instance status is not Ready",
 			args: args{
 				status:      cdbm.InstanceStatusPending,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+				powerStatus: cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 			},
 			want: cdbm.InstanceStatusPending,
 		},
@@ -2292,7 +2280,7 @@ func Test_getAggregatedInstanceStatus(t *testing.T) {
 			name: "test get aggregated Instance status when Instance status is Ready and power status is Rebooting",
 			args: args{
 				status:      cdbm.InstanceStatusReady,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+				powerStatus: cutil.GetPtr(cdbm.InstancePowerStatusRebooting),
 			},
 			want: cdbm.InstancePowerStatusRebooting,
 		},
@@ -2300,33 +2288,9 @@ func Test_getAggregatedInstanceStatus(t *testing.T) {
 			name: "test get aggregated Instance status when Instance status is Ready and power status is Error",
 			args: args{
 				status:      cdbm.InstanceStatusReady,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusError),
+				powerStatus: cutil.GetPtr(cdbm.InstancePowerStatusError),
 			},
 			want: cdbm.InstancePowerStatusError,
-		},
-		{
-			name: "Repairing overlays Rebooting power status like Ready",
-			args: args{
-				status:      cdbm.InstanceStatusRepairing,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
-			},
-			want: cdbm.InstancePowerStatusRebooting,
-		},
-		{
-			name: "Repairing overlays Error power status like Ready",
-			args: args{
-				status:      cdbm.InstanceStatusRepairing,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusError),
-			},
-			want: cdbm.InstancePowerStatusError,
-		},
-		{
-			name: "non-ready status does not overlay power status during repair-unrelated states",
-			args: args{
-				status:      cdbm.InstanceStatusUpdating,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
-			},
-			want: cdbm.InstanceStatusUpdating,
 		},
 	}
 	for _, tt := range tests {
@@ -2340,7 +2304,7 @@ func Test_getAggregatedInstanceStatus(t *testing.T) {
 
 func TestAPIInstanceDeleteRequest_Validate(t *testing.T) {
 	type fields struct {
-		MachineHealthIssue *APIMachineHealthIssueReport
+		MachineHealthIssue *APIMachineHealthIssue
 		IsRepairTenant     *bool
 	}
 	tests := []struct {
@@ -2351,44 +2315,44 @@ func TestAPIInstanceDeleteRequest_Validate(t *testing.T) {
 		{
 			name: "test valid Instance delete request",
 			fields: fields{
-				MachineHealthIssue: &APIMachineHealthIssueReport{
+				MachineHealthIssue: &APIMachineHealthIssue{
 					Category: "Hardware",
-					Summary:  cdb.GetStrPtr("Test summary"),
-					Details:  cdb.GetStrPtr("Test details"),
+					Summary:  cutil.GetPtr("Test summary"),
+					Details:  cutil.GetPtr("Test details"),
 				},
-				IsRepairTenant: cdb.GetBoolPtr(true),
+				IsRepairTenant: cutil.GetPtr(true),
 			},
 			wantErr: false,
 		},
 		{
 			name: "test invalid Instance delete request - invalid machine health issue category",
 			fields: fields{
-				MachineHealthIssue: &APIMachineHealthIssueReport{
+				MachineHealthIssue: &APIMachineHealthIssue{
 					Category: "Invalid",
 				},
-				IsRepairTenant: cdb.GetBoolPtr(true),
+				IsRepairTenant: cutil.GetPtr(true),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Instance delete request - required machine health issue summary",
 			fields: fields{
-				MachineHealthIssue: &APIMachineHealthIssueReport{
+				MachineHealthIssue: &APIMachineHealthIssue{
 					Category: "Hardware",
 				},
-				IsRepairTenant: cdb.GetBoolPtr(true),
+				IsRepairTenant: cutil.GetPtr(true),
 			},
 			wantErr: true,
 		},
 		{
 			name: "test invalid Instance delete request - invalid category",
 			fields: fields{
-				MachineHealthIssue: &APIMachineHealthIssueReport{
+				MachineHealthIssue: &APIMachineHealthIssue{
 					Category: "Storage",
-					Summary:  cdb.GetStrPtr("Test summary"),
-					Details:  cdb.GetStrPtr(""),
+					Summary:  cutil.GetPtr("Test summary"),
+					Details:  cutil.GetPtr(""),
 				},
-				IsRepairTenant: cdb.GetBoolPtr(true),
+				IsRepairTenant: cutil.GetPtr(true),
 			},
 			wantErr: true,
 		},
@@ -2406,4 +2370,265 @@ func TestAPIInstanceDeleteRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAPIInstanceCreateRequest_Validate_Auto exercises the `auto` /
+// `interfaces` exclusivity rules introduced for zero-DPU instances.
+func TestAPIInstanceCreateRequest_Validate_Auto(t *testing.T) {
+	tests := []struct {
+		name             string
+		req              APIInstanceCreateRequest
+		wantErr          bool
+		wantErrorMessage string
+	}{
+		{
+			name: "auto=true with empty interfaces succeeds",
+			req: APIInstanceCreateRequest{
+				Name:              "auto-instance",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				AutoNetwork:       true,
+				Interfaces:        nil,
+			},
+			wantErr: false,
+		},
+		{
+			name: "auto=true with interfaces is rejected",
+			req: APIInstanceCreateRequest{
+				Name:              "auto-instance",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				AutoNetwork:       true,
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
+				},
+			},
+			wantErr:          true,
+			wantErrorMessage: "`interfaces` must be empty when `autoNetwork` is true",
+		},
+		{
+			name: "auto=false with empty interfaces is rejected",
+			req: APIInstanceCreateRequest{
+				Name:              "manual-instance",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				AutoNetwork:       false,
+				Interfaces:        nil,
+			},
+			wantErr:          true,
+			wantErrorMessage: "at least one Interface must be specified",
+		},
+		{
+			name: "auto=true with secondaryVpcIds is rejected",
+			req: APIInstanceCreateRequest{
+				Name:              "auto-instance",
+				TenantID:          uuid.NewString(),
+				InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+				VpcID:             uuid.NewString(),
+				OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+				AutoNetwork:       true,
+				SecondaryVpcIDs:   []string{uuid.NewString()},
+			},
+			wantErr:          true,
+			wantErrorMessage: "`secondaryVpcIds` is not supported when `autoNetwork` is true",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if (err != nil) != tt.wantErr {
+				marshalledErr, _ := json.Marshal(err)
+				t.Errorf("Validate() error = %v, wantErr %v", string(marshalledErr), tt.wantErr)
+			}
+			if tt.wantErrorMessage != "" && err != nil {
+				assert.Contains(t, err.Error(), tt.wantErrorMessage)
+			}
+		})
+	}
+}
+
+// TestAPIBatchInstanceCreateRequest_Validate_Auto mirrors the create-side
+// exclusivity rules for the batch endpoint.
+func TestAPIBatchInstanceCreateRequest_Validate_Auto(t *testing.T) {
+	tests := []struct {
+		name             string
+		req              APIBatchInstanceCreateRequest
+		wantErr          bool
+		wantErrorMessage string
+	}{
+		{
+			name: "auto=true with empty interfaces succeeds",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:     "auto-batch",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
+				AutoNetwork:    true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "auto=true with interfaces is rejected",
+			req: APIBatchInstanceCreateRequest{
+				NamePrefix:     "auto-batch",
+				Count:          2,
+				TenantID:       uuid.NewString(),
+				InstanceTypeID: uuid.NewString(),
+				VpcID:          uuid.NewString(),
+				IpxeScript:     cutil.GetPtr("test ipxe"),
+				AutoNetwork:    true,
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
+				},
+			},
+			wantErr:          true,
+			wantErrorMessage: "`interfaces` must be empty when `autoNetwork` is true",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if (err != nil) != tt.wantErr {
+				marshalledErr, _ := json.Marshal(err)
+				t.Errorf("Validate() error = %v, wantErr %v", string(marshalledErr), tt.wantErr)
+			}
+			if tt.wantErrorMessage != "" && err != nil {
+				assert.Contains(t, err.Error(), tt.wantErrorMessage)
+			}
+		})
+	}
+}
+
+// TestAPIInstanceUpdateRequest_Validate_Auto covers the auto/interfaces
+// exclusivity rule when toggling auto via the update endpoint.
+func TestAPIInstanceUpdateRequest_Validate_Auto(t *testing.T) {
+	autoTrue := true
+	autoFalse := false
+	tests := []struct {
+		name             string
+		req              APIInstanceUpdateRequest
+		wantErr          bool
+		wantErrorMessage string
+	}{
+		{
+			name:    "auto unset leaves validation untouched",
+			req:     APIInstanceUpdateRequest{AutoNetwork: nil},
+			wantErr: false,
+		},
+		{
+			name:    "auto=true with no interfaces succeeds",
+			req:     APIInstanceUpdateRequest{AutoNetwork: &autoTrue},
+			wantErr: false,
+		},
+		{
+			name: "auto=true with interfaces is rejected",
+			req: APIInstanceUpdateRequest{
+				AutoNetwork: &autoTrue,
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
+				},
+			},
+			wantErr:          true,
+			wantErrorMessage: "`interfaces` must be empty when `autoNetwork` is true",
+		},
+		{
+			name: "auto=false with interfaces succeeds",
+			req: APIInstanceUpdateRequest{
+				AutoNetwork: &autoFalse,
+				Interfaces: []APIInterfaceCreateOrUpdateRequest{
+					{SubnetID: cutil.GetPtr(uuid.NewString())},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "auto=true with secondaryVpcIds is rejected",
+			req: APIInstanceUpdateRequest{
+				AutoNetwork:     &autoTrue,
+				SecondaryVpcIDs: []string{uuid.NewString()},
+			},
+			wantErr:          true,
+			wantErrorMessage: "`secondaryVpcIds` is not supported when `autoNetwork` is true",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if (err != nil) != tt.wantErr {
+				marshalledErr, _ := json.Marshal(err)
+				t.Errorf("Validate() error = %v, wantErr %v", string(marshalledErr), tt.wantErr)
+			}
+			if tt.wantErrorMessage != "" && err != nil {
+				assert.Contains(t, err.Error(), tt.wantErrorMessage)
+			}
+		})
+	}
+}
+
+func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	instance := &cdbm.Instance{ID: id, ControllerInstanceID: &ctrlID}
+
+	t.Run("empty request sources only the canonical ID", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{}
+		got := req.ToProto(instance)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, ctrlID.String(), got.Id.Value)
+		assert.Nil(t, got.Issue)
+		assert.Nil(t, got.IsRepairTenant)
+	})
+
+	t.Run("overlays MachineHealthIssue with summary and details", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{
+			MachineHealthIssue: &APIMachineHealthIssue{
+				Category: MachineIssueCategoryHardware,
+				Summary:  cutil.GetPtr("burnt out NIC"),
+				Details:  cutil.GetPtr("port 0 returned link-down for 30 minutes"),
+			},
+		}
+		got := req.ToProto(instance)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Issue)
+		assert.Equal(t, cwssaws.IssueCategory_HARDWARE, got.Issue.Category)
+		assert.Equal(t, "burnt out NIC", got.Issue.Summary)
+		assert.Equal(t, "port 0 returned link-down for 30 minutes", got.Issue.Details)
+	})
+
+	t.Run("MachineHealthIssue without optional pointers leaves Summary and Details empty", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{
+			MachineHealthIssue: &APIMachineHealthIssue{
+				Category: MachineIssueCategoryOther,
+			},
+		}
+		got := req.ToProto(instance)
+		require.NotNil(t, got.Issue)
+		assert.Equal(t, cwssaws.IssueCategory_OTHER, got.Issue.Category)
+		assert.Equal(t, "", got.Issue.Summary)
+		assert.Equal(t, "", got.Issue.Details)
+	})
+
+	t.Run("overlays IsRepairTenant when set", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{IsRepairTenant: cutil.GetPtr(true)}
+		got := req.ToProto(instance)
+		require.NotNil(t, got.IsRepairTenant)
+		assert.True(t, *got.IsRepairTenant)
+	})
+
+	t.Run("uses Instance ID when ControllerInstanceID is nil", func(t *testing.T) {
+		bare := &cdbm.Instance{ID: id}
+		req := APIInstanceDeleteRequest{}
+		got := req.ToProto(bare)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+	})
 }

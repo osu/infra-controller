@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package authz
 
@@ -21,10 +7,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/core/claim"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/core/claim"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -44,10 +30,10 @@ func TestValidateOrgMembership(t *testing.T) {
 	// Add user entry
 	user := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			org: cdbm.Org{
 				ID:      123,
@@ -123,10 +109,10 @@ func TestValidateNgcUserRoles(t *testing.T) {
 	// Add user entry
 	user := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("jdoe@test.com"),
-		FirstName:   cdb.GetStrPtr("John"),
-		LastName:    cdb.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 		OrgData: cdbm.OrgData{
 			providerOrg: cdbm.Org{
 				ID:      123,
@@ -185,7 +171,7 @@ func TestValidateNgcUserRoles(t *testing.T) {
 			name: "valid tenant team role returns true",
 			args: args{
 				orgName:     tenantOrg,
-				ngcTeamName: cdb.GetStrPtr(tenantTeam),
+				ngcTeamName: cutil.GetPtr(tenantTeam),
 				targetRoles: []string{tenantRole},
 			},
 			want: true,
@@ -217,10 +203,10 @@ func TestValidateOrgMembershipCaseInsensitive(t *testing.T) {
 	// NGC-style data with mixed case org names
 	ngcUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("ngc@test.com"),
-		FirstName:   cdb.GetStrPtr("NGC"),
-		LastName:    cdb.GetStrPtr("User"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("ngc@test.com"),
+		FirstName:   cutil.GetPtr("NGC"),
+		LastName:    cutil.GetPtr("User"),
 		OrgData: cdbm.OrgData{
 			"nvidia": cdbm.Org{
 				ID:          1,
@@ -244,10 +230,10 @@ func TestValidateOrgMembershipCaseInsensitive(t *testing.T) {
 	// Keycloak-style data with lowercase org names
 	keycloakUser := &cdbm.User{
 		ID:          uuid.New(),
-		AuxiliaryID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("keycloak@test.com"),
-		FirstName:   cdb.GetStrPtr("Keycloak"),
-		LastName:    cdb.GetStrPtr("User"),
+		AuxiliaryID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("keycloak@test.com"),
+		FirstName:   cutil.GetPtr("Keycloak"),
+		LastName:    cutil.GetPtr("User"),
 		OrgData: cdbm.OrgData{
 			"nico-tenant-dev": cdbm.Org{
 				ID:          0,
@@ -383,10 +369,10 @@ func TestValidateUserRolesCaseInsensitive(t *testing.T) {
 	// NGC-style data with mixed case org names
 	ngcUser := &cdbm.User{
 		ID:          uuid.New(),
-		StarfleetID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("ngc@test.com"),
-		FirstName:   cdb.GetStrPtr("NGC"),
-		LastName:    cdb.GetStrPtr("User"),
+		StarfleetID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("ngc@test.com"),
+		FirstName:   cutil.GetPtr("NGC"),
+		LastName:    cutil.GetPtr("User"),
 		OrgData: cdbm.OrgData{
 			"nvidia": cdbm.Org{
 				ID:          1,
@@ -409,10 +395,10 @@ func TestValidateUserRolesCaseInsensitive(t *testing.T) {
 	// Keycloak-style data with lowercase org names
 	keycloakUser := &cdbm.User{
 		ID:          uuid.New(),
-		AuxiliaryID: cdb.GetStrPtr(uuid.New().String()),
-		Email:       cdb.GetStrPtr("keycloak@test.com"),
-		FirstName:   cdb.GetStrPtr("Keycloak"),
-		LastName:    cdb.GetStrPtr("User"),
+		AuxiliaryID: cutil.GetPtr(uuid.New().String()),
+		Email:       cutil.GetPtr("keycloak@test.com"),
+		FirstName:   cutil.GetPtr("Keycloak"),
+		LastName:    cutil.GetPtr("User"),
 		OrgData: cdbm.OrgData{
 			"nico-tenant-dev": cdbm.Org{
 				ID:          0,
@@ -463,7 +449,7 @@ func TestValidateUserRolesCaseInsensitive(t *testing.T) {
 			name:        "NGC - exact case team role match",
 			user:        ngcUser,
 			orgName:     "nvidia",
-			teamName:    cdb.GetStrPtr("qa1"),
+			teamName:    cutil.GetPtr("qa1"),
 			targetRoles: []string{ProviderAdminRole},
 			expected:    true,
 		},
@@ -471,7 +457,7 @@ func TestValidateUserRolesCaseInsensitive(t *testing.T) {
 			name:        "NGC - uppercase org name team role match",
 			user:        ngcUser,
 			orgName:     "NVIDIA",
-			teamName:    cdb.GetStrPtr("qa1"),
+			teamName:    cutil.GetPtr("qa1"),
 			targetRoles: []string{TenantAdminRole},
 			expected:    true,
 		},
@@ -682,10 +668,10 @@ func TestKeycloakRealmAccessToOrgDataValidation(t *testing.T) {
 			// Step 3: Create user with the extracted orgData
 			user := &cdbm.User{
 				ID:          uuid.New(),
-				AuxiliaryID: cdb.GetStrPtr(uuid.New().String()), // Keycloak users use AuxiliaryID
-				Email:       cdb.GetStrPtr(keycloakClaims.Email),
-				FirstName:   cdb.GetStrPtr(keycloakClaims.FirstName),
-				LastName:    cdb.GetStrPtr(keycloakClaims.LastName),
+				AuxiliaryID: cutil.GetPtr(uuid.New().String()), // Keycloak users use AuxiliaryID
+				Email:       cutil.GetPtr(keycloakClaims.Email),
+				FirstName:   cutil.GetPtr(keycloakClaims.FirstName),
+				LastName:    cutil.GetPtr(keycloakClaims.LastName),
 				OrgData:     orgData, // This is the extracted orgData from realmAccess
 			}
 

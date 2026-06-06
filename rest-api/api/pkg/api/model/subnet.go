@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -23,8 +9,10 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -59,8 +47,8 @@ type APISubnetCreateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (scr APISubnetCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&scr,
+func (scr *APISubnetCreateRequest) Validate() error {
+	err := validation.ValidateStruct(scr,
 		validation.Field(&scr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.Length(2, 256).Error(validationErrorStringLength)),
@@ -90,6 +78,37 @@ func (scr APISubnetCreateRequest) Validate() error {
 	return nil
 }
 
+// ToProto builds the workflow request that asks a Site to create a new
+// Subnet under the given parent VPC. `subnet` is the just-persisted DB
+// record; its `ToProto()` is the source of the canonical wire fields
+// (Id/Name/Mtu/SubdomainId/Prefixes). `vpc` provides the Site-facing
+// parent VPC ID. `reservedIPCount` is a deployment-policy value applied
+// to each prefix that does not live on the entity, so it is threaded
+// through here.
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see.
+func (scr *APISubnetCreateRequest) ToProto(subnet *cdbm.Subnet, vpc *cdbm.Vpc, reservedIPCount int32) *cwssaws.NetworkSegmentCreationRequest {
+	subnetProto := subnet.ToProto()
+	// `prefixes` aliases `subnetProto.Prefixes`; the slice + its `NetworkPrefix`
+	// elements are freshly allocated by `subnet.ToProto()` on every call, so
+	// mutating `ReserveFirst` here is safe -- nothing else holds a reference
+	// to those values.
+	prefixes := subnetProto.Prefixes
+	for _, p := range prefixes {
+		p.ReserveFirst = reservedIPCount
+	}
+	return &cwssaws.NetworkSegmentCreationRequest{
+		Id:          subnetProto.Id,
+		Name:        subnetProto.Name,
+		SubdomainId: subnetProto.SubdomainId,
+		VpcId:       &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		Mtu:         subnetProto.Mtu,
+		Prefixes:    prefixes,
+	}
+}
+
 // APISubnetUpdateRequest is the data structure to capture user request to update a Subnet
 type APISubnetUpdateRequest struct {
 	// Name is the name of the Subnet
@@ -99,8 +118,8 @@ type APISubnetUpdateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (sur APISubnetUpdateRequest) Validate() error {
-	return validation.ValidateStruct(&sur,
+func (sur *APISubnetUpdateRequest) Validate() error {
+	return validation.ValidateStruct(sur,
 		validation.Field(&sur.Name,
 			// length validation rule accepts empty string as valid, hence, required is needed
 			validation.When(sur.Name != nil, validation.Required.Error(validationErrorStringLength)),
@@ -156,6 +175,8 @@ type APISubnet struct {
 	MTU *int `json:"mtu"`
 	// StatusHistory is the history of statuses for the Subnet
 	StatusHistory []APIStatusDetail `json:"statusHistory"`
+	// UsageStats reports IPv4 usage from SubnetDAO.GetPrefixUsage (in-memory IPAM over interface IPs) when requested via includeUsageStats
+	UsageStats *APIIPBlockUsageStats `json:"usageStats,omitempty"`
 	// CreatedAt indicates the ISO datetime string for when the entity was created
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
@@ -163,7 +184,7 @@ type APISubnet struct {
 }
 
 // NewAPISubnet accepts a DB layer objects and returns an API layer object
-func NewAPISubnet(dbs *cdbm.Subnet, dbsds []cdbm.StatusDetail) *APISubnet {
+func NewAPISubnet(dbs *cdbm.Subnet, dbsds []cdbm.StatusDetail, dbpu *cipam.Usage) *APISubnet {
 	apiSubnet := APISubnet{
 		ID:           dbs.ID.String(),
 		Name:         dbs.Name,
@@ -182,6 +203,16 @@ func NewAPISubnet(dbs *cdbm.Subnet, dbsds []cdbm.StatusDetail) *APISubnet {
 		Created:      dbs.Created,
 		Updated:      dbs.Updated,
 		MTU:          dbs.MTU,
+	}
+
+	if dbpu != nil {
+		apiSubnet.UsageStats = &APIIPBlockUsageStats{
+			AvailableIPs:              dbpu.AvailableIPs,
+			AcquiredIPs:               dbpu.AcquiredIPs,
+			AvailablePrefixes:         dbpu.AvailablePrefixes,
+			AcquiredPrefixes:          dbpu.AcquiredPrefixes,
+			AvailableSmallestPrefixes: dbpu.AvailableSmallestPrefixes,
+		}
 	}
 
 	if dbs.ControllerNetworkSegmentID != nil {

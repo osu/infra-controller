@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -25,10 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 )
 
@@ -79,7 +66,7 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 			HostId:             &host,
 			Metadata: &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "env", Value: db.GetStrPtr("prod")},
+					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
 		})
@@ -101,11 +88,11 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 		assert.Equal(t, &slot, es.SlotID)
 		assert.Equal(t, &trayIdx, es.TrayIdx)
 		assert.Equal(t, &host, es.HostID)
-		assert.Equal(t, map[string]string{"env": "prod"}, es.Labels)
+		assert.Equal(t, Labels{"env": "prod"}, es.Labels)
 	})
 
 	t.Run("empty BmcIpAddress yields nil pointer", func(t *testing.T) {
-		es := &ExpectedSwitch{BmcIpAddress: db.GetStrPtr("stale")}
+		es := &ExpectedSwitch{BmcIpAddress: cutil.GetPtr("stale")}
 		es.FromProto(&cwssaws.ExpectedSwitch{
 			ExpectedSwitchId: &cwssaws.UUID{Value: id.String()},
 			BmcIpAddress:     "",
@@ -174,7 +161,7 @@ func TestExpectedSwitchSQLDAO_Create(t *testing.T) {
 					SiteID:             site.ID,
 					BmcMacAddress:      "00:1B:44:11:3A:B7",
 					SwitchSerialNumber: "SWITCH123",
-					BmcIpAddress:       db.GetStrPtr("192.168.1.10"),
+					BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 					Labels: map[string]string{
 						"environment": "test",
 						"location":    "datacenter1",
@@ -240,7 +227,7 @@ func TestExpectedSwitchSQLDAO_Create(t *testing.T) {
 					assert.Equal(t, input.BmcMacAddress, es.BmcMacAddress)
 					assert.Equal(t, input.SwitchSerialNumber, es.SwitchSerialNumber)
 					assert.Equal(t, input.BmcIpAddress, es.BmcIpAddress)
-					assert.Equal(t, input.Labels, es.Labels)
+					assert.Equal(t, Labels(input.Labels), es.Labels)
 				}
 
 				if tc.verifyChildSpanner {
@@ -421,7 +408,7 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 		{
 			desc:               "GetAll with no filters returns all objects",
 			expectedCount:      3,
-			expectedTotal:      db.GetIntPtr(3),
+			expectedTotal:      cutil.GetPtr(3),
 			expectedError:      false,
 			verifyChildSpanner: true,
 		},
@@ -452,7 +439,7 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with search query filter returns objects",
 			filter: ExpectedSwitchFilterInput{
-				SearchQuery: db.GetStrPtr("SWITCH123"),
+				SearchQuery: cutil.GetPtr("SWITCH123"),
 			},
 			expectedCount: 1,
 			expectedError: false,
@@ -468,20 +455,20 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(2),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(2),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with offset returns objects",
 			pageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(1),
+				Offset: cutil.GetPtr(1),
 			},
 			expectedCount: 2,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 		{
@@ -493,7 +480,7 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 				},
 			},
 			expectedCount: 3,
-			expectedTotal: db.GetIntPtr(3),
+			expectedTotal: cutil.GetPtr(3),
 			expectedError: false,
 		},
 	}
@@ -566,7 +553,7 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 			desc: "Update BMC MAC address",
 			input: ExpectedSwitchUpdateInput{
 				ExpectedSwitchID: essExp[0].ID,
-				BmcMacAddress:    db.GetStrPtr("00:1B:44:11:3A:C1"),
+				BmcMacAddress:    cutil.GetPtr("00:1B:44:11:3A:C1"),
 			},
 			expectedError:      false,
 			verifyChildSpanner: true,
@@ -575,7 +562,7 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 			desc: "Update switch serial number",
 			input: ExpectedSwitchUpdateInput{
 				ExpectedSwitchID:   essExp[1].ID,
-				SwitchSerialNumber: db.GetStrPtr("NEWSWITCH789"),
+				SwitchSerialNumber: cutil.GetPtr("NEWSWITCH789"),
 			},
 			expectedError: false,
 		},
@@ -608,7 +595,7 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 					assert.Equal(t, *tc.input.SwitchSerialNumber, got.SwitchSerialNumber)
 				}
 				if tc.input.Labels != nil {
-					assert.Equal(t, tc.input.Labels, got.Labels)
+					assert.Equal(t, Labels(tc.input.Labels), got.Labels)
 				}
 
 				if tc.verifyChildSpanner {

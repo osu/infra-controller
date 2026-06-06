@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package authentication
 
@@ -34,15 +20,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/api/model"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/config"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/core/claim"
-	"github.com/NVIDIA/infra-controller-rest/auth/pkg/processors"
-	testutil "github.com/NVIDIA/infra-controller-rest/auth/pkg/testing"
-	commonConfig "github.com/NVIDIA/infra-controller-rest/common/pkg/config"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/api/model"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/core/claim"
+	"github.com/NVIDIA/infra-controller/rest-api/auth/pkg/processors"
+	testutil "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/testing"
+	commonConfig "github.com/NVIDIA/infra-controller/rest-api/common/pkg/config"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	tmocks "go.temporal.io/sdk/mocks"
 )
 

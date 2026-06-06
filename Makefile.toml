@@ -28,6 +28,10 @@ CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
+# Temporary: increase Rust test thread stack to avoid stack overflows in tests.
+# TODO: remove after stack-heavy tests/code paths are refactored.
+RUST_MIN_STACK = { value = "8388608", condition = { env_not_set = ["RUST_MIN_STACK"] } }
+
 BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = [
   "BUILD_CONTAINER_X86_URL",
 ] } }
@@ -83,6 +87,16 @@ description = "Build carbide-admin-cli in CI"
 workspace = false
 script = '''
 cargo build -p carbide-admin-cli
+# Emit man pages as a build artifact via the hidden `generate-man` subcommand.
+cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
+'''
+
+[tasks.gen-man]
+category = "Build"
+description = "Generate carbide-admin-cli man pages into target/man"
+workspace = false
+script = '''
+cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
 '''
 
 [tasks.build-cli]
@@ -540,6 +554,7 @@ dependencies = [
   "check-format-flow",
   "check-format-nightly",
   "check-workspace-deps",
+  "check-isolated-package-builds",
   "check-licenses",
   "check-bans",
 ]
@@ -710,6 +725,11 @@ description = "Check Cargo.toml files for dependency versions declared in crates
 script = [
   "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
 ]
+
+[tasks.check-isolated-package-builds]
+workspace = false
+description = "Check that workspace packages build independently with default features"
+script = ["cargo xtask check-isolated-package-builds"]
 
 [tasks.check-licenses]
 workspace = false

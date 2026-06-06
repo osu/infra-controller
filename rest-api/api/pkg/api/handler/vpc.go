@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -25,12 +11,12 @@ import (
 	"net/http"
 	"slices"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	wutil "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	wutil "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/labstack/echo/v4"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -40,16 +26,16 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	common "github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -170,7 +156,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 
 	vpcDAO := cdbm.NewVpcDAO(cvh.dbSession)
 	if apiRequest.ID != nil {
-		_, total, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{*apiRequest.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(paginator.DefaultLimit)}, nil)
+		_, total, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{VpcIDs: []uuid.UUID{*apiRequest.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(paginator.DefaultLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("db error checking for ID uniqueness of tenant vpc")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Vpc due to DB error", nil)
@@ -185,7 +171,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 
 	// check for name uniqueness for the tenant, ie, tenant cannot have another vpc with same name at the site
 	// TODO consider doing this with an advisory lock for correctness
-	vpcs, tot, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{Name: &apiRequest.Name, InfrastructureProviderID: cdb.GetUUIDPtr(site.InfrastructureProviderID), TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{}, nil)
+	vpcs, tot, err := vpcDAO.GetAll(ctx, nil, cdbm.VpcFilterInput{Name: &apiRequest.Name, InfrastructureProviderID: cutil.GetPtr(site.InfrastructureProviderID), TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("db error checking for name uniqueness of tenant vpc")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Vpc due to DB error", nil)
@@ -233,11 +219,11 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	networkVirtualizationType := apiRequest.NetworkVirtualizationType
 	if networkVirtualizationType == nil {
 		// Default to `EthernetVirtualizer`
-		networkVirtualizationType = cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer)
+		networkVirtualizationType = cutil.GetPtr(cdbm.VpcEthernetVirtualizer)
 
 		// If site has native networking enabled, use FNN
 		if siteConfig.NativeNetworking {
-			networkVirtualizationType = cdb.GetStrPtr(cdbm.VpcFNN)
+			networkVirtualizationType = cutil.GetPtr(cdbm.VpcFNN)
 		}
 	}
 
@@ -264,13 +250,13 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		// `routingProfile` only and let the handler default
 		// `networkVirtualizationType` from site config; Validate
 		// cannot see that default, so the check lives here.
-		if *networkVirtualizationType != cdbm.VpcFNN {
+		if !cdbm.VpcTypeSupportsRoutingProfile(networkVirtualizationType) {
 			logger.Warn().Str("routingProfile", *apiRequest.RoutingProfile).Msg("`routingProfile` can only be specified if network virtualization type is set to `FNN`, or Site has native networking enabled and no network virtualization type is specified")
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "`routingProfile` can only be specified if network virtualization type is set to `FNN`, or Site has native networking enabled and no network virtualization type is specified", nil)
 		}
 
 		// Normalize the API routing profile before sending it to the site controller.
-		routingProfile = cdb.GetStrPtr(model.NormalizeAPIVpcRoutingProfileForSite(*apiRequest.RoutingProfile))
+		routingProfile = cutil.GetPtr(model.NormalizeAPIVpcRoutingProfileForSite(*apiRequest.RoutingProfile))
 	}
 
 	var defaultNvllPartitionId *uuid.UUID
@@ -360,7 +346,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		// by the async cloud workflow after successful creation on site.
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:           createdVpc.ID,
-			ControllerVpcID: cdb.GetUUIDPtr(createdVpc.ID),
+			ControllerVpcID: cutil.GetPtr(createdVpc.ID),
 		}
 		updatedVpc, derr := vpcDAO.Update(ctx, tx, uvpcInput)
 		if derr != nil {
@@ -371,7 +357,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 
 		// Create status detail
 		createdSsd, derr := sdDAO.CreateFromParams(ctx, tx, vpc.ID.String(), cdbm.VpcStatusProvisioning,
-			cdb.GetStrPtr("VPC provisioning has been initiated on Site"))
+			cutil.GetPtr("VPC provisioning has been initiated on Site"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC", nil)
@@ -433,11 +419,18 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous create VPC workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to create VPC due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to create VPC due to DB transaction error")
 	}
 
 	statusDetails := []cdbm.StatusDetail{*ssd}
@@ -449,7 +442,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:     vpc.ID,
 			ActiveVni: activeVni,
-			Status:    cdb.GetStrPtr(cdbm.VpcStatusReady),
+			Status:    cutil.GetPtr(cdbm.VpcStatusReady),
 		}
 		updatedVpc, err := vpcDAO.Update(ctx, nil, uvpcInput)
 		if err != nil {
@@ -459,7 +452,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 			vpc = updatedVpc
 
 			// Best effort create status detail
-			ssd, err = sdDAO.CreateFromParams(ctx, nil, vpc.ID.String(), cdbm.VpcStatusReady, cdb.GetStrPtr("VPC is ready for use"))
+			ssd, err = sdDAO.CreateFromParams(ctx, nil, vpc.ID.String(), cdbm.VpcStatusReady, cutil.GetPtr("VPC is ready for use"))
 			if err != nil {
 				logger.Error().Err(err).Msg("error creating Status Detail DB entry")
 			} else if ssd == nil {
@@ -646,7 +639,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "NetworkSecurityGroup with ID specified in request data does not belong to Tenant", nil)
 		}
 
-		nsgID = cdb.GetStrPtr(nsg.ID)
+		nsgID = cutil.GetPtr(nsg.ID)
 	}
 
 	// Labels support
@@ -797,7 +790,7 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		}
 
 		// Get status details
-		fetchedSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, vpc.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		fetchedSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, vpc.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for VPC", nil)
@@ -855,11 +848,18 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous update VPC workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to update VPC due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to update VPC due to DB transaction error")
 	}
 
 	// Create response
@@ -1013,7 +1013,7 @@ func (uvvh UpdateVPCVirtualizationHandler) Handle(c echo.Context) error {
 	}
 
 	subnetDAO := cdbm.NewSubnetDAO(uvvh.dbSession)
-	_, subnetCount, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{VpcIDs: []uuid.UUID{vpc.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(0)}, nil)
+	_, subnetCount, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{VpcIDs: []uuid.UUID{vpc.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(0)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Subnets count from DB for VPC")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Subnets count for VPC", nil)
@@ -1055,7 +1055,7 @@ func (uvvh UpdateVPCVirtualizationHandler) Handle(c echo.Context) error {
 		uv = updatedVpc
 
 		// Get status details
-		fetchedSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uv.ID.String(), nil, cdb.GetIntPtr(pagination.MaxPageSize), nil)
+		fetchedSsds, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uv.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve status history for VPC", nil)
@@ -1117,11 +1117,18 @@ func (uvvh UpdateVPCVirtualizationHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous update VPC workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to update VPC virtualization due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to update VPC virtualization due to DB transaction error")
 	}
 
 	// Create response
@@ -1376,7 +1383,7 @@ func (gavh GetAllVPCHandler) Handle(c echo.Context) error {
 
 		// Check for Site existence
 		stDAO := cdbm.NewSiteDAO(gavh.dbSession)
-		sites, _, err := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{SiteIDs: siteIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		sites, _, err := stDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Warn().Err(err).Msg("error retrieving Sites from DB by IDs")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Could not retrieve Sites with IDs specified in query", nil)
@@ -1456,7 +1463,7 @@ func (gavh GetAllVPCHandler) Handle(c echo.Context) error {
 			ctx,
 			nil,
 			cdbm.NetworkSecurityGroupFilterInput{NetworkSecurityGroupIDs: networkSecurityGroupIDs, TenantIDs: []uuid.UUID{tenant.ID}},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 			nil,
 		)
 		if err != nil {
@@ -1487,7 +1494,7 @@ func (gavh GetAllVPCHandler) Handle(c echo.Context) error {
 			}
 			nvLinkLogicalPartitionIDs = append(nvLinkLogicalPartitionIDs, nvLinkLogicalPartitionID)
 		}
-		nvLinkLogicalPartitions, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{NVLinkLogicalPartitionIDs: nvLinkLogicalPartitionIDs, TenantIDs: []uuid.UUID{tenant.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		nvLinkLogicalPartitions, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{NVLinkLogicalPartitionIDs: nvLinkLogicalPartitionIDs, TenantIDs: []uuid.UUID{tenant.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving NVLink Logical Partitions from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Logical Partitions specified in query", nil)
@@ -1717,7 +1724,7 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 		// Update VPC to set status to Deleting
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:  vpc.ID,
-			Status: cdb.GetStrPtr(cdbm.VpcStatusDeleting),
+			Status: cutil.GetPtr(cdbm.VpcStatusDeleting),
 		}
 		if _, derr := vpcDAO.Update(ctx, tx, uvpcInput); derr != nil {
 			logger.Error().Err(derr).Msg("error updating VPC in DB")
@@ -1725,8 +1732,8 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail (best-effort: original code only logs on error)
-		if _, derr := sdDAO.CreateFromParams(ctx, tx, vpc.ID.String(), *cdb.GetStrPtr(cdbm.VpcStatusDeleting),
-			cdb.GetStrPtr("received request for deletion, pending processing")); derr != nil {
+		if _, derr := sdDAO.CreateFromParams(ctx, tx, vpc.ID.String(), *cutil.GetPtr(cdbm.VpcStatusDeleting),
+			cutil.GetPtr("received request for deletion, pending processing")); derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 		}
 
@@ -1792,11 +1799,18 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous delete VPC workflow")
 		return nil
 	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to delete VPC due to DB transaction error")
+		}
+	}
 	if timeoutResp != nil {
 		return timeoutResp()
-	}
-	if err != nil {
-		return common.HandleTxError(c, logger, err, "Failed to delete VPC due to DB transaction error")
 	}
 
 	// Return response

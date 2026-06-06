@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package taskschedule
 
@@ -29,15 +15,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dbmodel "github.com/NVIDIA/infra-controller-rest/flow/internal/db/model"
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
-	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operationrules"
-	taskstore "github.com/NVIDIA/infra-controller-rest/flow/internal/task/store"
-	taskdef "github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	dbmodel "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
+	taskcommon "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operationrules"
+	taskstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/store"
+	taskdef "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/task"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
 // ─── mock implementations ─────────────────────────────────────────────────────
@@ -189,6 +175,10 @@ func (m *mockTaskStore) UpdateTaskStatus(_ context.Context, _ *taskdef.TaskStatu
 	panic("mockTaskStore.UpdateTaskStatus: not implemented")
 }
 
+func (m *mockTaskStore) UpdateTaskReport(_ context.Context, _ *taskdef.TaskReportUpdate) error {
+	panic("mockTaskStore.UpdateTaskReport: not implemented")
+}
+
 func (m *mockTaskStore) ListActiveTasksForRack(_ context.Context, _ uuid.UUID) ([]*taskdef.Task, error) {
 	panic("mockTaskStore.ListActiveTasksForRack: not implemented")
 }
@@ -327,7 +317,7 @@ func TestScopeToTargetSpec(t *testing.T) {
 				RackID: rackID,
 				ComponentFilter: mustMarshalFilter(t, &dbmodel.ComponentFilter{
 					Kind:  dbmodel.ComponentFilterKindTypes,
-					Types: []string{"COMPUTE", "NVLSWITCH"},
+					Types: []string{"COMPUTE", "NVSWITCH"},
 				}),
 			},
 			want: operation.TargetSpec{
@@ -336,20 +326,20 @@ func TestScopeToTargetSpec(t *testing.T) {
 						Identifier: identifier.Identifier{ID: rackID},
 						ComponentTypes: []devicetypes.ComponentType{
 							devicetypes.ComponentTypeCompute,
-							devicetypes.ComponentTypeNVLSwitch,
+							devicetypes.ComponentTypeNVSwitch,
 						},
 					},
 				},
 			},
 		},
 		"types filter — mixed types across categories": {
-			// COMPUTE (compute), NVLSWITCH (network), POWERSHELF (power), TORSWITCH (ToR)
+			// COMPUTE (compute), NVSWITCH (network), POWERSHELF (power), TORSWITCH (ToR)
 			// exercises the full ComponentTypeFromString mapping loop with diverse types.
 			scope: &dbmodel.TaskScheduleScope{
 				RackID: rackID,
 				ComponentFilter: mustMarshalFilter(t, &dbmodel.ComponentFilter{
 					Kind:  dbmodel.ComponentFilterKindTypes,
-					Types: []string{"COMPUTE", "NVLSWITCH", "POWERSHELF", "TORSWITCH"},
+					Types: []string{"COMPUTE", "NVSWITCH", "POWERSHELF", "TORSWITCH"},
 				}),
 			},
 			want: operation.TargetSpec{
@@ -358,7 +348,7 @@ func TestScopeToTargetSpec(t *testing.T) {
 						Identifier: identifier.Identifier{ID: rackID},
 						ComponentTypes: []devicetypes.ComponentType{
 							devicetypes.ComponentTypeCompute,
-							devicetypes.ComponentTypeNVLSwitch,
+							devicetypes.ComponentTypeNVSwitch,
 							devicetypes.ComponentTypePowerShelf,
 							devicetypes.ComponentTypeToRSwitch,
 						},

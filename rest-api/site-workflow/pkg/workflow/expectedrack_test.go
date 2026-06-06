@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -21,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	iActivity "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
@@ -47,8 +33,8 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Success() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
-		RackType: "test-create-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-create-rack-profile-001"},
 	}
 
 	// Mock CreateExpectedRackOnSite activity
@@ -69,8 +55,8 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Failure() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
-		RackType: "test-create-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-create-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-create-rack-profile-001"},
 	}
 
 	errMsg := "Site Controller communication error"
@@ -92,8 +78,8 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_CoreSuccess_Fl
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-create-rack-workflow-002"},
-		RackType: "test-create-rack-profile-002",
+		RackId:        &cwssaws.RackId{Id: "test-create-rack-workflow-002"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-create-rack-profile-002"},
 	}
 
 	// Mock CreateExpectedRackOnSite activity (success)
@@ -133,8 +119,8 @@ func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_Success() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
-		RackType: "test-update-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-update-rack-profile-001"},
 	}
 
 	// Mock UpdateExpectedRackOnSite activity
@@ -151,8 +137,8 @@ func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_Failure() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
-		RackType: "test-update-rack-profile-001",
+		RackId:        &cwssaws.RackId{Id: "test-update-rack-workflow-001"},
+		RackProfileId: &cwssaws.RackProfileId{Id: "test-update-rack-profile-001"},
 	}
 
 	errMsg := "Site Controller communication error"
@@ -247,8 +233,8 @@ func (rarts *ReplaceAllExpectedRacksTestSuite) Test_ReplaceAllExpectedRacks_Succ
 	request := &cwssaws.ExpectedRackList{
 		ExpectedRacks: []*cwssaws.ExpectedRack{
 			{
-				RackId:   &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
-				RackType: "test-replace-rack-profile-001",
+				RackId:        &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
+				RackProfileId: &cwssaws.RackProfileId{Id: "test-replace-rack-profile-001"},
 			},
 		},
 	}
@@ -269,8 +255,8 @@ func (rarts *ReplaceAllExpectedRacksTestSuite) Test_ReplaceAllExpectedRacks_Fail
 	request := &cwssaws.ExpectedRackList{
 		ExpectedRacks: []*cwssaws.ExpectedRack{
 			{
-				RackId:   &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
-				RackType: "test-replace-rack-profile-001",
+				RackId:        &cwssaws.RackId{Id: "test-replace-rack-workflow-001"},
+				RackProfileId: &cwssaws.RackProfileId{Id: "test-replace-rack-profile-001"},
 			},
 		},
 	}

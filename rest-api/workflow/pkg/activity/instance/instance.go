@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package instance
 
@@ -21,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,22 +16,22 @@ import (
 
 	"go.temporal.io/sdk/client"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwsv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
+	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ManageInstance is an activity wrapper for managing Instance lifecycle that allows
@@ -87,7 +74,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 	instanceDAO := cdbm.NewInstanceDAO(mi.dbSession)
 
 	// Get all Instances for Site
-	existingInstances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingInstances, _, err := instanceDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get Instances for Site from DB")
 		return nil, err
@@ -190,7 +177,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// reset because inventory is reporting it as on site now.
 		var isMissingOnSite *bool
 		if instance.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 		}
 
 		// Populate controller Instance ID if necessary
@@ -210,17 +197,17 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			if controllerInstance.Status.Update != nil {
 				// If Status.Update is populated and user approval has not been received
 				if !controllerInstance.Status.Update.UserApprovalReceived {
-					isUpdatePending = cdb.GetBoolPtr(true)
+					isUpdatePending = cwutil.GetPtr(true)
 				} else if instance.IsUpdatePending {
 					// An update was pending, user triggered it, Site Controller has acknowledged
-					isUpdatePending = cdb.GetBoolPtr(false)
+					isUpdatePending = cwutil.GetPtr(false)
 				}
 			} else if instance.IsUpdatePending {
 				// update was triggered by user, Site Controller has finished execution, hence Status.Update is no longer populated
-				isUpdatePending = cdb.GetBoolPtr(false)
+				isUpdatePending = cwutil.GetPtr(false)
 
 				// Update Instance update status in DB
-				err = mi.updateInstanceStatusInDB(ctx, nil, instance.ID, cdb.GetStrPtr(instance.Status), cdb.GetStrPtr("Instance updates have successfully been applied"), nil)
+				err = mi.updateInstanceStatusInDB(ctx, nil, instance.ID, cwutil.GetPtr(instance.Status), cwutil.GetPtr("Instance updates have successfully been applied"), nil)
 				if err != nil {
 					// Log error and continue
 					slogger.Error().Err(err).Msg("failed to update Instance status detail in DB")
@@ -231,7 +218,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		var tpmEkCertificateUpdated *bool
 		if controllerInstance.TpmEkCertificate != nil &&
 			(instance.TpmEkCertificate == nil || *instance.TpmEkCertificate != *controllerInstance.TpmEkCertificate) {
-			tpmEkCertificateUpdated = cdb.GetBoolPtr(true)
+			tpmEkCertificateUpdated = cwutil.GetPtr(true)
 		}
 
 		// NOTE:  When adding new properties, make sure to explicitly check for changes between
@@ -242,7 +229,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			controllerInstanceID != nil ||
 			isUpdatePending != nil ||
 			tpmEkCertificateUpdated != nil ||
-			!util.NetworkSecurityGroupPropagationDetailsEqual(instance.NetworkSecurityGroupPropagationDetails, sitePropagationStatus)
+			!instance.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus)
 
 		if needsUpdate {
 			// If the Instance in the DB has propagation details but the site reported no propagation details
@@ -264,13 +251,15 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			// from its parent machine when an instance is allocated.
 
 			_, serr := instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{
-				InstanceID:                             instance.ID,
-				NetworkSecurityGroupID:                 controllerInstance.Config.NetworkSecurityGroupId,
-				NetworkSecurityGroupPropagationDetails: sitePropagationStatus,
-				ControllerInstanceID:                   controllerInstanceID,
-				IsUpdatePending:                        isUpdatePending,
-				IsMissingOnSite:                        isMissingOnSite,
-				TpmEkCertificate:                       controllerInstance.TpmEkCertificate,
+				InstanceID: instance.ID,
+				InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
+					NetworkSecurityGroupID:                 controllerInstance.Config.NetworkSecurityGroupId,
+					NetworkSecurityGroupPropagationDetails: sitePropagationStatus,
+					ControllerInstanceID:                   controllerInstanceID,
+					IsUpdatePending:                        isUpdatePending,
+					IsMissingOnSite:                        isMissingOnSite,
+					TpmEkCertificate:                       controllerInstance.TpmEkCertificate,
+				},
 			})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update missing on Site flag/controller Instance ID in DB")
@@ -298,7 +287,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			} else {
 				// Check if the latest status detail message is different from the current status message
 				// Leave orderBy nil since the result is sorted by create timestamp by default
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), nil, cdb.GetIntPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), nil, cwutil.GetPtr(1), nil)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Instance")
 				} else if len(latestsd) == 0 || (latestsd[0].Message != nil && *latestsd[0].Message != statusMessage) {
@@ -314,14 +303,14 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					// When instance becomes Ready, record a creation lifecycle event; actual duration is computed from StatusDetails
 					if status == cdbm.InstanceStatusReady {
 						slogger.Info().Str("To Status", status).Msg("recording instance create lifecycle event")
-						instanceLifecycleEvents = append(instanceLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: instance.ID, Created: cdb.GetTimePtr(time.Now())})
+						instanceLifecycleEvents = append(instanceLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: instance.ID, Created: cwutil.GetPtr(time.Now())})
 					}
 				}
 			}
 
 			// Update power status if appropriate
 			if status == cdbm.InstanceStatusReady && (instance.PowerStatus == nil || *instance.PowerStatus != cdbm.InstancePowerStatusBootCompleted) {
-				powerStatus = cdb.GetStrPtr(cdbm.InstancePowerStatusBootCompleted)
+				powerStatus = cwutil.GetPtr(cdbm.InstancePowerStatusBootCompleted)
 
 				// Update Instance status in DB
 				err = mi.updateInstanceStatusInDB(ctx, nil, instance.ID, nil, &statusMessage, powerStatus)
@@ -336,7 +325,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		// Process Interface type of VpcPrefix as well as Subnet
 		if controllerInstance.Config.Network != nil && controllerInstance.Status.Network != nil {
 			interfaceDAO := cdbm.NewInterfaceDAO(mi.dbSession)
-			interfaces, _, serr := interfaceDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{cdbm.SubnetRelationName, cdbm.VpcPrefixRelationName})
+			interfaces, _, serr := interfaceDAO.GetAll(ctx, nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.SubnetRelationName, cdbm.VpcPrefixRelationName})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to get Interfaces for Instance from DB")
 				continue
@@ -374,7 +363,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 					if ifc.SubnetID != nil && ifc.Status != cdbm.InterfaceStatusDeleting {
 						if ifc.Subnet.ControllerNetworkSegmentID == nil {
-							_, serr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifc.ID, Status: cdb.GetStrPtr(cdbm.InterfaceStatusError)})
+							_, serr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifc.ID, Status: cwutil.GetPtr(cdbm.InterfaceStatusError)})
 							if serr != nil {
 								slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
 							}
@@ -426,7 +415,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					// Update Instance Subnet attributes and status in DB
 					var vfID *int
 					if interfaceStatus.VirtualFunctionId != nil {
-						vfID = cdb.GetIntPtr(int(*interfaceStatus.VirtualFunctionId))
+						vfID = cwutil.GetPtr(int(*interfaceStatus.VirtualFunctionId))
 					}
 					macAddress := interfaceStatus.MacAddress
 					ipAddresses := []string{}
@@ -439,15 +428,25 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					if interfaceStatus.Device != nil {
 						device = interfaceStatus.Device
 						// if device is specified, consider default device instance even if it is not specified in the inventory
-						deviceInstance = cdb.GetIntPtr(int(interfaceStatus.DeviceInstance))
+						deviceInstance = cwutil.GetPtr(int(interfaceStatus.DeviceInstance))
 					}
 
 					requestedIpAddress := interfaceConfig.IpAddress
-					// If the -rest side has a requested IP, but -core side does not,
-					// then a config change may have been done directly in -core.
-					// Clear the field in the DB.
+					var inlineRoutingProfile *cdbm.InterfaceInlineRoutingProfile
+					if interfaceConfig.RoutingProfile != nil {
+						inlineRoutingProfile = &cdbm.InterfaceInlineRoutingProfile{}
+						inlineRoutingProfile.FromProto(interfaceConfig.RoutingProfile)
+					}
+
+					clearInput := cdbm.InterfaceClearInput{InterfaceID: ifc.ID}
 					if ifc.RequestedIpAddress != nil && interfaceConfig.IpAddress == nil {
-						_, serr := interfaceDAO.Clear(ctx, nil, cdbm.InterfaceClearInput{InterfaceID: ifc.ID, RequestedIpAddress: true})
+						clearInput.RequestedIpAddress = true
+					}
+					if ifc.InlineRoutingProfile != nil && interfaceConfig.RoutingProfile == nil {
+						clearInput.InlineRoutingProfile = true
+					}
+					if clearInput.RequestedIpAddress || clearInput.InlineRoutingProfile {
+						_, serr := interfaceDAO.Clear(ctx, nil, clearInput)
 						if serr != nil {
 							slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
 							continue
@@ -456,10 +455,10 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 					var status *string
 					if controllerInstance.Status.Network.ConfigsSynced == cwsv1.SyncState_SYNCED {
-						status = cdb.GetStrPtr(cdbm.InterfaceStatusReady)
+						status = cwutil.GetPtr(cdbm.InterfaceStatusReady)
 					}
 
-					_, serr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifc.ID, Device: device, DeviceInstance: deviceInstance, VirtualFunctionID: vfID, RequestedIpAddress: requestedIpAddress, MacAddress: macAddress, IpAddresses: ipAddresses, Status: status})
+					_, serr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifc.ID, Device: device, DeviceInstance: deviceInstance, VirtualFunctionID: vfID, RequestedIpAddress: requestedIpAddress, InlineRoutingProfile: inlineRoutingProfile, MacAddress: macAddress, IpAddresses: ipAddresses, Status: status})
 					if serr != nil {
 						slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
 					}
@@ -477,7 +476,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			cdbm.InfiniBandInterfaceFilterInput{
 				InstanceIDs: []uuid.UUID{instance.ID},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			paginator.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 			[]string{cdbm.InfiniBandPartitionRelationName},
 		)
 		if serr != nil {
@@ -486,15 +485,13 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		}
 
 		infiniBandInterfaceMap := map[string]*cdbm.InfiniBandInterface{}
-
+		deletingInfiniBandInterfaces := []*cdbm.InfiniBandInterface{}
 		for _, ibifc := range infiniBandInterfaces {
 			curIbIfc := ibifc
-			// If the InfiniBand Interface is in Deleting state, add it into list of InfiniBand Interfaces to be deleted
+			// Add the InfiniBand Interface to the list of InfiniBand Interfaces to be deleted if it is in Deleting state
 			if ibifc.Status == cdbm.InfiniBandInterfaceStatusDeleting {
-				if updatedInstanceStatus != nil && *updatedInstanceStatus == cdbm.InstanceStatusReady {
-					infiniBandInterfacesToDelete = append(infiniBandInterfacesToDelete, &curIbIfc)
-					continue
-				}
+				deletingInfiniBandInterfaces = append(deletingInfiniBandInterfaces, &curIbIfc)
+				continue
 			}
 
 			if ibifc.InfiniBandPartition.ControllerIBPartitionID == nil {
@@ -503,7 +500,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					nil,
 					cdbm.InfiniBandInterfaceUpdateInput{
 						InfiniBandInterfaceID: ibifc.ID,
-						Status:                cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusError),
+						Status:                cwutil.GetPtr(cdbm.InfiniBandInterfaceStatusError),
 					},
 				)
 				if serr != nil {
@@ -518,8 +515,21 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			}
 		}
 
+		isInfiniBandConfigStatusEmpty := true
+		isInfiniBandConfigSynced := false
 		if controllerInstance.Config.Infiniband != nil && controllerInstance.Status.Infiniband != nil {
 			for idx, interfaceConfig := range controllerInstance.Config.Infiniband.IbInterfaces {
+
+				// If the InfiniBand Config as well as Status is not empty, set the flag to false
+				isInfiniBandConfigStatusEmpty = false
+
+				// Skip if the InfiniBand Interface Config is nil
+				if interfaceConfig == nil {
+					logger.Warn().Int("Index", idx).Msg("InfiniBand Interface Config is nil, skipping update")
+					continue
+				}
+
+				// Get the InfiniBand Interface from the map
 				ibifcKey := fmt.Sprintf("%s-%s-%d", interfaceConfig.IbPartitionId.Value, interfaceConfig.Device, interfaceConfig.DeviceInstance)
 				ibifc, ok := infiniBandInterfaceMap[ibifcKey]
 				if !ok {
@@ -528,6 +538,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 				interfaceStatus := controllerInstance.Status.Infiniband.IbInterfaces[idx]
 				if interfaceStatus != nil {
+
 					var physicalGUID *string
 					if interfaceStatus.PfGuid != nil && (ibifc.PhysicalGUID == nil || *ibifc.PhysicalGUID != *interfaceStatus.PfGuid) {
 						physicalGUID = interfaceStatus.PfGuid
@@ -540,7 +551,12 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 					var status *string
 					if controllerInstance.Status.Infiniband.ConfigsSynced == cwsv1.SyncState_SYNCED {
-						status = cdb.GetStrPtr(cdbm.InterfaceStatusReady)
+						// If the InfiniBand Config is synced
+						isInfiniBandConfigSynced = true
+						if ibifc.Status != cdbm.InfiniBandInterfaceStatusReady {
+							// If the InfiniBand Interface is not in Ready state, set the status to Ready
+							status = cwutil.GetPtr(cdbm.InfiniBandInterfaceStatusReady)
+						}
 					}
 
 					if guid == nil && status == nil {
@@ -564,11 +580,23 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			}
 		}
 
+		// Determine which InfiniBand Interfaces in Deleting state can be deleted
+		if isInfiniBandConfigStatusEmpty || isInfiniBandConfigSynced {
+			for _, ibifc := range deletingInfiniBandInterfaces {
+				if util.IsTimeWithinStaleInventoryThreshold(ibifc.Updated) {
+					// If the InfiniBand Interface was modified within stale inventory threshold, defer to next inventory update
+					continue
+				}
+				// Continue with deletion
+				infiniBandInterfacesToDelete = append(infiniBandInterfacesToDelete, ibifc)
+			}
+		}
+
 		// Process/update DPU Extension Service Deployments in DB
 		desdDAO := cdbm.NewDpuExtensionServiceDeploymentDAO(mi.dbSession)
 		desds, _, serr := desdDAO.GetAll(ctx, nil, cdbm.DpuExtensionServiceDeploymentFilterInput{
 			InstanceIDs: []uuid.UUID{instance.ID},
-		}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+		}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if serr != nil {
 			slogger.Error().Err(serr).Msg("failed to get DPU Extension Service Deployments for Instance from DB")
 			continue
@@ -598,18 +626,18 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 				var status *string
 				switch desdStatus.DeploymentStatus {
 				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_PENDING:
-					status = cdb.GetStrPtr(cdbm.DpuExtensionServiceDeploymentStatusPending)
+					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusPending)
 				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_RUNNING:
-					status = cdb.GetStrPtr(cdbm.DpuExtensionServiceDeploymentStatusRunning)
+					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusRunning)
 				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_TERMINATING:
-					status = cdb.GetStrPtr(cdbm.DpuExtensionServiceDeploymentStatusTerminating)
+					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusTerminating)
 				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_TERMINATED:
 					// This state is unlikely to be seen but in case we see it, Site is still in the process of removing the entry
-					status = cdb.GetStrPtr(cdbm.DpuExtensionServiceDeploymentStatusTerminating)
+					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusTerminating)
 				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_ERROR:
-					status = cdb.GetStrPtr(cdbm.DpuExtensionServiceDeploymentStatusError)
+					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusError)
 				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_FAILED:
-					status = cdb.GetStrPtr(cdbm.DpuExtensionServiceDeploymentStatusFailed)
+					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusFailed)
 				}
 
 				if status == nil || *status == desd.Status {
@@ -651,7 +679,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			cdbm.NVLinkInterfaceFilterInput{
 				InstanceIDs: []uuid.UUID{instance.ID},
 			},
-			paginator.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			paginator.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)},
 			[]string{cdbm.NVLinkLogicalPartitionRelationName},
 		)
 
@@ -673,10 +701,15 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			nvLinkInterfaceMap[nvlifcKey] = &curNvlifc
 		}
 
+		isNVLinkConfigStatusEmpty := true
+		isNVLinkConfigSynced := false
 		if controllerInstance.Config.Nvlink != nil {
 			// Check an update DB cache for each NVLink Interface based on the GPU Config and Status
 			configStatusMismatch := false
 			for idx, nvLinkGpuConfig := range controllerInstance.Config.Nvlink.GpuConfigs {
+
+				isNVLinkConfigStatusEmpty = false
+
 				if nvLinkGpuConfig == nil {
 					logger.Warn().Int("Index", idx).Msg("NVLink GPU Config is nil, skipping update")
 					continue
@@ -685,7 +718,6 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 				nvlifcKey := fmt.Sprintf("%s-%d", nvLinkGpuConfig.LogicalPartitionId.Value, nvLinkGpuConfig.DeviceInstance)
 				nvlifc, ok := nvLinkInterfaceMap[nvlifcKey]
 				if !ok {
-					logger.Warn().Str("NVLink Interface Key", nvlifcKey).Msg("NVLink Interface does not exist in DB, possibly created directly on Site")
 					continue
 				}
 
@@ -733,9 +765,15 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 				}
 
 				var status *string
-				if controllerInstance.Status.Nvlink.ConfigsSynced == cwsv1.SyncState_SYNCED && nvlifc.Status != cdbm.NVLinkInterfaceStatusReady {
-					status = cdb.GetStrPtr(cdbm.NVLinkInterfaceStatusReady)
-					needsUpdate = true
+				if controllerInstance.Status.Nvlink.ConfigsSynced == cwsv1.SyncState_SYNCED {
+					isNVLinkConfigSynced = true
+
+					// If the NVLink Interface is not in Ready state, set the status to Ready
+					if nvlifc.Status != cdbm.NVLinkInterfaceStatusReady {
+						status = cwutil.GetPtr(cdbm.NVLinkInterfaceStatusReady)
+						needsUpdate = true
+					}
+
 				}
 
 				if !needsUpdate {
@@ -755,12 +793,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			}
 		}
 
-		// Determine which NVLink Interfaces in Deleting state can be deleted
-		// If the NVLink Config and Status are empty, we can delete all NVLink Interfaces currently in Deleting state
-		isNVLinkConfigStatusEmpty := len(controllerInstance.Config.GetNvlink().GetGpuConfigs()) == 0 && len(controllerInstance.Status.GetNvlink().GetGpuStatuses()) == 0
-		// If the NVLink Config and Status are synced, we can delete all eligible NVLink Interfaces currently in Deleting state
-		isNVLinkConfigSynced := controllerInstance.Status.Nvlink != nil && controllerInstance.Status.Nvlink.ConfigsSynced == cwsv1.SyncState_SYNCED
-
+		// Delete NVLink Interfaces that are not present in the controller Instance
 		if isNVLinkConfigStatusEmpty || isNVLinkConfigSynced {
 			for _, nvlifc := range deletingNVLinkInterfaces {
 				if util.IsTimeWithinStaleInventoryThreshold(nvlifc.Updated) {
@@ -866,7 +899,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 				} else {
 					// Add delete lifecycle event for metrics
 					slogger.Info().Str("Instance ID", instance.ID.String()).Msg("recording instance delete lifecycle event")
-					instanceLifecycleEvents = append(instanceLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: instance.ID, Deleted: cdb.GetTimePtr(time.Now())})
+					instanceLifecycleEvents = append(instanceLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: instance.ID, Deleted: cwutil.GetPtr(time.Now())})
 				}
 			}
 		} else if instance.ControllerInstanceID != nil {
@@ -880,7 +913,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 			// Leave orderBy as nil as the result is sorted by created timestamp by default
 			if status == instance.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), nil, cdb.GetIntPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), nil, cwutil.GetPtr(1), nil)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Instance")
 					continue
@@ -892,7 +925,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 			}
 
 			// Set isMissingOnSite flag to true and update status/create status detail, user can decide on deletion
-			_, serr := instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+			_, serr := instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance.ID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: cwutil.GetPtr(true)}})
 			if serr != nil {
 				// Log error and continue
 				slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB")
@@ -984,7 +1017,7 @@ func (mi ManageInstance) deleteInstanceFromDB(ctx context.Context, tx *cdb.Tx, i
 
 	// Delete InfiniBand interface(s) corresponding to instance
 	ibiDAO := cdbm.NewInfiniBandInterfaceDAO(mi.dbSession)
-	ibis, _, err := ibiDAO.GetAll(ctx, tx, cdbm.InfiniBandInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	ibis, _, err := ibiDAO.GetAll(ctx, tx, cdbm.InfiniBandInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve InfiniBand interfaces from DB")
 		terr := tx.Rollback()
@@ -1007,7 +1040,7 @@ func (mi ManageInstance) deleteInstanceFromDB(ctx context.Context, tx *cdb.Tx, i
 
 	// Delete NVLink interface(s) corresponding to instance
 	nvliDAO := cdbm.NewNVLinkInterfaceDAO(mi.dbSession)
-	nvlis, _, err := nvliDAO.GetAll(ctx, tx, cdbm.NVLinkInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	nvlis, _, err := nvliDAO.GetAll(ctx, tx, cdbm.NVLinkInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve NVLink interfaces from DB")
 		terr := tx.Rollback()
@@ -1030,7 +1063,7 @@ func (mi ManageInstance) deleteInstanceFromDB(ctx context.Context, tx *cdb.Tx, i
 
 	// Delete SSH Key Group Instance associations
 	skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(mi.dbSession)
-	skgias, _, err := skgiaDAO.GetAll(ctx, tx, nil, nil, []uuid.UUID{instance.ID}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, tx, nil, nil, []uuid.UUID{instance.ID}, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve SSH Key Group Instance associations from DB")
 		terr := tx.Rollback()
@@ -1055,7 +1088,7 @@ func (mi ManageInstance) deleteInstanceFromDB(ctx context.Context, tx *cdb.Tx, i
 	desdDAO := cdbm.NewDpuExtensionServiceDeploymentDAO(mi.dbSession)
 	desds, _, err := desdDAO.GetAll(ctx, tx, cdbm.DpuExtensionServiceDeploymentFilterInput{
 		InstanceIDs: []uuid.UUID{instance.ID},
-	}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve DPU Extension Service Deployments from DB")
 		return err
@@ -1105,7 +1138,7 @@ func (mi ManageInstance) clearMachineIsAssigned(ctx context.Context, tx *cdb.Tx,
 	}
 	updateInput := cdbm.MachineUpdateInput{
 		MachineID:  machine.ID,
-		IsAssigned: cdb.GetBoolPtr(false),
+		IsAssigned: cwutil.GetPtr(false),
 	}
 	_, err = mDAO.Update(ctx, tx, updateInput)
 	if err != nil {
@@ -1121,7 +1154,7 @@ func (mi ManageInstance) updateInstanceStatusInDB(ctx context.Context, tx *cdb.T
 		return nil
 	}
 	instanceDAO := cdbm.NewInstanceDAO(mi.dbSession)
-	_, err := instanceDAO.Update(ctx, tx, cdbm.InstanceUpdateInput{InstanceID: instanceID, Status: status, PowerStatus: powerStatus})
+	_, err := instanceDAO.Update(ctx, tx, cdbm.InstanceUpdateInput{InstanceID: instanceID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{Status: status, PowerStatus: powerStatus}})
 	if err != nil {
 		return err
 	}
@@ -1149,6 +1182,8 @@ func getNICoInstanceStatus(controllerInstanceTenantState cwsv1.TenantState) (str
 		return cdbm.InstanceStatusReady, "Instance is ready for use"
 	case cwsv1.TenantState_CONFIGURING:
 		return cdbm.InstanceStatusConfiguring, "Instance is being configured on Site"
+	case cwsv1.TenantState_REPAIRING:
+		return cdbm.InstanceStatusRepairing, "Instance is undergoing online-repair"
 	case cwsv1.TenantState_TERMINATING:
 		return cdbm.InstanceStatusTerminating, "Instance is terminating on Site"
 	case cwsv1.TenantState_TERMINATED:
@@ -1163,8 +1198,6 @@ func getNICoInstanceStatus(controllerInstanceTenantState cwsv1.TenantState) (str
 		return cdbm.InstanceStatusUpdating, "Instance is receiving system firmware updates"
 	case cwsv1.TenantState_UPDATING:
 		return cdbm.InstanceStatusUpdating, "Instance is receiving system firmware updates"
-	case cwsv1.TenantState_REPAIRING:
-		return cdbm.InstanceStatusRepairing, "Instance is undergoing repair on Site"
 	default:
 		return cdbm.InstanceStatusError, "Instance status is unknown"
 	}
@@ -1219,12 +1252,15 @@ func (mi ManageInstance) UpdateInstanceMetadata(ctx context.Context, siteID uuid
 				TenantOrganizationId: controllerInstance.Config.GetTenant().GetTenantOrganizationId(),
 				TenantKeysetIds:      controllerInstance.Config.GetTenant().GetTenantKeysetIds(),
 			},
-			Os:         controllerInstance.GetConfig().GetOs(),
-			Network:    controllerInstance.GetConfig().GetNetwork(),
-			Infiniband: controllerInstance.GetConfig().GetInfiniband(),
+			Os:                   controllerInstance.GetConfig().GetOs(),
+			Network:              controllerInstance.GetConfig().GetNetwork(),
+			Infiniband:           controllerInstance.GetConfig().GetInfiniband(),
+			Nvlink:               controllerInstance.GetConfig().GetNvlink(),
+			DpuExtensionServices: controllerInstance.GetConfig().GetDpuExtensionServices(),
 		},
 	}
 
+	// The error is only logged because it'll be retried on next inventory update
 	we, err := tc.ExecuteWorkflow(ctx, workflowOptions, "UpdateInstance", updateInstanceRequest)
 	if err != nil {
 		logger.Error().Err(err).Str("Controller Instance ID", controllerInstance.GetId().String()).Msg("failed to trigger workflow to update Instance Metadata")
@@ -1278,7 +1314,7 @@ func (milm ManageInstanceLifecycleMetrics) RecordInstanceStatusTransitionMetrics
 	metricsRecorded := 0
 
 	for _, event := range instanceLifecycleEvents {
-		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Str("Instance ID", event.ObjectID.String()).Msg("failed to retrieve Status Details for Instance")
 			return err
@@ -1326,7 +1362,7 @@ func (milm ManageInstanceLifecycleMetrics) RecordInstanceStatusTransitionMetrics
 			// DELETE event: Measure time from Terminating to actual deletion
 			// Find the earliest Terminating status (iterate backwards since sorted DESC)
 			var terminatingSD *cdbm.StatusDetail
-			for i := len(statusDetails) - 1; i >= 0; i-- {
+			for i := range slices.Backward(statusDetails) {
 				if statusDetails[i].Status == cdbm.InstanceStatusTerminating {
 					terminatingSD = &statusDetails[i]
 					break

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -21,9 +7,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,9 +44,9 @@ func TestTenantSQLDAO_GetByID(t *testing.T) {
 	tn := &Tenant{
 		ID:             uuid.New(),
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("test"),
+		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		Config:         tncfg,
 		CreatedBy:      uuid.New(),
 	}
@@ -169,18 +156,18 @@ func TestTenantSQLDAO_GetAllByOrg(t *testing.T) {
 	tn1 := Tenant{
 		ID:             uuid.New(),
 		Name:           "test-tenant-1",
-		DisplayName:    db.GetStrPtr("Test Tenant 1"),
+		DisplayName:    cutil.GetPtr("Test Tenant 1"),
 		Org:            org,
-		OrgDisplayName: db.GetStrPtr(orgDisplayName),
+		OrgDisplayName: cutil.GetPtr(orgDisplayName),
 		CreatedBy:      uuid.New(),
 	}
 
 	tn2 := Tenant{
 		ID:             uuid.New(),
 		Name:           "test-tenant-2",
-		DisplayName:    db.GetStrPtr("Test Tenant 2"),
+		DisplayName:    cutil.GetPtr("Test Tenant 2"),
 		Org:            org,
-		OrgDisplayName: db.GetStrPtr(orgDisplayName),
+		OrgDisplayName: cutil.GetPtr(orgDisplayName),
 		CreatedBy:      uuid.New(),
 	}
 
@@ -273,9 +260,9 @@ func TestTenantSQLDAO_CreateFromParams(t *testing.T) {
 
 	tn := &Tenant{
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("test"),
+		DisplayName:    cutil.GetPtr("test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		Config:         tncfg,
 		CreatedBy:      uuid.New(),
 	}
@@ -394,9 +381,9 @@ func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
 	tn := &Tenant{
 		ID:             uuid.New(),
 		Name:           "test",
-		DisplayName:    db.GetStrPtr("Test"),
+		DisplayName:    cutil.GetPtr("Test"),
 		Org:            "test-org",
-		OrgDisplayName: db.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		CreatedBy:      uuid.New(),
 	}
 
@@ -413,9 +400,9 @@ func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
 	utn := &Tenant{
 		ID:             tn.ID,
 		Name:           "test2",
-		DisplayName:    db.GetStrPtr("Test 2"),
+		DisplayName:    cutil.GetPtr("Test 2"),
 		Org:            tn.Org,
-		OrgDisplayName: db.GetStrPtr("Test Org Updated"),
+		OrgDisplayName: cutil.GetPtr("Test Org Updated"),
 		Config:         tncfg,
 		CreatedBy:      tn.CreatedBy,
 	}
@@ -439,7 +426,7 @@ func TestTenantSQLDAO_UpdateFromParams(t *testing.T) {
 			args: args{
 				ctx:            ctx,
 				id:             tn.ID,
-				name:           db.GetStrPtr(utn.Name),
+				name:           cutil.GetPtr(utn.Name),
 				displayName:    utn.DisplayName,
 				orgDisplayName: utn.OrgDisplayName,
 				config:         tncfg,
@@ -498,7 +485,7 @@ func TestTenantSQLDAO_DeleteByID(t *testing.T) {
 	ip := &Tenant{
 		ID:          uuid.New(),
 		Name:        "test",
-		DisplayName: db.GetStrPtr("test"),
+		DisplayName: cutil.GetPtr("test"),
 		Org:         "test",
 	}
 

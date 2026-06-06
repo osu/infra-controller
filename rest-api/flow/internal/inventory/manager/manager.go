@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package manager provides the business logic layer for inventory management.
 // It wraps the InventoryStore and provides a place for validation, caching,
@@ -26,13 +12,13 @@ import (
 
 	"github.com/google/uuid"
 
-	dbquery "github.com/NVIDIA/infra-controller-rest/flow/internal/db/query"
-	inventorystore "github.com/NVIDIA/infra-controller-rest/flow/internal/inventory/store"
-	identifier "github.com/NVIDIA/infra-controller-rest/flow/pkg/common/Identifier"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/component"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/nvldomain"
-	"github.com/NVIDIA/infra-controller-rest/flow/pkg/inventoryobjects/rack"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	inventorystore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/inventory/store"
+	identifier "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/Identifier"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/component"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/nvldomain"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/inventoryobjects/rack"
 )
 
 // Re-export for convenience

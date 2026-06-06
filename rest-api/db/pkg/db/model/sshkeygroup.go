@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,9 +10,10 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -321,7 +308,7 @@ func (skgsd SSHKeyGroupSQLDAO) GenerateAndUpdateVersion(ctx context.Context, tx 
 
 	// Retrieve SSH Key Group Association details for calculating hash version based on SSH Key Group ID
 	skgsaDAO := NewSSHKeyGroupSiteAssociationDAO(skgsd.dbSession)
-	dbskgsas, _, err := skgsaDAO.GetAll(ctx, tx, []uuid.UUID{id}, nil, nil, nil, nil, nil, db.GetIntPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
+	dbskgsas, _, err := skgsaDAO.GetAll(ctx, tx, []uuid.UUID{id}, nil, nil, nil, nil, nil, cutil.GetPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +325,7 @@ func (skgsd SSHKeyGroupSQLDAO) GenerateAndUpdateVersion(ctx context.Context, tx 
 
 	// Retrieve SSH Key Association details for calculating hash version based on SSH Key ID
 	skaDAO := NewSSHKeyAssociationDAO(skgsd.dbSession)
-	dbska, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{id}, nil, nil, db.GetIntPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
+	dbska, _, err := skaDAO.GetAll(ctx, tx, nil, []uuid.UUID{id}, nil, nil, cutil.GetPtr(paginator.TotalLimit), &paginator.OrderBy{Field: "created", Order: paginator.OrderAscending})
 	if err != nil {
 		return nil, err
 	}

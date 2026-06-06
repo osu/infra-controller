@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -21,9 +7,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,15 +34,15 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetByID(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	it := testBuildInstanceType(t, dbSession, nil, "test-instance-type", ip.ID, st.ID, tnu.ID)
-	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
+	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
 
 	// Create a minimal Instance directly
 	instance := &Instance{
@@ -73,7 +60,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetByID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create DpuExtensionService
-	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, db.GetStrPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
+	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, cutil.GetPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
 
 	// Create DpuExtensionServiceDeployment
 	desd := testBuildDpuExtensionServiceDeployment(t, dbSession, nil, st.ID, tn.ID, instance.ID, des.ID, *des.Version, DpuExtensionServiceDeploymentStatusRunning, tnu.ID)
@@ -183,15 +170,15 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetAll(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	it := testBuildInstanceType(t, dbSession, nil, "test-instance-type", ip.ID, st.ID, tnu.ID)
-	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
+	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
 
 	// Create Instances
 	instance1 := &Instance{
@@ -223,8 +210,8 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create DpuExtensionServices
-	des1 := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service-1", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, db.GetStrPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
-	des2 := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service-2", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, db.GetStrPtr("V1-T1761856992374053"), DpuExtensionServiceStatusReady, tnu.ID)
+	des1 := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service-1", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, cutil.GetPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
+	des2 := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service-2", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, cutil.GetPtr("V1-T1761856992374053"), DpuExtensionServiceStatusReady, tnu.ID)
 
 	// Create DpuExtensionServiceDeployments
 	desd1 := testBuildDpuExtensionServiceDeployment(t, dbSession, nil, st.ID, tn.ID, instance1.ID, des1.ID, *des1.Version, DpuExtensionServiceDeploymentStatusPending, tnu.ID)
@@ -354,7 +341,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:         ctx,
-				searchQuery: db.GetStrPtr("Pending"),
+				searchQuery: cutil.GetPtr("Pending"),
 			},
 			wantCount: 1,
 			wantTotal: 1,
@@ -367,8 +354,8 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:    ctx,
-				limit:  db.GetIntPtr(2),
-				offset: db.GetIntPtr(0),
+				limit:  cutil.GetPtr(2),
+				offset: cutil.GetPtr(0),
 			},
 			wantCount: 2,
 			wantTotal: 3,
@@ -381,7 +368,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_GetAll(t *testing.T) {
 			},
 			args: args{
 				ctx:    ctx,
-				offset: db.GetIntPtr(1),
+				offset: cutil.GetPtr(1),
 			},
 			wantCount: 2,
 			wantTotal: 3,
@@ -486,15 +473,15 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Create(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	it := testBuildInstanceType(t, dbSession, nil, "test-instance-type", ip.ID, st.ID, tnu.ID)
-	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
+	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
 
 	// Create Instance
 	instance := &Instance{
@@ -512,7 +499,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Create(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create DpuExtensionService
-	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, db.GetStrPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
+	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, cutil.GetPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
 
 	// OTEL Spanner configuration
 	_, _, ctx := testCommonTraceProviderSetup(t, context.Background())
@@ -532,7 +519,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Create(t *testing.T) {
 			args: args{
 				ctx: ctx,
 				input: DpuExtensionServiceDeploymentCreateInput{
-					DpuExtensionServiceDeploymentID: db.GetUUIDPtr(uuid.New()),
+					DpuExtensionServiceDeploymentID: cutil.GetPtr(uuid.New()),
 					SiteID:                          st.ID,
 					TenantID:                        tn.ID,
 					InstanceID:                      instance.ID,
@@ -614,15 +601,15 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Update(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	it := testBuildInstanceType(t, dbSession, nil, "test-instance-type", ip.ID, st.ID, tnu.ID)
-	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
+	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
 
 	// Create Instance
 	instance := &Instance{
@@ -640,7 +627,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Update(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create DpuExtensionService
-	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, db.GetStrPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
+	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, cutil.GetPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
 
 	// Create DpuExtensionServiceDeployment to update
 	desd := testBuildDpuExtensionServiceDeployment(t, dbSession, nil, st.ID, tn.ID, instance.ID, des.ID, *des.Version, DpuExtensionServiceDeploymentStatusPending, tnu.ID)
@@ -718,15 +705,15 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Delete(t *testing.T) {
 	TestSetupSchema(t, dbSession)
 
 	// Create necessary objects
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoe@test.com"), db.GetStrPtr("Jane"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoe@test.com"), cutil.GetPtr("Jane"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 
 	it := testBuildInstanceType(t, dbSession, nil, "test-instance-type", ip.ID, st.ID, tnu.ID)
-	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, db.GetStrPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
+	vpc := TestBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cutil.GetPtr(VpcEthernetVirtualizer), nil, nil, VpcStatusPending, ipu, nil)
 
 	// Create Instance
 	instance := &Instance{
@@ -744,7 +731,7 @@ func TestDpuExtensionServiceDeploymentSQLDAO_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create DpuExtensionService
-	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, db.GetStrPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
+	des := testBuildDpuExtensionService(t, dbSession, nil, "test-dpu-service", DpuExtensionServiceServiceTypeKubernetesPod, st.ID, tn.ID, cutil.GetPtr("V1-T1761856992374052"), DpuExtensionServiceStatusReady, tnu.ID)
 
 	// Create DpuExtensionServiceDeployment to delete
 	desd := testBuildDpuExtensionServiceDeployment(t, dbSession, nil, st.ID, tn.ID, instance.ID, des.ID, *des.Version, DpuExtensionServiceDeploymentStatusRunning, tnu.ID)
@@ -817,15 +804,15 @@ func TestDpuExtensionServiceDeploymentSQLDAO_CreateMultiple(t *testing.T) {
 	defer dbSession.Close()
 	TestSetupSchema(t, dbSession)
 
-	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("johnd@test.com"), db.GetStrPtr("John"), db.GetStrPtr("Doe"))
+	ipu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("johnd@test.com"), cutil.GetPtr("John"), cutil.GetPtr("Doe"))
 	ip := testBuildInfrastructureProvider(t, dbSession, nil, "test-ip", "Test Provider", ipu.ID)
-	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), db.GetStrPtr("jdoetenant@test.com"), db.GetStrPtr("Tenant"), db.GetStrPtr("Doe"))
+	tnu := testBuildUser(t, dbSession, nil, testGenerateStarfleetID(), cutil.GetPtr("jdoetenant@test.com"), cutil.GetPtr("Tenant"), cutil.GetPtr("Doe"))
 	tn := testBuildTenant(t, dbSession, nil, "test-tenant", "test-tenant-org", tnu.ID)
 	st := testBuildSite(t, dbSession, nil, ip.ID, "test-site", "Test Site", ip.Org, ipu.ID)
 
 	vpc := testInstanceBuildVpc(t, dbSession, ip, st, tn, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tn, st, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -840,18 +827,18 @@ func TestDpuExtensionServiceDeploymentSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest2"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip.ID, st.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest2"))
 	instance2, err := isd.Create(
 		ctx, nil,
 		InstanceCreateInput{
@@ -862,18 +849,18 @@ func TestDpuExtensionServiceDeploymentSQLDAO_CreateMultiple(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine2.ID,
-			Hostname:                 db.GetStrPtr("test2.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			Hostname:                 cutil.GetPtr("test2.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
-	service := testBuildDpuExtensionService(t, dbSession, nil, "test-service", "helm", st.ID, tn.ID, db.GetStrPtr("1.0.0"), DpuExtensionServiceStatusReady, tnu.ID)
+	service := testBuildDpuExtensionService(t, dbSession, nil, "test-service", "helm", st.ID, tn.ID, cutil.GetPtr("1.0.0"), DpuExtensionServiceStatusReady, tnu.ID)
 
 	desdsd := NewDpuExtensionServiceDeploymentDAO(dbSession)
 

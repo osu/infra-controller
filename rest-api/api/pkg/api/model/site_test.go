@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,25 +26,25 @@ func TestNewAPISite(t *testing.T) {
 		ID:             uuid.New(),
 		Name:           "test-ip",
 		Org:            "test-org",
-		OrgDisplayName: cdb.GetStrPtr("Test Org"),
+		OrgDisplayName: cutil.GetPtr("Test Org"),
 		CreatedBy:      uuid.New(),
 	}
 
 	dbs := cdbm.Site{
 		ID:                            uuid.New(),
 		Name:                          "test-site",
-		Description:                   cdb.GetStrPtr("Test Site Description"),
+		Description:                   cutil.GetPtr("Test Site Description"),
 		Org:                           "test-org",
 		InfrastructureProviderID:      uuid.New(),
 		InfrastructureProvider:        &ip,
-		SiteControllerVersion:         cdb.GetStrPtr("1.0.0"),
-		SiteAgentVersion:              cdb.GetStrPtr("1.0.0"),
-		RegistrationToken:             cdb.GetStrPtr("test-registration-token"),
-		RegistrationTokenExpiration:   cdb.GetTimePtr(time.Now()),
-		SerialConsoleHostname:         cdb.GetStrPtr("nico.acme.com"),
+		SiteControllerVersion:         cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:              cutil.GetPtr("1.0.0"),
+		RegistrationToken:             cutil.GetPtr("test-registration-token"),
+		RegistrationTokenExpiration:   cutil.GetPtr(time.Now()),
+		SerialConsoleHostname:         cutil.GetPtr("nico.acme.com"),
 		IsSerialConsoleEnabled:        true,
-		SerialConsoleIdleTimeout:      cdb.GetIntPtr(30),
-		SerialConsoleMaxSessionLength: cdb.GetIntPtr(60),
+		SerialConsoleIdleTimeout:      cutil.GetPtr(30),
+		SerialConsoleMaxSessionLength: cutil.GetPtr(60),
 		Config:                        &cdbm.SiteConfig{NativeNetworking: true},
 		Status:                        cdbm.SiteStatusRegistered,
 		Created:                       time.Now(),
@@ -167,7 +153,7 @@ func TestNewAPISite(t *testing.T) {
 				IsSerialConsoleEnabled:        dbs.IsSerialConsoleEnabled,
 				SerialConsoleIdleTimeout:      dbs.SerialConsoleIdleTimeout,
 				SerialConsoleMaxSessionLength: dbs.SerialConsoleMaxSessionLength,
-				IsSerialConsoleSSHKeysEnabled: cdb.GetBoolPtr(ts.EnableSerialConsole),
+				IsSerialConsoleSSHKeysEnabled: cutil.GetPtr(ts.EnableSerialConsole),
 				Capabilities:                  siteConfigToAPISiteCapabilities(&cdbm.SiteConfig{NativeNetworking: true}),
 				IsOnline:                      true,
 				Status:                        dbs.Status,
@@ -245,16 +231,16 @@ func TestAPISiteCreateRequest_Validate(t *testing.T) {
 			name: "validate create request success",
 			fields: fields{
 				Name:                  "test-site",
-				Description:           cdb.GetStrPtr("Test Site Description"),
-				SerialConsoleHostname: cdb.GetStrPtr("nico.acme.com"),
+				Description:           cutil.GetPtr("Test Site Description"),
+				SerialConsoleHostname: cutil.GetPtr("nico.acme.com"),
 			},
 			wantErr: false,
 		},
 		{
 			name: "validate create request failure, missing name",
 			fields: fields{
-				Description:           cdb.GetStrPtr("Test Site Description"),
-				SerialConsoleHostname: cdb.GetStrPtr("nico.acme.com"),
+				Description:           cutil.GetPtr("Test Site Description"),
+				SerialConsoleHostname: cutil.GetPtr("nico.acme.com"),
 			},
 			wantErr: true,
 		},
@@ -262,7 +248,7 @@ func TestAPISiteCreateRequest_Validate(t *testing.T) {
 			name: "validate create request failure, invalid hostname",
 			fields: fields{
 				Name:                  "test-site",
-				SerialConsoleHostname: cdb.GetStrPtr("$xyz"),
+				SerialConsoleHostname: cutil.GetPtr("$xyz"),
 			},
 			wantErr: true,
 		},
@@ -270,8 +256,8 @@ func TestAPISiteCreateRequest_Validate(t *testing.T) {
 			name: "validate create request success when serial console params are set",
 			fields: fields{
 				Name:                  "test-site",
-				Description:           cdb.GetStrPtr("Test Site Description"),
-				SerialConsoleHostname: cdb.GetStrPtr("nico.acme.com"),
+				Description:           cutil.GetPtr("Test Site Description"),
+				SerialConsoleHostname: cutil.GetPtr("nico.acme.com"),
 			},
 			wantErr: false,
 		},
@@ -311,10 +297,10 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request success when requested by Provider",
 			fields: fields{
-				Name:                   cdb.GetStrPtr("test-site"),
-				Description:            cdb.GetStrPtr("Test Site Description"),
-				SerialConsoleHostname:  cdb.GetStrPtr("nico.acme.com"),
-				RenewRegistrationToken: cdb.GetBoolPtr(true),
+				Name:                   cutil.GetPtr("test-site"),
+				Description:            cutil.GetPtr("Test Site Description"),
+				SerialConsoleHostname:  cutil.GetPtr("nico.acme.com"),
+				RenewRegistrationToken: cutil.GetPtr(true),
 			},
 			isProvider: true,
 			wantErr:    false,
@@ -327,10 +313,10 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request success, serial console params specified",
 			fields: fields{
-				SerialConsoleHostname:         cdb.GetStrPtr("nico.acme.com"),
-				IsSerialConsoleEnabled:        cdb.GetBoolPtr(true),
-				SerialConsoleIdleTimeout:      cdb.GetIntPtr(10),
-				SerialConsoleMaxSessionLength: cdb.GetIntPtr(20),
+				SerialConsoleHostname:         cutil.GetPtr("nico.acme.com"),
+				IsSerialConsoleEnabled:        cutil.GetPtr(true),
+				SerialConsoleIdleTimeout:      cutil.GetPtr(10),
+				SerialConsoleMaxSessionLength: cutil.GetPtr(20),
 			},
 			isProvider: true,
 			wantErr:    false,
@@ -338,8 +324,8 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request failure, invalid serial console params specified",
 			fields: fields{
-				SerialConsoleIdleTimeout:      cdb.GetIntPtr(-1),
-				SerialConsoleMaxSessionLength: cdb.GetIntPtr(0),
+				SerialConsoleIdleTimeout:      cutil.GetPtr(-1),
+				SerialConsoleMaxSessionLength: cutil.GetPtr(0),
 			},
 			isProvider: true,
 			wantErr:    true,
@@ -347,7 +333,7 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request failure, Tenant serial console param specified by Provider",
 			fields: fields{
-				IsSerialConsoleSSHKeysEnabled: cdb.GetBoolPtr(true),
+				IsSerialConsoleSSHKeysEnabled: cutil.GetPtr(true),
 			},
 			isProvider: true,
 			wantErr:    true,
@@ -355,7 +341,7 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request success, serial console host name can be cleared",
 			fields: fields{
-				SerialConsoleHostname: cdb.GetStrPtr(""),
+				SerialConsoleHostname: cutil.GetPtr(""),
 			},
 			isProvider: true,
 			wantErr:    false,
@@ -363,7 +349,7 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request failure, Tenant configuring this value is no longer supported",
 			fields: fields{
-				IsSerialConsoleSSHKeysEnabled: cdb.GetBoolPtr(true),
+				IsSerialConsoleSSHKeysEnabled: cutil.GetPtr(true),
 			},
 			isTenant: true,
 			wantErr:  true,
@@ -371,11 +357,11 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 		{
 			name: "validate update request failure, Tenant changing Provider specific attributes not allowed",
 			fields: fields{
-				Name:                   cdb.GetStrPtr("test-site"),
-				Description:            cdb.GetStrPtr("Test Site Description"),
-				SerialConsoleHostname:  cdb.GetStrPtr("nico.acme.com"),
-				IsSerialConsoleEnabled: cdb.GetBoolPtr(true),
-				RenewRegistrationToken: cdb.GetBoolPtr(true),
+				Name:                   cutil.GetPtr("test-site"),
+				Description:            cutil.GetPtr("Test Site Description"),
+				SerialConsoleHostname:  cutil.GetPtr("nico.acme.com"),
+				IsSerialConsoleEnabled: cutil.GetPtr(true),
+				RenewRegistrationToken: cutil.GetPtr(true),
 			},
 			isTenant: true,
 			wantErr:  true,
@@ -384,7 +370,7 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 			name: "validate update request failure, Tenant configuring capabilities not allowed",
 			fields: fields{
 				Capabilities: &APISiteCapabilitiesUpdateRequest{
-					NativeNetworking: cdb.GetBoolPtr(true),
+					NativeNetworking: cutil.GetPtr(true),
 				},
 			},
 			isTenant: true,
@@ -394,7 +380,7 @@ func TestAPISiteUpdateRequest_Validate(t *testing.T) {
 			name: "validate update request success, Provider configuring capabilities",
 			fields: fields{
 				Capabilities: &APISiteCapabilitiesUpdateRequest{
-					NativeNetworking: cdb.GetBoolPtr(false),
+					NativeNetworking: cutil.GetPtr(false),
 				},
 			},
 			isProvider: true,

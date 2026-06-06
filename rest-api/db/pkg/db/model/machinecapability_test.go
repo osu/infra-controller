@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,15 +10,67 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 )
+
+func TestMachineCapability_Equal(t *testing.T) {
+	makeCap := func() *MachineCapability {
+		return &MachineCapability{
+			Type:             MachineCapabilityTypeCPU,
+			Name:             "cap-1",
+			Cores:            cutil.GetPtr(8),
+			Threads:          cutil.GetPtr(16),
+			Count:            cutil.GetPtr(1),
+			Vendor:           cutil.GetPtr("Intel"),
+			Capacity:         cutil.GetPtr("64GB"),
+			Frequency:        cutil.GetPtr("3.0GHz"),
+			HardwareRevision: cutil.GetPtr("rev-1"),
+			InactiveDevices:  []int{1, 2},
+			Index:            0,
+		}
+	}
+
+	t.Run("nil equals nil", func(t *testing.T) {
+		var a, b *MachineCapability
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("nil does not equal non-nil", func(t *testing.T) {
+		var a *MachineCapability
+		b := makeCap()
+		assert.False(t, a.Equal(b))
+		assert.False(t, b.Equal(a))
+	})
+	t.Run("identical caps are equal", func(t *testing.T) {
+		assert.True(t, makeCap().Equal(makeCap()))
+	})
+	t.Run("differing Name returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.Name = "cap-2"
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing pointer field returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.Cores = cutil.GetPtr(4)
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("differing InactiveDevices slice returns false", func(t *testing.T) {
+		a := makeCap()
+		b := makeCap()
+		b.InactiveDevices = []int{1, 3}
+		assert.False(t, a.Equal(b))
+	})
+}
 
 func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 	ctx := context.Background()
@@ -64,11 +102,11 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID:   nil,
 					Type:             MachineCapabilityTypeCPU,
 					Name:             "AMD Opteron Series x10",
-					Frequency:        db.GetStrPtr("3.0 Ghz"),
-					Count:            db.GetIntPtr(2),
-					Cores:            db.GetIntPtr(128),
-					Threads:          db.GetIntPtr(256),
-					HardwareRevision: db.GetStrPtr("v.12345"),
+					Frequency:        cutil.GetPtr("3.0 Ghz"),
+					Count:            cutil.GetPtr(2),
+					Cores:            cutil.GetPtr(128),
+					Threads:          cutil.GetPtr(256),
+					HardwareRevision: cutil.GetPtr("v.12345"),
 					Index:            5,
 					Info: map[string]interface{}{
 						"Version": "2.0",
@@ -86,9 +124,9 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: &ins.ID,
 					Type:           MachineCapabilityTypeMemory,
 					Name:           "Corsair Vengeance LPX",
-					Frequency:      db.GetStrPtr("3200 Mhz"),
-					Capacity:       db.GetStrPtr("128GB"),
-					Count:          db.GetIntPtr(4),
+					Frequency:      cutil.GetPtr("3200 Mhz"),
+					Capacity:       cutil.GetPtr("128GB"),
+					Count:          cutil.GetPtr(4),
 				},
 			},
 			expectError: false,
@@ -101,9 +139,9 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: &ins.ID,
 					Type:           MachineCapabilityTypeNetwork,
 					Name:           "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
-					Capacity:       db.GetStrPtr("100GB"),
-					Count:          db.GetIntPtr(2),
-					DeviceType:     db.GetStrPtr("DPU"),
+					Capacity:       cutil.GetPtr("100GB"),
+					Count:          cutil.GetPtr(2),
+					DeviceType:     (*MachineCapabilityDeviceType)(cutil.GetPtr("DPU")),
 				},
 			},
 			expectError: false,
@@ -116,8 +154,8 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID:  nil,
 					Type:            MachineCapabilityTypeInfiniBand,
 					Name:            "MT28908 Family [ConnectX-6]",
-					Vendor:          db.GetStrPtr("Mellanox Technologies"),
-					Count:           db.GetIntPtr(2),
+					Vendor:          cutil.GetPtr("Mellanox Technologies"),
+					Count:           cutil.GetPtr(2),
 					InactiveDevices: []int{2, 4},
 				},
 			},
@@ -131,9 +169,9 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: nil,
 					Type:           MachineCapabilityTypeMemory,
 					Name:           "Corsair Vengeance LPX",
-					Frequency:      db.GetStrPtr("3200 Mhz"),
-					Capacity:       db.GetStrPtr("128GB"),
-					Count:          db.GetIntPtr(4),
+					Frequency:      cutil.GetPtr("3200 Mhz"),
+					Capacity:       cutil.GetPtr("128GB"),
+					Count:          cutil.GetPtr(4),
 					Info: map[string]interface{}{
 						"DDR": "v4",
 					},
@@ -149,8 +187,22 @@ func TestMachineCapabilitySQLDAO_Create(t *testing.T) {
 					InstanceTypeID: nil,
 					Type:           "",
 					Name:           "AMD Opteron Series x10",
-					Frequency:      db.GetStrPtr("3.0 Ghz"),
-					Count:          db.GetIntPtr(2),
+					Frequency:      cutil.GetPtr("3.0 Ghz"),
+					Count:          cutil.GetPtr(2),
+				},
+			},
+			expectError: true,
+		},
+		{
+			desc: "create with non-empty but unknown capability type",
+			mcs: []MachineCapability{
+				{
+					MachineID:      &mach.ID,
+					InstanceTypeID: nil,
+					Type:           "Mystery",
+					Name:           "AMD Opteron Series x10",
+					Frequency:      cutil.GetPtr("3.0 Ghz"),
+					Count:          cutil.GetPtr(2),
 				},
 			},
 			expectError: true,
@@ -214,8 +266,8 @@ func testMachineCapabilitySQLDAOCreateSlice(ctx context.Context, t *testing.T, d
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeCPU,
 			Name:           "AMD Opteron Series x10",
-			Frequency:      db.GetStrPtr("3.0 Ghz"),
-			Count:          db.GetIntPtr(2),
+			Frequency:      cutil.GetPtr("3.0 Ghz"),
+			Count:          cutil.GetPtr(2),
 			Info: map[string]interface{}{
 				"Version": "2.0",
 			},
@@ -225,42 +277,42 @@ func testMachineCapabilitySQLDAOCreateSlice(ctx context.Context, t *testing.T, d
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeCPU,
 			Name:           "Corsair Vengeance LPX DDR4",
-			Frequency:      db.GetStrPtr("3200 Mhz"),
-			Capacity:       db.GetStrPtr("32 GB"),
-			Count:          db.GetIntPtr(2),
+			Frequency:      cutil.GetPtr("3200 Mhz"),
+			Capacity:       cutil.GetPtr("32 GB"),
+			Count:          cutil.GetPtr(2),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeStorage,
 			Name:           "Dell Ent NVMe CM6 RI 1.92TB",
-			Capacity:       db.GetStrPtr("1.92TB"),
-			Count:          db.GetIntPtr(4),
+			Capacity:       cutil.GetPtr("1.92TB"),
+			Count:          cutil.GetPtr(4),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeStorage,
 			Name:           "Dell Ent NVMe CM6 RI 1.92TB",
-			Capacity:       db.GetStrPtr("1.92TB"),
-			Count:          db.GetIntPtr(4),
+			Capacity:       cutil.GetPtr("1.92TB"),
+			Count:          cutil.GetPtr(4),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeNetwork,
 			Name:           "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
-			Capacity:       db.GetStrPtr("100GB"),
-			Count:          db.GetIntPtr(2),
-			DeviceType:     db.GetStrPtr(""),
+			Capacity:       cutil.GetPtr("100GB"),
+			Count:          cutil.GetPtr(2),
+			DeviceType:     (*MachineCapabilityDeviceType)(cutil.GetPtr("")),
 		},
 		{
 			MachineID:      &mach.ID,
 			InstanceTypeID: nil,
 			Type:           MachineCapabilityTypeInfiniBand,
 			Name:           "MT28908 Family [ConnectX-6]",
-			Vendor:         db.GetStrPtr("Mellanox Technologies"),
-			Count:          db.GetIntPtr(2),
+			Vendor:         cutil.GetPtr("Mellanox Technologies"),
+			Count:          cutil.GetPtr(2),
 		},
 	}
 
@@ -380,13 +432,13 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 	itCapCount := 0
 
 	ip, site, it := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
-	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: db.GetStrPtr("3.2 GHz"), Count: db.GetIntPtr(2)})
-	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeMemory, Name: "Test Capability", Capacity: db.GetStrPtr("32GB"), Count: db.GetIntPtr(4)})
+	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: cutil.GetPtr("3.2 GHz"), Count: cutil.GetPtr(2)})
+	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it.ID, Type: MachineCapabilityTypeMemory, Name: "Test Capability", Capacity: cutil.GetPtr("32GB"), Count: cutil.GetPtr(4)})
 	itCapCount += 2
 
 	user := TestBuildUser(t, dbSession, "test-user", "test-org", []string{"test-role"})
 	it2 := TestBuildInstanceType(t, dbSession, "lg.x86", ip, site, user)
-	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it2.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: db.GetStrPtr("4 GHz"), Count: db.GetIntPtr(1)})
+	mcd.Create(ctx, nil, MachineCapabilityCreateInput{InstanceTypeID: &it2.ID, Type: MachineCapabilityTypeCPU, Name: "Test Capability", Frequency: cutil.GetPtr("4 GHz"), Count: cutil.GetPtr(1)})
 	itCapCount++
 
 	ms := []Machine{}
@@ -403,32 +455,34 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 
 		capTypes := make([]string, 0, len(MachineCapabilityTypeChoiceMap))
 		for cap := range MachineCapabilityTypeChoiceMap {
-			capTypes = append(capTypes, cap)
+			capTypes = append(capTypes, string(cap))
 		}
 		sort.Strings(capTypes)
 
 		for _, cap := range capTypes {
+			capType := MachineCapabilityType(cap)
 			var vendor *string
-			var deviceType *string
-			if cap == MachineCapabilityTypeInfiniBand {
-				vendor = db.GetStrPtr("Test Vendor")
+			var deviceType *MachineCapabilityDeviceType
+			if capType == MachineCapabilityTypeInfiniBand {
+				vendor = cutil.GetPtr("Test Vendor")
 			}
-			if i == 0 && cap == MachineCapabilityTypeNetwork {
-				deviceType = db.GetStrPtr("DPU")
+			if i == 0 && capType == MachineCapabilityTypeNetwork {
+				dt := MachineCapabilityDeviceTypeDPU
+				deviceType = &dt
 			}
 
 			var inactiveDevices []int
-			if cap == MachineCapabilityTypeInfiniBand {
+			if capType == MachineCapabilityTypeInfiniBand {
 				inactiveDevices = []int{1, 3}
 			}
 
 			mc, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{
-				MachineID: &m.ID, Type: cap,
+				MachineID: &m.ID, Type: capType,
 				Name:            "Test Capability",
-				Frequency:       db.GetStrPtr("3 GHz"),
-				Capacity:        db.GetStrPtr("12 TB"),
+				Frequency:       cutil.GetPtr("3 GHz"),
+				Capacity:        cutil.GetPtr("12 TB"),
 				Vendor:          vendor,
-				Count:           db.GetIntPtr(1),
+				Count:           cutil.GetPtr(1),
 				DeviceType:      deviceType,
 				InactiveDevices: inactiveDevices,
 			})
@@ -540,7 +594,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            db.GetStrPtr(MachineCapabilityTypeGPU),
+			Type:            db.GetTypedStrPtr(MachineCapabilityTypeGPU),
 			Name:            nil,
 			Frequency:       nil,
 			Capacity:        nil,
@@ -552,7 +606,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type and Name filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            db.GetStrPtr(MachineCapabilityTypeGPU),
+			Type:            db.GetTypedStrPtr(MachineCapabilityTypeGPU),
 			Name:            &mcs[0].Name,
 			Frequency:       nil,
 			Capacity:        nil,
@@ -565,7 +619,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type and Capacity filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            &mcs[1].Type,
+			Type:            cutil.GetPtr(string(mcs[1].Type)),
 			Name:            nil,
 			Frequency:       nil,
 			Capacity:        mcs[1].Capacity,
@@ -578,7 +632,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type and Frequency filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            &mcs[1].Type,
+			Type:            cutil.GetPtr(string(mcs[1].Type)),
 			Name:            nil,
 			Frequency:       mcs[1].Frequency,
 			Vendor:          nil,
@@ -591,12 +645,12 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			desc:            "GetAll with Type and Count filter",
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
-			Type:            db.GetStrPtr(MachineCapabilityTypeGPU),
+			Type:            db.GetTypedStrPtr(MachineCapabilityTypeGPU),
 			Name:            nil,
 			Frequency:       nil,
 			Capacity:        nil,
 			Vendor:          nil,
-			Count:           db.GetIntPtr(1),
+			Count:           cutil.GetPtr(1),
 			expectedCount:   totalMachineCount,
 		},
 		{
@@ -607,7 +661,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			Name:            nil,
 			Frequency:       nil,
 			Capacity:        nil,
-			Vendor:          db.GetStrPtr("Test Vendor"),
+			Vendor:          cutil.GetPtr("Test Vendor"),
 			Count:           nil,
 			DeviceType:      nil,
 			expectedCount:   totalMachineCount,
@@ -622,7 +676,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			Capacity:        nil,
 			Vendor:          nil,
 			Count:           nil,
-			DeviceType:      db.GetStrPtr("DPU"),
+			DeviceType:      cutil.GetPtr("DPU"),
 			expectedCount:   1,
 		},
 		{
@@ -635,8 +689,8 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
 			Type:            nil,
-			offset:          db.GetIntPtr(0),
-			limit:           db.GetIntPtr(5),
+			offset:          cutil.GetPtr(0),
+			limit:           cutil.GetPtr(5),
 			expectedCount:   5,
 			expectedTotal:   &totalCount,
 		},
@@ -645,7 +699,7 @@ func TestMachineCapabilitySQLDAO_GetAll(t *testing.T) {
 			MachineIDs:      nil,
 			InstanceTypeIDs: nil,
 			Type:            nil,
-			offset:          db.GetIntPtr(5),
+			offset:          cutil.GetPtr(5),
 			expectedCount:   paginator.DefaultLimit,
 			expectedTotal:   &totalCount,
 		},
@@ -714,28 +768,30 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 
 		capTypes := make([]string, 0, len(MachineCapabilityTypeChoiceMap))
 		for cap := range MachineCapabilityTypeChoiceMap {
-			capTypes = append(capTypes, cap)
+			capTypes = append(capTypes, string(cap))
 		}
 		sort.Strings(capTypes)
 
 		for _, cap := range capTypes {
-			var deviceType *string
-			if i == 0 && cap == MachineCapabilityTypeNetwork {
-				deviceType = db.GetStrPtr("DPU")
+			capType := MachineCapabilityType(cap)
+			var deviceType *MachineCapabilityDeviceType
+			if i == 0 && capType == MachineCapabilityTypeNetwork {
+				dt := MachineCapabilityDeviceTypeDPU
+				deviceType = &dt
 			}
 			var inactiveDevices []int
-			if cap == MachineCapabilityTypeInfiniBand {
+			if capType == MachineCapabilityTypeInfiniBand {
 				inactiveDevices = []int{1, 3}
 			}
 			mc, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{
 				MachineID:       &m.ID,
 				InstanceTypeID:  &it.ID,
-				Type:            cap,
+				Type:            capType,
 				Name:            "Test Capability",
-				Frequency:       db.GetStrPtr("3 GHz"),
-				Capacity:        db.GetStrPtr("12 TB"),
-				Vendor:          db.GetStrPtr("Test Vendor"),
-				Count:           db.GetIntPtr(1),
+				Frequency:       cutil.GetPtr("3 GHz"),
+				Capacity:        cutil.GetPtr("12 TB"),
+				Vendor:          cutil.GetPtr("Test Vendor"),
+				Count:           cutil.GetPtr(1),
 				DeviceType:      deviceType,
 				InactiveDevices: inactiveDevices,
 			})
@@ -822,7 +878,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           db.GetStrPtr(MachineCapabilityTypeCPU),
+			Type:           db.GetTypedStrPtr(MachineCapabilityTypeCPU),
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
@@ -835,7 +891,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Name filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           &mcs[0].Type,
+			Type:           cutil.GetPtr(string(mcs[0].Type)),
 			Name:           &mcs[0].Name,
 			Frequency:      nil,
 			Capacity:       nil,
@@ -848,7 +904,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Capacity filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           &mcs[1].Type,
+			Type:           cutil.GetPtr(string(mcs[1].Type)),
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       mcs[1].Capacity,
@@ -861,7 +917,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Frequency filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           &mcs[1].Type,
+			Type:           cutil.GetPtr(string(mcs[1].Type)),
 			Name:           nil,
 			Frequency:      mcs[1].Frequency,
 			Vendor:         nil,
@@ -874,7 +930,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			desc:           "GetAll with Type and Count filter",
 			MachineIDs:     nil,
 			InstanceTypeID: nil,
-			Type:           &mcs[1].Type,
+			Type:           cutil.GetPtr(string(mcs[1].Type)),
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
@@ -891,7 +947,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
-			Vendor:         db.GetStrPtr("Test Vendor"),
+			Vendor:         cutil.GetPtr("Test Vendor"),
 			Count:          nil,
 			DeviceType:     nil,
 			expectedCount:  len(MachineCapabilityTypeChoiceMap) + 1,
@@ -906,7 +962,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 			Capacity:       nil,
 			Vendor:         nil,
 			Count:          nil,
-			DeviceType:     db.GetStrPtr("DPU"),
+			DeviceType:     cutil.GetPtr("DPU"),
 			expectedCount:  1,
 		},
 		{
@@ -917,7 +973,7 @@ func TestMachineCapabilitySQLDAO_GetAllDistinct(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, total, err := mcd.GetAllDistinct(ctx, nil, tc.MachineIDs, tc.InstanceTypeID, tc.Type, tc.Name, tc.Frequency, tc.Capacity, tc.Vendor, tc.Count, tc.DeviceType, tc.InactiveDevices, nil, db.GetIntPtr(paginator.TotalLimit), nil)
+			got, total, err := mcd.GetAllDistinct(ctx, nil, tc.MachineIDs, tc.InstanceTypeID, tc.Type, tc.Name, tc.Frequency, tc.Capacity, tc.Vendor, tc.Count, tc.DeviceType, tc.InactiveDevices, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedCount, len(got))
 
@@ -962,13 +1018,13 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 		mc                 *MachineCapability
 		MachineID          *string
 		InstanceTypeID     *uuid.UUID
-		Type               *string
+		Type               *MachineCapabilityType
 		Name               *string
 		Frequency          *string
 		Capacity           *string
 		Vendor             *string
 		Count              *int
-		DeviceType         *string
+		DeviceType         *MachineCapabilityDeviceType
 		Info               map[string]interface{}
 		Index              *int
 		Threads            *int
@@ -1011,15 +1067,15 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			mc:               &mcsExp[2],
 			MachineID:        nil,
 			InstanceTypeID:   nil,
-			Type:             db.GetStrPtr(MachineCapabilityTypeMemory),
-			Name:             db.GetStrPtr(name),
-			Frequency:        db.GetStrPtr(frequency),
-			Capacity:         db.GetStrPtr(capacity),
-			Count:            db.GetIntPtr(count),
-			Cores:            db.GetIntPtr(128),
-			Threads:          db.GetIntPtr(256),
-			HardwareRevision: db.GetStrPtr("v.12345"),
-			Index:            db.GetIntPtr(1000),
+			Type:             cutil.GetPtr(MachineCapabilityTypeMemory),
+			Name:             cutil.GetPtr(name),
+			Frequency:        cutil.GetPtr(frequency),
+			Capacity:         cutil.GetPtr(capacity),
+			Count:            cutil.GetPtr(count),
+			Cores:            cutil.GetPtr(128),
+			Threads:          cutil.GetPtr(256),
+			HardwareRevision: cutil.GetPtr("v.12345"),
+			Index:            cutil.GetPtr(1000),
 			InactiveDevices:  []int{2, 4},
 			expectedError:    false,
 		},
@@ -1033,7 +1089,7 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			Name:           nil,
 			Frequency:      nil,
 			Capacity:       nil,
-			Vendor:         db.GetStrPtr("Test Vendor"),
+			Vendor:         cutil.GetPtr("Test Vendor"),
 			Count:          nil,
 			expectedError:  false,
 		},
@@ -1048,7 +1104,7 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			Frequency:      nil,
 			Capacity:       nil,
 			Vendor:         nil,
-			DeviceType:     db.GetStrPtr(deviceType),
+			DeviceType:     cutil.GetPtr(MachineCapabilityDeviceType(deviceType)),
 			Count:          nil,
 			expectedError:  false,
 		},
@@ -1058,7 +1114,7 @@ func TestMachineCapabilitySQLDAO_Update(t *testing.T) {
 			mc:             &mcsExp[2],
 			MachineID:      nil,
 			InstanceTypeID: nil,
-			Type:           db.GetStrPtr("invalid-type"),
+			Type:           cutil.GetPtr(MachineCapabilityType("invalid-type")),
 			Name:           &name,
 			Frequency:      &frequency,
 			Capacity:       &capacity,
@@ -1408,7 +1464,7 @@ func TestMachineCapability_GetStrInfo(t *testing.T) {
 			args: args{
 				name: "foo",
 			},
-			want: db.GetStrPtr("bar"),
+			want: cutil.GetPtr("bar"),
 		},
 		{
 			name: "test non-existent key returns nil",
@@ -1463,7 +1519,7 @@ func TestMachineCapability_GetIntInfo(t *testing.T) {
 			args: args{
 				name: "foo",
 			},
-			want: db.GetIntPtr(5),
+			want: cutil.GetPtr(5),
 		},
 		{
 			name: "test existing key from info populated in struct returns int value",
@@ -1475,7 +1531,7 @@ func TestMachineCapability_GetIntInfo(t *testing.T) {
 			args: args{
 				name: "foo",
 			},
-			want: db.GetIntPtr(5),
+			want: cutil.GetPtr(5),
 		},
 		{
 			name: "test non-existent key returns nil",
@@ -1505,4 +1561,223 @@ func TestMachineCapability_GetIntInfo(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMachineCapability_ToProto(t *testing.T) {
+	count := 4
+	cores := 16
+	threads := 32
+	freq := "3.5GHz"
+	vendor := "ACME"
+	rev := "v1"
+	dpu := MachineCapabilityDeviceTypeDPU
+
+	t.Run("populates all fields from a CPU capability", func(t *testing.T) {
+		mc := &MachineCapability{
+			Type:             MachineCapabilityTypeCPU,
+			Name:             "cpu-0",
+			Frequency:        &freq,
+			Vendor:           &vendor,
+			HardwareRevision: &rev,
+			Count:            &count,
+			Cores:            &cores,
+			Threads:          &threads,
+		}
+		proto := mc.ToProto()
+		require.NotNil(t, proto)
+		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_CPU, proto.CapabilityType)
+		require.NotNil(t, proto.Name)
+		assert.Equal(t, "cpu-0", *proto.Name)
+		require.NotNil(t, proto.Frequency)
+		assert.Equal(t, freq, *proto.Frequency)
+		require.NotNil(t, proto.Vendor)
+		assert.Equal(t, vendor, *proto.Vendor)
+		require.NotNil(t, proto.HardwareRevision)
+		assert.Equal(t, rev, *proto.HardwareRevision)
+		require.NotNil(t, proto.Count)
+		assert.Equal(t, uint32(4), *proto.Count)
+		require.NotNil(t, proto.Cores)
+		assert.Equal(t, uint32(16), *proto.Cores)
+		require.NotNil(t, proto.Threads)
+		assert.Equal(t, uint32(32), *proto.Threads)
+		assert.Nil(t, proto.DeviceType)
+		assert.Nil(t, proto.InactiveDevices)
+	})
+
+	t.Run("maps Network + DPU device type to the proto enum", func(t *testing.T) {
+		mc := &MachineCapability{
+			Type:       MachineCapabilityTypeNetwork,
+			Name:       "net-0",
+			DeviceType: &dpu,
+		}
+		proto := mc.ToProto()
+		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK, proto.CapabilityType)
+		require.NotNil(t, proto.DeviceType)
+		assert.Equal(t, cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU, *proto.DeviceType)
+	})
+
+	t.Run("maps InfiniBand InactiveDevices into a Uint32List", func(t *testing.T) {
+		mc := &MachineCapability{
+			Type:            MachineCapabilityTypeInfiniBand,
+			Name:            "ib-0",
+			InactiveDevices: []int{2, 5},
+		}
+		proto := mc.ToProto()
+		require.NotNil(t, proto.InactiveDevices)
+		assert.Equal(t, []uint32{2, 5}, proto.InactiveDevices.Items)
+	})
+
+	t.Run("unknown type leaves CapabilityType as zero, unknown device type drops to nil", func(t *testing.T) {
+		unknown := MachineCapabilityDeviceType("Unknown")
+		mc := &MachineCapability{Type: "Mystery", Name: "x", DeviceType: &unknown}
+		proto := mc.ToProto()
+		assert.Equal(t, cwssaws.MachineCapabilityType(0), proto.CapabilityType)
+		assert.Nil(t, proto.DeviceType)
+	})
+}
+
+func TestMachineCapability_FromProto(t *testing.T) {
+	name := "cpu-0"
+	freq := "3.5GHz"
+	capacity := "1024"
+	vendor := "ACME"
+	hwRev := "v1"
+	var count, cores, threads uint32 = 8, 16, 32
+	deviceType := cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+
+	t.Run("nil attrs is no-op", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeGPU}
+		mc.FromProto(nil, 5)
+		assert.Equal(t, MachineCapabilityTypeGPU, mc.Type)
+		assert.Equal(t, 0, mc.Index)
+	})
+
+	t.Run("happy path with all fields", func(t *testing.T) {
+		mc := &MachineCapability{}
+		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType:   cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+			Name:             &name,
+			Frequency:        &freq,
+			Capacity:         &capacity,
+			Vendor:           &vendor,
+			HardwareRevision: &hwRev,
+			Count:            &count,
+			Cores:            &cores,
+			Threads:          &threads,
+			DeviceType:       &deviceType,
+			InactiveDevices:  &cwssaws.Uint32List{Items: []uint32{0, 1}},
+		}, 7)
+
+		assert.Equal(t, MachineCapabilityTypeCPU, mc.Type)
+		assert.Equal(t, "cpu-0", mc.Name)
+		assert.Equal(t, &freq, mc.Frequency)
+		assert.Equal(t, &capacity, mc.Capacity)
+		assert.Equal(t, &vendor, mc.Vendor)
+		assert.Equal(t, &hwRev, mc.HardwareRevision)
+		require.NotNil(t, mc.Count)
+		assert.Equal(t, 8, *mc.Count)
+		require.NotNil(t, mc.Cores)
+		assert.Equal(t, 16, *mc.Cores)
+		require.NotNil(t, mc.Threads)
+		assert.Equal(t, 32, *mc.Threads)
+		require.NotNil(t, mc.DeviceType)
+		assert.Equal(t, MachineCapabilityDeviceTypeDPU, *mc.DeviceType)
+		assert.Equal(t, []int{0, 1}, mc.InactiveDevices)
+		assert.Equal(t, 7, mc.Index)
+	})
+
+	t.Run("unknown CapabilityType leaves Type empty (caller must Validate)", func(t *testing.T) {
+		mc := &MachineCapability{}
+		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: cwssaws.MachineCapabilityType(9999),
+			Name:           &name,
+		}, 0)
+		assert.Equal(t, MachineCapabilityType(""), mc.Type)
+		assert.Equal(t, "cpu-0", mc.Name)
+	})
+
+	t.Run("nil Name leaves Name empty (caller must Validate)", func(t *testing.T) {
+		mc := &MachineCapability{}
+		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+		}, 0)
+		assert.Equal(t, MachineCapabilityTypeCPU, mc.Type)
+		assert.Equal(t, "", mc.Name)
+	})
+
+	t.Run("unknown DeviceType is preserved (caller must Validate)", func(t *testing.T) {
+		unknown := cwssaws.MachineCapabilityDeviceType(9999)
+		mc := &MachineCapability{}
+		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_GPU,
+			Name:           &name,
+			DeviceType:     &unknown,
+		}, 0)
+		require.NotNil(t, mc.DeviceType)
+		assert.Equal(t, MachineCapabilityDeviceType(""), *mc.DeviceType)
+	})
+}
+
+func TestMachineCapability_Validate(t *testing.T) {
+	dpu := MachineCapabilityDeviceTypeDPU
+	nvlink := MachineCapabilityDeviceTypeNVLink
+
+	t.Run("populated capability is valid", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: "cpu-0"}
+		assert.NoError(t, mc.Validate())
+	})
+	t.Run("empty Type errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: "", Name: "cpu-0"}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("invalid Type errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: "Bogus", Name: "cpu-0"}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("empty Name errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: ""}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("Name with leading whitespace errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: " cpu-0"}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("Name with trailing whitespace errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: "cpu-0 "}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("single-character Name errors (too short)", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: "x"}
+		assert.Error(t, mc.Validate())
+	})
+
+	t.Run("Network with DPU device type is valid", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeNetwork, Name: "net-0", DeviceType: &dpu}
+		assert.NoError(t, mc.Validate())
+	})
+	t.Run("Network with NVLink device type errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeNetwork, Name: "net-0", DeviceType: &nvlink}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("GPU with NVLink device type is valid", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeGPU, Name: "gpu-0", DeviceType: &nvlink}
+		assert.NoError(t, mc.Validate())
+	})
+	t.Run("GPU with DPU device type errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeGPU, Name: "gpu-0", DeviceType: &dpu}
+		assert.Error(t, mc.Validate())
+	})
+	t.Run("CPU with any device type errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: "cpu-0", DeviceType: &dpu}
+		assert.Error(t, mc.Validate())
+	})
+
+	t.Run("InfiniBand with InactiveDevices is valid", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeInfiniBand, Name: "ib-0", InactiveDevices: []int{0, 1}}
+		assert.NoError(t, mc.Validate())
+	})
+	t.Run("CPU with InactiveDevices errors", func(t *testing.T) {
+		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: "cpu-0", InactiveDevices: []int{0, 1}}
+		assert.Error(t, mc.Validate())
+	})
 }

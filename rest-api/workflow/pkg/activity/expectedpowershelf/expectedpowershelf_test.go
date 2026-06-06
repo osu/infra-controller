@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package expectedpowershelf
 
@@ -24,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"go.temporal.io/sdk/testsuite"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -32,16 +18,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/bun/extra/bundebug"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cdbu "github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	"github.com/NVIDIA/infra-controller-rest/workflow/internal/config"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
-	cwu "github.com/NVIDIA/infra-controller-rest/workflow/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
+	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -170,8 +157,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 		if i%5 == 0 {
 			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "rack", Value: cdb.GetStrPtr(fmt.Sprintf("rack-%d", i/5))},
-					{Key: "position", Value: cdb.GetStrPtr(fmt.Sprintf("pos-%d", i))},
+					{Key: "rack", Value: cutil.GetPtr(fmt.Sprintf("rack-%d", i/5))},
+					{Key: "position", Value: cutil.GetPtr(fmt.Sprintf("pos-%d", i))},
 				},
 			}
 		}
@@ -195,7 +182,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			// Add labels to a power shelf that didn't have them before
 			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "new-label", Value: cdb.GetStrPtr("new-value")},
+					{Key: "new-label", Value: cutil.GetPtr("new-value")},
 				},
 			}
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
@@ -203,9 +190,9 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			// Modify existing labels
 			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
 				Labels: []*cwssaws.Label{
-					{Key: "rack", Value: cdb.GetStrPtr(fmt.Sprintf("rack-updated-%d", i/5))},
-					{Key: "position", Value: cdb.GetStrPtr(fmt.Sprintf("pos-%d", i))},
-					{Key: "status", Value: cdb.GetStrPtr("active")},
+					{Key: "rack", Value: cutil.GetPtr(fmt.Sprintf("rack-updated-%d", i/5))},
+					{Key: "position", Value: cutil.GetPtr(fmt.Sprintf("pos-%d", i))},
+					{Key: "status", Value: cutil.GetPtr("active")},
 				},
 			}
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
@@ -395,8 +382,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 							BmcIpAddress:         "10.0.0.100",
 							Metadata: &cwssaws.Metadata{
 								Labels: []*cwssaws.Label{
-									{Key: "environment", Value: cdb.GetStrPtr("test")},
-									{Key: "datacenter", Value: cdb.GetStrPtr("dc1")},
+									{Key: "environment", Value: cutil.GetPtr("test")},
+									{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 								},
 							},
 						},
@@ -427,7 +414,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			// Verify updates by fetching all power shelves for the site
 			epsDAO := cdbm.NewExpectedPowerShelfDAO(dbSession)
 			filterInput := cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{tt.args.siteID}}
-			allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+			allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			assert.NoError(t, gerr)
 
 			// Build a map of power shelves by ID for easy lookup
@@ -464,7 +451,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 					}
 
 					// Verify labels are updated correctly
-					expectedLabels := cdbm.LabelsFromProtoMetadata(ctrlEPS.Metadata)
+					var expectedLabels cdbm.Labels
+					expectedLabels.FromProto(ctrlEPS.Metadata.GetLabels())
 					// Both nil and empty maps should be treated as equivalent (no labels)
 					if len(expectedLabels) == 0 && len(updated.Labels) == 0 {
 						// Both are effectively empty, which is correct
@@ -487,7 +475,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 				assert.NoError(t, perr)
 				created := powerShelvesByID[epsID]
 				if created != nil {
-					expectedLabels := cdbm.LabelsFromProtoMetadata(ceps.Metadata)
+					var expectedLabels cdbm.Labels
+					expectedLabels.FromProto(ceps.Metadata.GetLabels())
 					// Both nil and empty maps should be treated as equivalent (no labels)
 					if len(expectedLabels) == 0 && len(created.Labels) == 0 {
 						// Both are effectively empty, which is correct
@@ -546,7 +535,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB_RaceCondition(t
 
 	// Verify the power shelf was NOT deleted
 	filterInput := cdbm.ExpectedPowerShelfFilterInput{SiteIDs: []uuid.UUID{st.ID}}
-	allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	allPowerShelves, _, gerr := epsDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	assert.NoError(t, gerr)
 
 	// Check if the recent power shelf still exists

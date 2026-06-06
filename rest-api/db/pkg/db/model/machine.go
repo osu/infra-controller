@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -26,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 // Represents status of the machine
@@ -175,6 +161,45 @@ func (m *Machine) GetControllerState() string {
 	return m.Metadata.GetNormalizedState()
 }
 
+// ToMaintenanceRequestProto builds the workflow request to enable or
+// disable maintenance mode on this Machine. operation selects the mode;
+// reference is an optional human-readable note recorded with the
+// maintenance event (typically only set when enabling). Returns nil for
+// a nil receiver.
+func (m *Machine) ToMaintenanceRequestProto(operation cwssaws.MaintenanceOperation, reference *string) *cwssaws.MaintenanceRequest {
+	if m == nil {
+		return nil
+	}
+	return &cwssaws.MaintenanceRequest{
+		HostId:    &cwssaws.MachineId{Id: m.ID},
+		Operation: operation,
+		Reference: reference,
+	}
+}
+
+// ToMetadataUpdateRequestProto builds the workflow request that pushes
+// the supplied labels to a Site as a metadata update for this Machine.
+// The Site Controller stores the Machine ID as the metadata Name and
+// requires a non-empty Name on every update; this method reads it from
+// the machine's stored metadata when present and non-empty, falling
+// back to the Machine ID itself. Returns nil for a nil receiver.
+func (m *Machine) ToMetadataUpdateRequestProto(labels []*cwssaws.Label) *cwssaws.MachineMetadataUpdateRequest {
+	if m == nil {
+		return nil
+	}
+	machineName := m.ID
+	if m.Metadata != nil && m.Metadata.Metadata != nil && m.Metadata.Metadata.Name != "" {
+		machineName = m.Metadata.Metadata.Name
+	}
+	return &cwssaws.MachineMetadataUpdateRequest{
+		MachineId: &cwssaws.MachineId{Id: m.ID},
+		Metadata: &cwssaws.Metadata{
+			Name:   machineName,
+			Labels: labels,
+		},
+	}
+}
+
 // MachineCreateInput input parameters for Create method
 type MachineCreateInput struct {
 	MachineID                string
@@ -246,21 +271,21 @@ type MachineClearInput struct {
 
 // MachineFilterInput filtering options for GetAll method
 type MachineFilterInput struct {
-	InfrastructureProviderID *uuid.UUID
-	SiteID                   *uuid.UUID
-	HasInstanceType          *bool
-	InstanceTypeIDs          []uuid.UUID
-	ControllerMachineID      *string
-	HwSkuDeviceTypes         []string
-	IsAssigned               *bool
-	Hostname                 *string
-	CapabilityType           *string
-	CapabilityNames          []string
-	Statuses                 []string
-	SearchQuery              *string
-	MachineIDs               []string
-	IsMissingOnSite          *bool
-	ExcludeMetadata          bool // When true, excludes the metadata JSONB column from SELECT to improve performance on bulk queries
+	InfrastructureProviderIDs []uuid.UUID
+	SiteIDs                   []uuid.UUID
+	HasInstanceType           *bool
+	InstanceTypeIDs           []uuid.UUID
+	ControllerMachineID       *string
+	HwSkuDeviceTypes          []string
+	IsAssigned                *bool
+	Hostname                  *string
+	CapabilityType            *string
+	CapabilityNames           []string
+	Statuses                  []string
+	SearchQuery               *string
+	MachineIDs                []string
+	IsMissingOnSite           *bool
+	ExcludeMetadata           bool // When true, excludes the metadata JSONB column from SELECT to improve performance on bulk queries
 }
 
 type MachineHealth struct {
@@ -282,6 +307,19 @@ type HealthProbeAlert struct {
 	Message         string   `json:"message"`
 	TenantMessage   *string  `json:"tenant_message"`
 	Classifications []string `json:"classifications"`
+}
+
+// HasAlertID reports whether Alerts contains an entry with Id equal to alertID.
+func (h *MachineHealth) HasAlertID(alertID string) bool {
+	if h == nil {
+		return false
+	}
+	for _, alert := range h.Alerts {
+		if alert.Id == alertID {
+			return true
+		}
+	}
+	return false
 }
 
 // GetIndentedJSON returns formatted json of Machine
@@ -504,19 +542,19 @@ func (msd MachineSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, infras
 }
 
 func (msd MachineSQLDAO) setQueryWithFilter(filter MachineFilterInput, query *bun.SelectQuery, machineDAOSpan *stracer.CurrentContextSpan) (*bun.SelectQuery, error) {
-	if filter.InfrastructureProviderID != nil {
-		query = query.Where("m.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+	if filter.InfrastructureProviderIDs != nil {
+		query = query.Where("m.infrastructure_provider_id IN (?)", bun.In(filter.InfrastructureProviderIDs))
 
 		if machineDAOSpan != nil {
-			msd.tracerSpan.SetAttribute(machineDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
+			msd.tracerSpan.SetAttribute(machineDAOSpan, "infrastructure_provider_ids", filter.InfrastructureProviderIDs)
 		}
 	}
 
-	if filter.SiteID != nil {
-		query = query.Where("m.site_id = ?", *filter.SiteID)
+	if filter.SiteIDs != nil {
+		query = query.Where("m.site_id IN (?)", bun.In(filter.SiteIDs))
 
 		if machineDAOSpan != nil {
-			msd.tracerSpan.SetAttribute(machineDAOSpan, "site_id", filter.SiteID.String())
+			msd.tracerSpan.SetAttribute(machineDAOSpan, "site_ids", filter.SiteIDs)
 		}
 	}
 

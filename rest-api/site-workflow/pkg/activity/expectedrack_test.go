@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -21,22 +7,22 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/util/labels"
-	cClient "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util/labels"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -51,13 +37,13 @@ func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test create expected rack success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRack{
-					RackId:   &cwssaws.RackId{Id: "test-rack-001"},
-					RackType: "test-rack-profile-001",
+					RackId:        &cwssaws.RackId{Id: "test-rack-001"},
+					RackProfileId: &cwssaws.RackProfileId{Id: "test-rack-profile-001"},
 				},
 			},
 			wantErr: false,
@@ -65,13 +51,13 @@ func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test create expected rack fail on missing rack_id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRack{
-					RackId:   nil,
-					RackType: "test-rack-profile-001",
+					RackId:        nil,
+					RackProfileId: &cwssaws.RackProfileId{Id: "test-rack-profile-001"},
 				},
 			},
 			wantErr: true,
@@ -79,13 +65,13 @@ func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test create expected rack fail on missing rack_profile_id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRack{
-					RackId:   &cwssaws.RackId{Id: "test-rack-002"},
-					RackType: "",
+					RackId:        &cwssaws.RackId{Id: "test-rack-002"},
+					RackProfileId: &cwssaws.RackProfileId{Id: ""},
 				},
 			},
 			wantErr: true,
@@ -93,7 +79,7 @@ func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test create expected rack fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -104,7 +90,7 @@ func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mer := NewManageExpectedRack(tt.fields.NICoCoreAtomicClient, nil)
+			mer := NewManageExpectedRack(tt.fields.coreGrpcAtomicClient, nil)
 			err := mer.CreateExpectedRackOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -116,13 +102,13 @@ func TestManageExpectedRack_CreateExpectedRackOnSite(t *testing.T) {
 }
 
 func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -137,13 +123,13 @@ func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test update expected rack success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRack{
-					RackId:   &cwssaws.RackId{Id: "test-update-rack-001"},
-					RackType: "test-update-rack-profile-001",
+					RackId:        &cwssaws.RackId{Id: "test-update-rack-001"},
+					RackProfileId: &cwssaws.RackProfileId{Id: "test-update-rack-profile-001"},
 				},
 			},
 			wantErr: false,
@@ -151,13 +137,13 @@ func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test update expected rack fail on missing rack_id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRack{
-					RackId:   nil,
-					RackType: "test-update-rack-profile-001",
+					RackId:        nil,
+					RackProfileId: &cwssaws.RackProfileId{Id: "test-update-rack-profile-001"},
 				},
 			},
 			wantErr: true,
@@ -165,13 +151,13 @@ func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test update expected rack fail on missing rack_profile_id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRack{
-					RackId:   &cwssaws.RackId{Id: "test-update-rack-002"},
-					RackType: "",
+					RackId:        &cwssaws.RackId{Id: "test-update-rack-002"},
+					RackProfileId: &cwssaws.RackProfileId{Id: ""},
 				},
 			},
 			wantErr: true,
@@ -179,7 +165,7 @@ func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test update expected rack fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -190,7 +176,7 @@ func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mer := NewManageExpectedRack(tt.fields.NICoCoreAtomicClient, nil)
+			mer := NewManageExpectedRack(tt.fields.coreGrpcAtomicClient, nil)
 			err := mer.UpdateExpectedRackOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -202,13 +188,13 @@ func TestManageExpectedRack_UpdateExpectedRackOnSite(t *testing.T) {
 }
 
 func TestManageExpectedRack_DeleteExpectedRackOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -223,7 +209,7 @@ func TestManageExpectedRack_DeleteExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test delete expected rack success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -236,7 +222,7 @@ func TestManageExpectedRack_DeleteExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test delete expected rack fail on empty rack_id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -249,7 +235,7 @@ func TestManageExpectedRack_DeleteExpectedRackOnSite(t *testing.T) {
 		{
 			name: "test delete expected rack fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -260,7 +246,7 @@ func TestManageExpectedRack_DeleteExpectedRackOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mer := NewManageExpectedRack(tt.fields.NICoCoreAtomicClient, nil)
+			mer := NewManageExpectedRack(tt.fields.coreGrpcAtomicClient, nil)
 			err := mer.DeleteExpectedRackOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -272,13 +258,13 @@ func TestManageExpectedRack_DeleteExpectedRackOnSite(t *testing.T) {
 }
 
 func TestManageExpectedRack_ReplaceAllExpectedRacksOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -293,7 +279,7 @@ func TestManageExpectedRack_ReplaceAllExpectedRacksOnSite(t *testing.T) {
 		{
 			name: "test replace all expected racks success with empty list",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -304,19 +290,19 @@ func TestManageExpectedRack_ReplaceAllExpectedRacksOnSite(t *testing.T) {
 		{
 			name: "test replace all expected racks success with valid list",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.ExpectedRackList{
 					ExpectedRacks: []*cwssaws.ExpectedRack{
 						{
-							RackId:   &cwssaws.RackId{Id: "test-replace-rack-001"},
-							RackType: "test-replace-rack-profile-001",
+							RackId:        &cwssaws.RackId{Id: "test-replace-rack-001"},
+							RackProfileId: &cwssaws.RackProfileId{Id: "test-replace-rack-profile-001"},
 						},
 						{
-							RackId:   &cwssaws.RackId{Id: "test-replace-rack-002"},
-							RackType: "test-replace-rack-profile-002",
+							RackId:        &cwssaws.RackId{Id: "test-replace-rack-002"},
+							RackProfileId: &cwssaws.RackProfileId{Id: "test-replace-rack-profile-002"},
 						},
 					},
 				},
@@ -326,7 +312,7 @@ func TestManageExpectedRack_ReplaceAllExpectedRacksOnSite(t *testing.T) {
 		{
 			name: "test replace all expected racks fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -337,7 +323,7 @@ func TestManageExpectedRack_ReplaceAllExpectedRacksOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mer := NewManageExpectedRack(tt.fields.NICoCoreAtomicClient, nil)
+			mer := NewManageExpectedRack(tt.fields.coreGrpcAtomicClient, nil)
 			err := mer.ReplaceAllExpectedRacksOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -349,31 +335,31 @@ func TestManageExpectedRack_ReplaceAllExpectedRacksOnSite(t *testing.T) {
 }
 
 func TestManageExpectedRack_DeleteAllExpectedRacksOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
-	mer := NewManageExpectedRack(nicoCoreAtomicClient, nil)
+	mer := NewManageExpectedRack(coreGrpcAtomicClient, nil)
 	err := mer.DeleteAllExpectedRacksOnSite(context.Background())
 	assert.NoError(t, err)
 }
 
 func TestManageExpectedRack_CreateExpectedRackOnFlow(t *testing.T) {
 	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
-		mer := ManageExpectedRack{FlowAtomicClient: nil}
+		mer := ManageExpectedRack{flowGrpcAtomicClient: nil}
 		err := mer.CreateExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: uuid.NewString()},
-			RackType: uuid.NewString(),
+			RackId:        &cwssaws.RackId{Id: uuid.NewString()},
+			RackProfileId: &cwssaws.RackProfileId{Id: uuid.NewString()},
 		})
 		assert.NoError(t, err)
 	})
 
 	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
-		mer := ManageExpectedRack{FlowAtomicClient: cClient.NewFlowAtomicClient(&cClient.FlowClientConfig{})}
+		mer := ManageExpectedRack{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
 		err := mer.CreateExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: uuid.NewString()},
-			RackType: uuid.NewString(),
+			RackId:        &cwssaws.RackId{Id: uuid.NewString()},
+			RackProfileId: &cwssaws.RackProfileId{Id: uuid.NewString()},
 		})
 		assert.NoError(t, err)
 	})
@@ -384,8 +370,8 @@ func Test_expectedRackToFlowRack(t *testing.T) {
 
 	t.Run("maps all fields with full labels", func(t *testing.T) {
 		rack := &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-001"},
-			RackType: "rack-profile-001",
+			RackId:        &cwssaws.RackId{Id: "rack-001"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "rack-profile-001"},
 			Metadata: &cwssaws.Metadata{
 				Name:        "rack-alpha",
 				Description: "Primary compute rack",
@@ -426,8 +412,8 @@ func Test_expectedRackToFlowRack(t *testing.T) {
 
 	t.Run("handles minimal fields (no metadata)", func(t *testing.T) {
 		rack := &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-002"},
-			RackType: "rack-profile-002",
+			RackId:        &cwssaws.RackId{Id: "rack-002"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "rack-profile-002"},
 		}
 		flowRack := expectedRackToFlowRack(rack)
 
@@ -452,8 +438,8 @@ func Test_expectedRackToFlowRack(t *testing.T) {
 
 	t.Run("handles partial labels", func(t *testing.T) {
 		rack := &cwssaws.ExpectedRack{
-			RackId:   &cwssaws.RackId{Id: "rack-003"},
-			RackType: "rack-profile-003",
+			RackId:        &cwssaws.RackId{Id: "rack-003"},
+			RackProfileId: &cwssaws.RackProfileId{Id: "rack-profile-003"},
 			Metadata: &cwssaws.Metadata{
 				Name: "rack-bravo",
 				Labels: []*cwssaws.Label{

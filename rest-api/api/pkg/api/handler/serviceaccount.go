@@ -1,32 +1,18 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"net/http"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cauth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/config"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 )
@@ -34,15 +20,13 @@ import (
 // GetCurrentServiceAccountHandler is the API Handler for getting the current Service Account
 type GetCurrentServiceAccountHandler struct {
 	dbSession  *cdb.Session
-	cfg        *config.Config
 	tracerSpan *cutil.TracerSpan
 }
 
 // NewGetCurrentServiceAccountHandler initializes and returns a new handler for getting the current Service Account
-func NewGetCurrentServiceAccountHandler(dbSession *cdb.Session, cfg *config.Config) GetCurrentServiceAccountHandler {
+func NewGetCurrentServiceAccountHandler(dbSession *cdb.Session) GetCurrentServiceAccountHandler {
 	return GetCurrentServiceAccountHandler{
 		dbSession:  dbSession,
-		cfg:        cfg,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
 }
@@ -65,16 +49,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 	if dbUser == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
-
-	// Check if service account is enabled for at least one auth configuration
-	serviceAccountEnabled := false
-	jwtOriginConfigs := gcsah.cfg.GetOrInitJWTOriginConfig()
-	for _, jwtOriginConfig := range jwtOriginConfigs.GetAllConfigs() {
-		if jwtOriginConfig.ServiceAccount {
-			serviceAccountEnabled = true
-			break
-		}
-	}
+	serviceAccountEnabled := cauth.GetIsServiceAccountFromContext(c)
 
 	if !serviceAccountEnabled {
 		logger.Info().Msg("service account is disabled for this org")
@@ -96,7 +71,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 	var serr error
 	if len(ips) == 0 {
 		// Create Infrastructure Provider
-		ip, serr = ipDAO.CreateFromParams(ctx, nil, org, nil, org, cdb.GetStrPtr(org), dbUser)
+		ip, serr = ipDAO.CreateFromParams(ctx, nil, org, nil, org, cutil.GetPtr(org), dbUser)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Infrastructure Provider DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Infrastructure Provider for org, DB error", nil)
@@ -122,7 +97,7 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 			// Enable targeted instance creation for org
 			TargetedInstanceCreation: true,
 		}
-		tn, serr = tnDAO.CreateFromParams(ctx, nil, org, nil, org, cdb.GetStrPtr(org), tenantConfig, dbUser)
+		tn, serr = tnDAO.CreateFromParams(ctx, nil, org, nil, org, cutil.GetPtr(org), tenantConfig, dbUser)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Tenant DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Tenant for org, DB error", nil)

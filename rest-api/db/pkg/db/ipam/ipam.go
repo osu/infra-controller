@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package ipam
 
@@ -24,11 +10,12 @@ import (
 	"net/netip"
 	"strings"
 
-	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 	"github.com/uptrace/bun"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 var (
@@ -180,7 +167,7 @@ func CreateChildIpamEntryForIPBlock(ctx context.Context, tx *cdb.Tx, dbSession *
 			tx,
 			cdbm.IPBlockUpdateInput{
 				IPBlockID: parentIPBlock.ID,
-				FullGrant: cdb.GetBoolPtr(true),
+				FullGrant: cutil.GetPtr(true),
 			},
 		)
 		if err != nil {
@@ -219,7 +206,7 @@ func DeleteChildIpamEntryFromCidr(ctx context.Context, tx *cdb.Tx, dbSession *cd
 			tx,
 			cdbm.IPBlockUpdateInput{
 				IPBlockID: parentIPBlock.ID,
-				FullGrant: cdb.GetBoolPtr(false),
+				FullGrant: cutil.GetPtr(false),
 			},
 		)
 

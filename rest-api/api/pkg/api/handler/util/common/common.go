@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package common
 
@@ -31,7 +17,6 @@ import (
 	"strings"
 	"sync"
 
-	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
@@ -41,23 +26,25 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
 
 	tclient "go.temporal.io/sdk/client"
 
-	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 
 	temporalEnums "go.temporal.io/api/enums/v1"
 
-	cam "github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
-	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
-	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
+	cam "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
 const (
@@ -94,30 +81,6 @@ var (
 	// RequestAsTenant indicates that the request is being made as a tenant
 	RequestAsTenant = "Tenant"
 )
-
-func GetSiteInstanceID(i *cdbm.Instance) *uuid.UUID {
-	if i.ControllerInstanceID != nil {
-		return i.ControllerInstanceID
-	} else {
-		return &i.ID
-	}
-}
-
-func GetSiteNetworkSegmentID(s *cdbm.Subnet) *uuid.UUID {
-	if s.ControllerNetworkSegmentID != nil {
-		return s.ControllerNetworkSegmentID
-	} else {
-		return &s.ID
-	}
-}
-
-func GetSiteOperatingSystemtID(o *cdbm.OperatingSystem) *uuid.UUID {
-	if o.ControllerOperatingSystemID != nil {
-		return o.ControllerOperatingSystemID
-	} else {
-		return &o.ID
-	}
-}
 
 // GetInfrastructureProviderForOrg gets the infrastructureProvider for org
 func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.InfrastructureProvider, error) {
@@ -252,7 +215,7 @@ func GetAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx, db
 	var alconstraints []cdbm.AllocationConstraint
 	for _, ac := range allocations {
 		// improve this query by adding allocation slices in allocation constraints model
-		alcoss, _, err := alcsDAO.GetAll(ctx, tx, []uuid.UUID{ac.ID}, cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), []uuid.UUID{instancetype.ID}, cdb.GetStrPtr(cdbm.AllocationConstraintTypeReserved), nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		alcoss, _, err := alcsDAO.GetAll(ctx, tx, []uuid.UUID{ac.ID}, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), []uuid.UUID{instancetype.ID}, cutil.GetPtr(cdbm.AllocationConstraintTypeReserved), nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -284,7 +247,7 @@ func GetAllocationIDsForTenantAtSite(ctx context.Context, tx *cdb.Tx, dbSession 
 		TenantIDs:                []uuid.UUID{tenantID},
 		SiteIDs:                  []uuid.UUID{siteID},
 	}
-	as, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	as, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -307,8 +270,8 @@ func AcquireInstanceTypeQuotaLock(ctx context.Context, tx *cdb.Tx, tenantID uuid
 }
 
 // GetUnallocatedMachineForInstanceType provides unallocatd machine based on instancetype
-func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instancetype *cdbm.InstanceType) (*cdbm.Machine, error) {
-	if instancetype == nil {
+func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType) (*cdbm.Machine, error) {
+	if instanceType == nil {
 		return nil, ErrInvalidFunctionParams
 	}
 
@@ -322,12 +285,11 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 	// Get all available Machines for the Instance Type
 	// Since this query is occurring outside of a lock, we will have to double check availability of Machines
 	filterInput := cdbm.MachineFilterInput{
-		SiteID:          instancetype.SiteID,
-		InstanceTypeIDs: []uuid.UUID{instancetype.ID},
-		IsAssigned:      cdb.GetBoolPtr(false),
+		InstanceTypeIDs: []uuid.UUID{instanceType.ID},
+		IsAssigned:      cutil.GetPtr(false),
 		Statuses:        []string{cdbm.MachineStatusReady},
 	}
-	machines, _, err := mcDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	machines, _, err := mcDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +335,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 			// Update the machine status to assigned
 			updateInput := cdbm.MachineUpdateInput{
 				MachineID:  mc.ID,
-				IsAssigned: cdb.GetBoolPtr(true),
+				IsAssigned: cutil.GetPtr(true),
 			}
 			// return the updated machine
 			mcu, err := mcDAO.Update(ctx, tx, updateInput)
@@ -401,8 +363,16 @@ func GetCountOfMachinesForInstanceType(ctx context.Context, tx *cdb.Tx, dbSessio
 // machines broken down by site and machine status.
 func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, logger zerolog.Logger, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID) (map[uuid.UUID]*cam.APISiteMachineStats, error) {
 	mDAO := cdbm.NewMachineDAO(dbSession)
-	machines, _, err := mDAO.GetAll(ctx, tx, cdbm.MachineFilterInput{InfrastructureProviderID: infrastructureProviderID, SiteID: siteID}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
 
+	filterInput := cdbm.MachineFilterInput{}
+	if infrastructureProviderID != nil {
+		filterInput.InfrastructureProviderIDs = []uuid.UUID{*infrastructureProviderID}
+	}
+	if siteID != nil {
+		filterInput.SiteIDs = []uuid.UUID{*siteID}
+	}
+
+	machines, _, err := mDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +444,7 @@ func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Se
 	}
 
 	aDAO := cdbm.NewAllocationDAO(dbSession)
-	as, _, err := aDAO.GetAll(ctx, tx, cdbm.AllocationFilterInput{InfrastructureProviderID: infrastructureProviderID, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	as, _, err := aDAO.GetAll(ctx, tx, cdbm.AllocationFilterInput{InfrastructureProviderID: infrastructureProviderID, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +458,7 @@ func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Se
 
 	// Get all Allocation Constraints for Allocation IDs
 	acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
-	acs, _, err := acDAO.GetAll(ctx, tx, allocationIDs, cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	acs, _, err := acDAO.GetAll(ctx, tx, allocationIDs, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +495,7 @@ func GetTotalAllocationConstraintValueForInstanceType(ctx context.Context, tx *c
 	if instanceTypeID != nil {
 		instanceTypeIDs = []uuid.UUID{*instanceTypeID}
 	}
-	acs, _, err := acDAO.GetAll(ctx, tx, paramAllocationIDs, cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs, constraintType, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	acs, _, err := acDAO.GetAll(ctx, tx, paramAllocationIDs, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs, constraintType, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		return 0, err
 	}
@@ -566,7 +536,7 @@ func GetAllAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx,
 		TenantIDs:                []uuid.UUID{tenant.ID},
 		SiteIDs:                  []uuid.UUID{site.ID},
 	}
-	allocs, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	allocs, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -582,7 +552,7 @@ func GetAllAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx,
 	for _, alloc := range allocs {
 		allocIDs = append(allocIDs, alloc.ID)
 	}
-	acs, tot, serr := acDAO.GetAll(ctx, tx, allocIDs, cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), resourceTypeIDs, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	acs, tot, serr := acDAO.GetAll(ctx, tx, allocIDs, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), resourceTypeIDs, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if serr != nil {
 		return nil, 0, serr
 	}
@@ -652,7 +622,7 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 		siteIDs = []uuid.UUID{*siteID}
 	}
 
-	instances, _, serr = iDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{TenantIDs: tenantIDs, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	instances, _, serr = iDAO.GetAll(ctx, nil, cdbm.InstanceFilterInput{TenantIDs: tenantIDs, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if serr != nil {
 		logger.Error().Err(serr).Msg("error retrieving Instances for Instance Type from DB")
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Instances for Instance Type, DB error", nil)
@@ -664,7 +634,7 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 		TenantIDs: tenantIDs,
 		SiteIDs:   siteIDs,
 	}
-	allocs, _, err := aDAO.GetAll(ctx, nil, allocationFilter, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	allocs, _, err := aDAO.GetAll(ctx, nil, allocationFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Allocations for Instance Type, DB error", nil)
 	}
@@ -676,14 +646,14 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 
 	// Get all Allocation Constraints for the Instance Type IDs and Allocation IDs
 	acDAO := cdbm.NewAllocationConstraintDAO(dbSession)
-	acss, _, err := acDAO.GetAll(ctx, nil, aids, cdb.GetStrPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	acss, _, err := acDAO.GetAll(ctx, nil, aids, cutil.GetPtr(cdbm.AllocationResourceTypeInstanceType), instanceTypeIDs, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Allocations for Instance Type, DB error", nil)
 	}
 
 	// Get all Machines for the Instance Type IDs
 	machineDAO := cdbm.NewMachineDAO(dbSession)
-	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{InstanceTypeIDs: instanceTypeIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{InstanceTypeIDs: instanceTypeIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Machines from DB")
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Machines assigned to the Instance Type, DB error", nil)
@@ -756,7 +726,7 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 		if tenantID == nil {
 			mtotal := instanceTypeIDToMachinesMap[instanceTypeID]
 			if aas.Total <= mtotal {
-				aas.MaxAllocatable = cdb.GetIntPtr(mtotal - aas.Total)
+				aas.MaxAllocatable = cutil.GetPtr(mtotal - aas.Total)
 			} else {
 				logger.Error().Int("Total Allocation Count", aas.Total).Int("Total Machines", mtotal).Msg("total Allocation count exceeds Machines assigned to Instance Type")
 			}
@@ -875,7 +845,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 
 	// Get existing Machine Capability records for this InstanceType
-	instmcs, total, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceTypeID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	instmcs, total, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{instanceTypeID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to retrieve Machine Capabilities for Instance Type from DB")
 		return false, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine Capabilities for Instance Type, DB error", nil)
@@ -894,7 +864,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 	}
 
 	// Get Machine Capabilities for Machines
-	mmcs, mtotal, serr := mcDAO.GetAll(ctx, nil, machineIds, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	mmcs, mtotal, serr := mcDAO.GetAll(ctx, nil, machineIds, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 	if serr != nil {
 		logger.Error().Err(serr).Msg("failed to retrieve Machine Capabilities for Machine from DB")
 		return false, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Machine Capabilities for Machine, DB error", nil)
@@ -922,7 +892,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 		//
 		// If we can assume that name+type can never have a duplicate,
 		// we can rely on prefixing the map entries with type.
-		mmcCapMapByMachinId[*mmc.MachineID][mmc.Type+"-"+mmc.Name] = &cmmc
+		mmcCapMapByMachinId[*mmc.MachineID][mmc.MapKey()] = &cmmc
 	}
 
 	// Loop through Capabilities of Instance Type with Machines
@@ -931,7 +901,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 		for mID, mCapMap := range mmcCapMapByMachinId {
 
 			// See earlier comments above about prefixing with type.
-			mmc, found := mCapMap[imc.Type+"-"+imc.Name]
+			mmc, found := mCapMap[imc.MapKey()]
 			if !found {
 				return false, &mID, nil
 			}
@@ -1031,7 +1001,7 @@ func GetAllocationResourceTypeMaps(ctx context.Context, logger zerolog.Logger, d
 			cdbm.IPBlockFilterInput{
 				IPBlockIDs: ipbIDs,
 			},
-			cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
 			nil,
 		)
 		if err != nil {
@@ -1048,7 +1018,7 @@ func GetAllocationResourceTypeMaps(ctx context.Context, logger zerolog.Logger, d
 	// Get InstanceTypes
 	if len(itIDsToAllocID) > 0 {
 		itDAO := cdbm.NewInstanceTypeDAO(dbSession)
-		its, _, err = itDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{InstanceTypeIDs: itIDs}, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		its, _, err = itDAO.GetAll(ctx, nil, cdbm.InstanceTypeFilterInput{InstanceTypeIDs: itIDs}, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("Failed to retrieve Instance Types")
 			return nil, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to populate Instance Type detail for Allocation", nil)
@@ -1382,7 +1352,7 @@ func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *c
 // This function can be used across handlers to reduce duplication of initialization logic.
 func SetupHandler(modelName, handlerName string, c echo.Context, s *cutil.TracerSpan) (org string, user *cdbm.User, ctx context.Context, logger zerolog.Logger, hs oteltrace.Span) {
 	// Get org
-	org = c.Param("orgName")
+	org = strings.ToLower(c.Param("orgName"))
 
 	// Get context
 	ctx = c.Request().Context()
@@ -1451,7 +1421,7 @@ func ExecuteSyncWorkflow(ctx context.Context, logger zerolog.Logger, tpClient tc
 func GetNVLinkLogicalPartitionCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, logger zerolog.Logger, nvllpIDs []uuid.UUID) (map[uuid.UUID]*cam.APINVLinkLogicalPartitionStats, error) {
 	// Get total number of interfaces for each NVLinkLogicalPartition
 	nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(dbSession)
-	nvlifcs, _, err := nvlifcDAO.GetAll(ctx, tx, cdbm.NVLinkInterfaceFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	nvlifcs, _, err := nvlifcDAO.GetAll(ctx, tx, cdbm.NVLinkInterfaceFilterInput{NVLinkLogicalPartitionIDs: nvllpIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,7 +1551,7 @@ func QueryTagsFor(v any) []string {
 		return cached.([]string)
 	}
 	var tags []string
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		if tag := t.Field(i).Tag.Get("query"); tag != "" {
 			tags = append(tags, tag)
 		}
@@ -1762,6 +1732,13 @@ func ExecuteBringUpRackWorkflow(
 
 // ExecuteFirmwareUpdateWorkflow builds an UpgradeFirmwareRequest, executes the UpgradeFirmware
 // workflow via Temporal, and returns the raw SubmitTaskResponse.
+//
+// targets, when non-empty, restricts the upgrade to the listed firmware
+// sub-parts within each targeted tray (e.g. ["bmc", "nvos"] for switch
+// trays). An empty/nil slice keeps the historical "update everything in
+// the bundle" behavior. Names are passed through verbatim to Flow as
+// `sub_targets`, which resolves them against the tray-type-specific
+// component-manager enums (see flow/pkg/common/firmwarecomponents).
 func ExecuteFirmwareUpdateWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1769,12 +1746,14 @@ func ExecuteFirmwareUpdateWorkflow(
 	stc tclient.Client,
 	targetSpec *flowv1.OperationTargetSpec,
 	version *string,
+	targets []string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.UpgradeFirmwareRequest{
 		TargetSpec:    targetSpec,
 		TargetVersion: version,
+		SubTargets:    targets,
 		Description:   fmt.Sprintf("API firmware update %s", entityName),
 	}
 

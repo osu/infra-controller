@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,14 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
 
 const (
@@ -60,17 +47,17 @@ var (
 type ExpectedRack struct {
 	bun.BaseModel `bun:"table:expected_rack,alias:er"`
 
-	ID            uuid.UUID         `bun:"id,pk"`
-	SiteID        uuid.UUID         `bun:"site_id,type:uuid,notnull"`
-	Site          *Site             `bun:"rel:belongs-to,join:site_id=id"`
-	RackID        string            `bun:"rack_id,notnull"`
-	RackProfileID string            `bun:"rack_profile_id,notnull"`
-	Name          string            `bun:"name,nullzero,notnull,default:''"`
-	Description   string            `bun:"description,nullzero,notnull,default:''"`
-	Labels        map[string]string `bun:"labels,type:jsonb,nullzero,notnull,default:'{}'"`
-	Created       time.Time         `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated       time.Time         `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	CreatedBy     uuid.UUID         `bun:"type:uuid,notnull"`
+	ID            uuid.UUID `bun:"id,pk"`
+	SiteID        uuid.UUID `bun:"site_id,type:uuid,notnull"`
+	Site          *Site     `bun:"rel:belongs-to,join:site_id=id"`
+	RackID        string    `bun:"rack_id,notnull"`
+	RackProfileID string    `bun:"rack_profile_id,notnull"`
+	Name          string    `bun:"name,nullzero,notnull,default:''"`
+	Description   string    `bun:"description,nullzero,notnull,default:''"`
+	Labels        Labels    `bun:"labels,type:jsonb,nullzero,notnull,default:'{}'"`
+	Created       time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated       time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	CreatedBy     uuid.UUID `bun:"type:uuid,notnull"`
 }
 
 // ExpectedRackCreateInput input parameters for Create method
@@ -109,8 +96,8 @@ type ExpectedRackFilterInput struct {
 // needed.
 func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 	proto := &cwssaws.ExpectedRack{
-		RackId:   &cwssaws.RackId{Id: er.RackID},
-		RackType: er.RackProfileID,
+		RackId:        &cwssaws.RackId{Id: er.RackID},
+		RackProfileId: &cwssaws.RackProfileId{Id: er.RackProfileID},
 		Metadata: &cwssaws.Metadata{
 			Name:        er.Name,
 			Description: er.Description,
@@ -118,14 +105,7 @@ func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 	}
 
 	if len(er.Labels) > 0 {
-		protoLabels := make([]*cwssaws.Label, 0, len(er.Labels))
-		for k, v := range er.Labels {
-			protoLabels = append(protoLabels, &cwssaws.Label{
-				Key:   k,
-				Value: &v,
-			})
-		}
-		proto.Metadata.Labels = protoLabels
+		proto.Metadata.Labels = er.Labels.ToProto()
 	}
 
 	return proto
@@ -145,7 +125,9 @@ func (er *ExpectedRack) FromProto(proto *cwssaws.ExpectedRack) {
 	if proto.RackId != nil && proto.RackId.Id != "" {
 		er.RackID = proto.RackId.Id
 	}
-	er.RackProfileID = proto.RackType
+	if proto.RackProfileId != nil && proto.RackProfileId.Id != "" {
+		er.RackProfileID = proto.RackProfileId.Id
+	}
 	if proto.Metadata != nil {
 		er.Name = proto.Metadata.Name
 		er.Description = proto.Metadata.Description
@@ -153,7 +135,7 @@ func (er *ExpectedRack) FromProto(proto *cwssaws.ExpectedRack) {
 		er.Name = ""
 		er.Description = ""
 	}
-	er.Labels = LabelsFromProtoMetadata(proto.Metadata)
+	er.Labels.FromProto(proto.Metadata.GetLabels())
 }
 
 var _ bun.BeforeAppendModelHook = (*ExpectedRack)(nil)
@@ -366,7 +348,7 @@ func (erd ExpectedRackSQLDAO) setQueryWithFilter(filter ExpectedRackFilterInput,
 	}
 
 	if filter.SearchQuery != nil {
-		normalizedTokens := db.GetStrPtr(db.GetStringToTsQuery(*filter.SearchQuery))
+		normalizedTokens := cutil.GetPtr(db.GetStringToTsQuery(*filter.SearchQuery))
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
 			return q.
 				Where("to_tsvector('english', (coalesce(er.rack_id, ' ') || ' ' || coalesce(er.rack_profile_id, ' ') || ' ' || coalesce(er.name, ' ') || ' ' || coalesce(er.description, ' ') || ' ' || coalesce(er.labels::text, ' '))) @@ to_tsquery('english', ?)", *normalizedTokens).

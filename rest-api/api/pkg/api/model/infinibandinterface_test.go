@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -39,10 +25,10 @@ func TestNewAPIInfiniBandInterface(t *testing.T) {
 		SiteID:                uuid.New(),
 		InfiniBandPartitionID: uuid.New(),
 		Device:                "mlx5_0",
-		Vendor:                cdb.GetStrPtr("Mellanox Technologies"),
+		Vendor:                cutil.GetPtr("Mellanox Technologies"),
 		DeviceInstance:        1,
 		IsPhysical:            false,
-		VirtualFunctionID:     cdb.GetIntPtr(2),
+		VirtualFunctionID:     cutil.GetPtr(2),
 		Status:                cdbm.InfiniBandInterfaceStatusReady,
 		Created:               time.Now(),
 		Updated:               time.Now(),
@@ -101,7 +87,7 @@ func TestAPIInfiniBandInterfaceCreateOrUpdateRequest_Validate(t *testing.T) {
 			fields: fields{
 				partitionID:    uuid.New().String(),
 				device:         "MT28908 Family [ConnectX-6]",
-				vendor:         cdb.GetStrPtr("Mellanox Technologies"),
+				vendor:         cutil.GetPtr("Mellanox Technologies"),
 				deviceInstance: 1,
 				isPhysical:     true,
 			},
@@ -124,7 +110,7 @@ func TestAPIInfiniBandInterfaceCreateOrUpdateRequest_Validate(t *testing.T) {
 				device:            "MT28908 Family [ConnectX-6]",
 				deviceInstance:    1,
 				isPhysical:        false,
-				virtualFunctionID: cdb.GetIntPtr(3),
+				virtualFunctionID: cutil.GetPtr(3),
 			},
 			wantErr: true,
 		},

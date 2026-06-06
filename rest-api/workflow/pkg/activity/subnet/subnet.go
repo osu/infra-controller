@@ -1,25 +1,12 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package subnet
 
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,19 +15,19 @@ import (
 
 	"go.temporal.io/sdk/client"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	cwm "github.com/NVIDIA/infra-controller-rest/workflow/internal/metrics"
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwsv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 const (
@@ -87,7 +74,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 	subnetDAO := cdbm.NewSubnetDAO(ms.dbSession)
 	sdDAO := cdbm.NewStatusDetailDAO(ms.dbSession)
 
-	subnets, total, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, []string{})
+	subnets, total, err := subnetDAO.GetAll(ctx, nil, cdbm.SubnetFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, []string{})
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get Subnets for Site from DB")
 		return nil, err
@@ -152,7 +139,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if subnet.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 		}
 
 		// Populate controller Subnet ID if necessary
@@ -173,7 +160,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		}
 
 		if mtu != nil || isMissingOnSite != nil || controllerSegmentID != nil {
-			_, serr := subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, ControllerNetworkSegmentID: controllerSegmentID, Mtu: mtu, IsMissingOnSite: cdb.GetBoolPtr(false)})
+			_, serr := subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, ControllerNetworkSegmentID: controllerSegmentID, Mtu: mtu, IsMissingOnSite: cwutil.GetPtr(false)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update MTU/missing on Site flag/controller Segment ID in DB")
 				continue
@@ -196,7 +183,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		} else {
 			// Check if the latest status detail message is different from the current status message
 			// Leave orderBy nil since the result is sorted by create timestamp by default
-			latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cdb.GetIntPtr(1), nil)
+			latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cwutil.GetPtr(1), nil)
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Subnet")
 			} else if len(latestsd) == 0 || (latestsd[0].Message != nil && *latestsd[0].Message != statusMessage) {
@@ -212,7 +199,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 				// When subnet becomes Ready, record a creation lifecycle event; actual duration will be computed from StatusDetails
 				if status == cdbm.SubnetStatusReady {
 					slogger.Info().Str("To Status", status).Msg("recording subnet create lifecycle event")
-					subnetLifecycleEvents = append(subnetLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: subnet.ID, Created: cdb.GetTimePtr(time.Now())})
+					subnetLifecycleEvents = append(subnetLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: subnet.ID, Created: cwutil.GetPtr(time.Now())})
 				}
 			}
 		}
@@ -273,7 +260,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 				} else {
 					// Add delete lifecycle event for metrics
 					slogger.Info().Str("Subnet ID", curSubnet.ID.String()).Msg("recording subnet delete lifecycle event")
-					subnetLifecycleEvents = append(subnetLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: curSubnet.ID, Deleted: cdb.GetTimePtr(time.Now())})
+					subnetLifecycleEvents = append(subnetLifecycleEvents, cwm.InventoryObjectLifecycleEvent{ObjectID: curSubnet.ID, Deleted: cwutil.GetPtr(time.Now())})
 				}
 			}
 		} else if subnet.ControllerNetworkSegmentID != nil {
@@ -287,7 +274,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 
 			// Leave orderBy as nil as the result is sorted by created timestamp by default
 			if status == subnet.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cdb.GetIntPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, subnet.ID.String(), nil, cwutil.GetPtr(1), nil)
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Subnet")
 					continue
@@ -299,7 +286,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 			}
 
 			// Set isMissingOnSite flag to true and update status, user can decide on deletion
-			_, serr := subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+			_, serr := subnetDAO.Update(ctx, nil, cdbm.SubnetUpdateInput{SubnetId: subnet.ID, IsMissingOnSite: cwutil.GetPtr(true)})
 			if serr != nil {
 				// Log error and continue
 				slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB")
@@ -442,7 +429,7 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 	metricsRecorded := 0
 
 	for _, event := range subnetLifecycleEvents {
-		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+		statusDetails, _, err := sdDAO.GetAllByEntityID(ctx, nil, event.ObjectID.String(), nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
 		if err != nil {
 			logger.Error().Err(err).Str("Subnet ID", event.ObjectID.String()).Msg("failed to retrieve Status Details for Subnet")
 			return err
@@ -490,7 +477,7 @@ func (mslm ManageSubnetLifecycleMetrics) RecordSubnetStatusTransitionMetrics(ctx
 			// DELETE event: Measure time from Deleting to actual deletion
 			// Find the earliest Deleting status (iterate backwards since sorted DESC)
 			var deletingSD *cdbm.StatusDetail
-			for i := len(statusDetails) - 1; i >= 0; i-- {
+			for i := range slices.Backward(statusDetails) {
 				if statusDetails[i].Status == cdbm.SubnetStatusDeleting {
 					deletingSD = &statusDetails[i]
 					break

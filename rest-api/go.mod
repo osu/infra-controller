@@ -1,19 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
-module github.com/NVIDIA/infra-controller-rest
+module github.com/NVIDIA/infra-controller/rest-api
 
 go 1.25.4
 
@@ -23,7 +11,7 @@ require (
 	connectrpc.com/grpcreflect v1.3.0
 	connectrpc.com/otelconnect v0.9.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/NVIDIA/infra-controller-rest/sdk/standard v0.0.0-00010101000000-000000000000
+	github.com/NVIDIA/infra-controller/rest-api/sdk/standard v0.0.0-00010101000000-000000000000
 	github.com/Nerzal/gocloak/v13 v13.9.0
 	github.com/PagerDuty/go-pagerduty v1.8.0
 	github.com/avast/retry-go/v4 v4.7.0
@@ -108,7 +96,7 @@ require (
 	logur.dev/logur v0.17.0
 )
 
-replace github.com/NVIDIA/infra-controller-rest/sdk/standard => ./sdk/standard
+replace github.com/NVIDIA/infra-controller/rest-api/sdk/standard => ./sdk/standard
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -244,6 +232,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
+	gopkg.in/validator.v2 v2.0.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect

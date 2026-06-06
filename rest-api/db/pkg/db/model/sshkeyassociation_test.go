@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,9 +8,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
@@ -48,11 +35,11 @@ func TestSSHKeyAssociationSQLDAO_CreateFromParams(t *testing.T) {
 	tenant := testOperatingSystemBuildTenant(t, dbSession, "testTenant")
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 
-	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", db.GetStrPtr("test"), nil, user.ID)
-	sshKey2 := testBuildSSHKey(t, dbSession, "test2", "test2", tenant.ID, "test2", db.GetStrPtr("test2"), nil, user.ID)
+	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", cutil.GetPtr("test"), nil, user.ID)
+	sshKey2 := testBuildSSHKey(t, dbSession, "test2", "test2", tenant.ID, "test2", cutil.GetPtr("test2"), nil, user.ID)
 
-	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", db.GetStrPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
-	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("test2"), "test2", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", cutil.GetPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "test2", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	sksd := NewSSHKeyAssociationDAO(dbSession)
 
@@ -117,8 +104,8 @@ func TestSSHKeyAssociationSQLDAO_GetByID(t *testing.T) {
 
 	skasd := NewSSHKeyAssociationDAO(dbSession)
 
-	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", db.GetStrPtr("test"), nil, user.ID)
-	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", db.GetStrPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", cutil.GetPtr("test"), nil, user.ID)
+	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", cutil.GetPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	ska1, err := skasd.CreateFromParams(ctx, nil, sshKey.ID, sshKeyGroup.ID, user.ID)
 	assert.Nil(t, err)
@@ -214,7 +201,7 @@ func TestSSHKeyAssociationSQLDAO_GetAll(t *testing.T) {
 			nil,
 			SSHKeyGroupCreateInput{
 				Name:        fmt.Sprintf("test-%d", i),
-				Description: db.GetStrPtr(fmt.Sprintf("test-%d", i)),
+				Description: cutil.GetPtr(fmt.Sprintf("test-%d", i)),
 				TenantOrg:   "testorg",
 				TenantID:    tenant.ID,
 				Status:      SSHKeyGroupStatusSyncing,
@@ -298,8 +285,8 @@ func TestSSHKeyAssociationSQLDAO_GetAll(t *testing.T) {
 			desc:             "getall with offset, limit returns objects",
 			includeRelations: []string{},
 
-			paramOffset: db.GetIntPtr(10),
-			paramLimit:  db.GetIntPtr(10),
+			paramOffset: cutil.GetPtr(10),
+			paramLimit:  cutil.GetPtr(10),
 			paramOrderBy: &paginator.OrderBy{
 				Field: "updated",
 				Order: paginator.OrderAscending,
@@ -358,11 +345,11 @@ func TestSSHKeyAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 
 	skasd := NewSSHKeyAssociationDAO(dbSession)
 
-	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", db.GetStrPtr("test"), nil, user.ID)
-	sshKey2 := testBuildSSHKey(t, dbSession, "test2", "test2", tenant.ID, "test2", db.GetStrPtr("test2"), nil, user.ID)
+	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", cutil.GetPtr("test"), nil, user.ID)
+	sshKey2 := testBuildSSHKey(t, dbSession, "test2", "test2", tenant.ID, "test2", cutil.GetPtr("test2"), nil, user.ID)
 
-	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", db.GetStrPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
-	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", db.GetStrPtr("test2"), "test2", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", cutil.GetPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKeyGroup2 := testBuildSSHKeyGroup(t, dbSession, "test2", cutil.GetPtr("test2"), "test2", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	ska1, err := skasd.CreateFromParams(ctx, nil, sshKey.ID, sshKeyGroup.ID, user.ID)
 	assert.Nil(t, err)
@@ -386,10 +373,10 @@ func TestSSHKeyAssociationSQLDAO_UpdateFromParams(t *testing.T) {
 		{
 			desc:                  "can update all fields",
 			id:                    ska1.ID,
-			paramSSHKeyID:         db.GetUUIDPtr(sshKey2.ID),
-			paramSSHKeyGroupID:    db.GetUUIDPtr(sshKeyGroup2.ID),
-			expectedSSHKeyID:      db.GetUUIDPtr(sshKey2.ID),
-			expectedSSHKeyGroupID: db.GetUUIDPtr(sshKeyGroup2.ID),
+			paramSSHKeyID:         cutil.GetPtr(sshKey2.ID),
+			paramSSHKeyGroupID:    cutil.GetPtr(sshKeyGroup2.ID),
+			expectedSSHKeyID:      cutil.GetPtr(sshKey2.ID),
+			expectedSSHKeyGroupID: cutil.GetPtr(sshKeyGroup2.ID),
 			expectError:           false,
 			verifyChildSpanner:    true,
 		},
@@ -426,8 +413,8 @@ func TestSSHKeyAssociationSQLDAO_DeleteByID(t *testing.T) {
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 
 	skasd := NewSSHKeyAssociationDAO(dbSession)
-	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", db.GetStrPtr("test"), nil, user.ID)
-	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", db.GetStrPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
+	sshKey := testBuildSSHKey(t, dbSession, "test", "test", tenant.ID, "test", cutil.GetPtr("test"), nil, user.ID)
+	sshKeyGroup := testBuildSSHKeyGroup(t, dbSession, "test", cutil.GetPtr("test"), "test", tenant.ID, nil, SSHKeyGroupStatusSyncing, user.ID)
 
 	ska1, err := skasd.CreateFromParams(ctx, nil, sshKey.ID, sshKeyGroup.ID, user.ID)
 	assert.Nil(t, err)

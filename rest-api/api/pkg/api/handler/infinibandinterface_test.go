@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -26,15 +12,16 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
-	authz "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
-	"github.com/NVIDIA/infra-controller-rest/common/pkg/otelecho"
-	sutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -100,7 +87,7 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -109,18 +96,18 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	ibPartitions := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 3; i++ {
-		ibPartition := testBuildIBPartition(t, dbSession, fmt.Sprintf("test-InfiniBandPartition-%d", i), tn1.Org, st1, tn1, nil, cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibPartition := testBuildIBPartition(t, dbSession, fmt.Sprintf("test-InfiniBandPartition-%d", i), tn1.Org, st1, tn1, nil, cutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibPartition)
 		ibPartitions = append(ibPartitions, ibPartition)
 	}
@@ -128,7 +115,7 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 	ibifcs := []*cdbm.InfiniBandInterface{}
 	for i := 0; i < 25; i++ {
 		ibPartition := ibPartitions[i%3]
-		ibifc := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibPartition, i%4, true, nil, cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusProvisioning), false)
+		ibifc := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibPartition, i%4, true, nil, cutil.GetPtr(cdbm.InfiniBandInterfaceStatusProvisioning), false)
 		assert.NotNil(t, ibifc)
 		ibifcs = append(ibifcs, ibifc)
 	}
@@ -173,7 +160,7 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:            false,
-			orderBy:            cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:            cutil.GetPtr("CREATED_ASC"),
 			expectedCount:      20,
 			expectedTotal:      25,
 			expectedInstance:   inst1,
@@ -194,10 +181,10 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:                 http.StatusOK,
 			},
 			wantErr:                       false,
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 9,
 			expectedTotal:                 9,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[0].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[0].ID),
 			verifyChildSpanner:            true,
 		},
 		{
@@ -215,12 +202,12 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 10,
 			expectedTotal:                 25,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[0].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[0].ID),
 		},
 		{
 			name: "test InfiniBandInterface getall success with paging",
@@ -237,12 +224,12 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:                 http.StatusOK,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 9,
 			expectedTotal:                 9,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[0].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[0].ID),
 		},
 		{
 			name: "test InfiniBandInterface getall by Instance success with paging on page 2",
@@ -259,12 +246,12 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(2),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:                    cutil.GetPtr(2),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 10,
 			expectedTotal:                 25,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[1].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[1].ID),
 		},
 		{
 			name: "test InfiniBandInterface getall success with paging on page 2",
@@ -281,12 +268,12 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:                 http.StatusOK,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(2),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:                    cutil.GetPtr(2),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 0,
 			expectedTotal:                 8,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[1].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[1].ID),
 		},
 		{
 			name: "test InfiniBandInterface getall by Instance filter  with paging bad orderby",
@@ -303,9 +290,9 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				respCode:      http.StatusBadRequest,
 			},
 			wantErr:    false,
-			pageNumber: cdb.GetIntPtr(2),
-			pageSize:   cdb.GetIntPtr(10),
-			orderBy:    cdb.GetStrPtr("TEST_ASC"),
+			pageNumber: cutil.GetPtr(2),
+			pageSize:   cutil.GetPtr(10),
+			orderBy:    cutil.GetPtr("TEST_ASC"),
 		},
 		{
 			name: "test InfiniBandInterface getall by Instance filter, org does not have a Tenant associated",
@@ -398,12 +385,12 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryIncludeRelations1:        cdb.GetStrPtr(cdbm.InfiniBandPartitionRelationName),
-			queryIncludeRelations2:        cdb.GetStrPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1:        cutil.GetPtr(cdbm.InfiniBandPartitionRelationName),
+			queryIncludeRelations2:        cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:                 20,
 			expectedTotal:                 25,
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[0].ID),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[0].ID),
 			wantErr:                       false,
 		},
 		{
@@ -420,12 +407,12 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				reqUser:                  tnu1,
 				respCode:                 http.StatusOK,
 			},
-			queryIncludeRelations1:        cdb.GetStrPtr(cdbm.InfiniBandPartitionRelationName),
-			queryIncludeRelations2:        cdb.GetStrPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1:        cutil.GetPtr(cdbm.InfiniBandPartitionRelationName),
+			queryIncludeRelations2:        cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:                 9,
 			expectedTotal:                 9,
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[0].ID),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[0].ID),
 			expectedInstance:              inst1,
 			wantErr:                       false,
 		},
@@ -443,11 +430,11 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryStatus:                   cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusProvisioning),
+			queryStatus:                   cutil.GetPtr(cdbm.InfiniBandInterfaceStatusProvisioning),
 			expectedCount:                 20,
 			expectedTotal:                 25,
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibPartitions[0].ID),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibPartitions[0].ID),
 			wantErr:                       false,
 		},
 		{
@@ -464,7 +451,7 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusBadRequest,
 			},
-			queryStatus:   cdb.GetStrPtr("BadStatus"),
+			queryStatus:   cutil.GetPtr("BadStatus"),
 			expectedCount: 0,
 			expectedTotal: 0,
 			wantErr:       false,
@@ -720,7 +707,7 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
 	assert.NotNil(t, alc1)
 
-	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cdb.GetBoolPtr(false), nil)
+	mc1 := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
 	assert.NotNil(t, mc1)
 
 	mcinst1 := testInstanceBuildMachineInstanceType(t, dbSession, mc1, ist1)
@@ -729,15 +716,15 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 	os1 := testInstanceBuildOperatingSystem(t, dbSession, "test-operating-system-1", tn1, cdbm.OperatingSystemTypeImage, false, nil, false, cdbm.OperatingSystemStatusReady, tnu1)
 	assert.NotNil(t, os1)
 
-	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
+	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc1)
 
-	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
+	vpc2 := testInstanceBuildVPC(t, dbSession, "test-vpc-2", ip, tn1, st1, nil, nil, cutil.GetPtr(cdbm.VpcEthernetVirtualizer), nil, cdbm.VpcStatusPending, tnu1)
 	assert.NotNil(t, vpc2)
 
 	subnets := []*cdbm.Subnet{}
 	for i := 11; i <= 35; i++ {
-		subnet1 := testInstanceBuildSubnet(t, dbSession, fmt.Sprintf("test-subnet-%d", i), tn1, vpc1, cdb.GetUUIDPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
+		subnet1 := testInstanceBuildSubnet(t, dbSession, fmt.Sprintf("test-subnet-%d", i), tn1, vpc1, cutil.GetPtr(uuid.New()), cdbm.SubnetStatusReady, tnu1)
 		assert.NotNil(t, subnet1)
 		subnets = append(subnets, subnet1)
 	}
@@ -745,7 +732,7 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 	mci1 := testInstanceBuildMachineInterface(t, dbSession, subnets[0].ID, mc1.ID)
 	assert.NotNil(t, mci1)
 
-	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cdb.GetStrPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
+	inst1 := testInstanceBuildInstance(t, dbSession, "test-instance-2", tn1.ID, ip.ID, st1.ID, &ist1.ID, vpc1.ID, cutil.GetPtr(mc1.ID), &os1.ID, nil, cdbm.InstanceStatusReady)
 	assert.NotNil(t, inst1)
 
 	ifcs := []*cdbm.Interface{}
@@ -757,14 +744,14 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 
 	ibps := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 25; i++ {
-		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cutil.GetPtr(uuid.New()), cutil.GetPtr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibp1)
 		ibps = append(ibps, ibp1)
 	}
 
 	ibifs := []*cdbm.InfiniBandInterface{}
 	for i := 0; i < 25; i++ {
-		ibif1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibps[i], i%4, true, cdb.GetIntPtr(1), cdb.GetStrPtr(cdbm.InfiniBandInterfaceStatusProvisioning), false)
+		ibif1 := testInstanceBuildIBInterface(t, dbSession, inst1, st1, ibps[i], i%4, true, cutil.GetPtr(1), cutil.GetPtr(cdbm.InfiniBandInterfaceStatusProvisioning), false)
 		assert.NotNil(t, ibif1)
 		ibifs = append(ibifs, ibif1)
 	}
@@ -810,10 +797,10 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:            false,
-			orderBy:            cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:            cutil.GetPtr("CREATED_ASC"),
 			expectedCount:      20,
 			expectedTotal:      25,
-			expectedInstanceID: cdb.GetUUIDPtr(inst1.ID),
+			expectedInstanceID: cutil.GetPtr(inst1.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -831,12 +818,12 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(1),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:                    cutil.GetPtr(1),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 10,
 			expectedTotal:                 25,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibps[0].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibps[0].ID),
 		},
 		{
 			name: "test InfiniBandInterface getall by InfiniBandPartition success with paging on page 2",
@@ -853,12 +840,12 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusOK,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(2),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			pageNumber:                    cutil.GetPtr(2),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectedCount:                 10,
 			expectedTotal:                 25,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibps[10].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibps[10].ID),
 		},
 		{
 			name: "test InfiniBandInterface getall by InfiniBandPartition error with paging bad orderby",
@@ -875,10 +862,10 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				respCode:      http.StatusBadRequest,
 			},
 			wantErr:                       false,
-			pageNumber:                    cdb.GetIntPtr(2),
-			pageSize:                      cdb.GetIntPtr(10),
-			orderBy:                       cdb.GetStrPtr("TEST_ASC"),
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibps[0].ID),
+			pageNumber:                    cutil.GetPtr(2),
+			pageSize:                      cutil.GetPtr(10),
+			orderBy:                       cutil.GetPtr("TEST_ASC"),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibps[0].ID),
 			expectedErrorMessage:          "Failed to validate pagination request data",
 		},
 		{
@@ -963,13 +950,13 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryIncludeRelations1: cdb.GetStrPtr(cdbm.InfiniBandPartitionRelationName),
-			queryIncludeRelations2: cdb.GetStrPtr(cdbm.InstanceRelationName),
+			queryIncludeRelations1: cutil.GetPtr(cdbm.InfiniBandPartitionRelationName),
+			queryIncludeRelations2: cutil.GetPtr(cdbm.InstanceRelationName),
 			expectedCount:          20,
 			expectedTotal:          25,
-			orderBy:                cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                cutil.GetPtr("CREATED_ASC"),
 			expectSubnet:           true,
-			expectedInstanceID:     cdb.GetUUIDPtr(inst1.ID),
+			expectedInstanceID:     cutil.GetPtr(inst1.ID),
 			wantErr:                false,
 		},
 		{
@@ -986,12 +973,12 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusOK,
 			},
-			queryStatus:                   cdb.GetStrPtr(cdbm.InterfaceStatusProvisioning),
+			queryStatus:                   cutil.GetPtr(cdbm.InterfaceStatusProvisioning),
 			expectedCount:                 20,
 			expectedTotal:                 25,
-			orderBy:                       cdb.GetStrPtr("CREATED_ASC"),
+			orderBy:                       cutil.GetPtr("CREATED_ASC"),
 			expectSubnet:                  true,
-			expectedInfiniBandPartitionID: cdb.GetUUIDPtr(ibps[0].ID),
+			expectedInfiniBandPartitionID: cutil.GetPtr(ibps[0].ID),
 			wantErr:                       false,
 		},
 		{
@@ -1008,7 +995,7 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 				reqUser:       tnu1,
 				respCode:      http.StatusBadRequest,
 			},
-			queryStatus:   cdb.GetStrPtr("BadStatus"),
+			queryStatus:   cutil.GetPtr("BadStatus"),
 			expectedCount: 0,
 			expectedTotal: 0,
 			wantErr:       false,

@@ -1,34 +1,29 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"net/netip"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
+
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
 
 	"github.com/uptrace/bun"
 
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -74,6 +69,7 @@ var (
 		SubnetStatusDeleted:      true,
 		SubnetStatusError:        true,
 	}
+	errSubnetNoIPv4Prefix = errors.New("subnet has no IPv4 prefix")
 )
 
 // Subnet is a network construct for bare-metal machines
@@ -110,6 +106,184 @@ type Subnet struct {
 	Updated                    time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted                    *time.Time `bun:"deleted,soft_delete"`
 	CreatedBy                  uuid.UUID  `bun:"type:uuid,notnull"`
+}
+
+// GetSiteID returns the Subnet ID to use when communicating with the
+// Site: the controller-supplied ControllerNetworkSegmentID when present,
+// otherwise the Subnet's own ID. The Site treats both as opaque
+// identifiers.
+func (s *Subnet) GetSiteID() *uuid.UUID {
+	if s.ControllerNetworkSegmentID != nil {
+		return s.ControllerNetworkSegmentID
+	}
+	return &s.ID
+}
+
+// ToProto converts this Subnet into its workflow proto representation.
+// Used as the canonical entity-to-proto conversion; request-shape protos
+// (create) are produced by `ToProto` methods on the corresponding API
+// request types in api/pkg/api/model/subnet.go.
+//
+// `Prefixes` is built from `IPv4Prefix` + `PrefixLength` when
+// `IPv4Prefix` is set; otherwise the field is left nil. The Site-facing
+// `ReserveFirst` count is a deployment policy that does not live on the
+// entity, so this method emits prefixes with a zero `ReserveFirst` and
+// the request-shape `ToProto` overlays the policy value.
+func (s *Subnet) ToProto() *cwssaws.NetworkSegment {
+	proto := &cwssaws.NetworkSegment{
+		Id:    &cwssaws.NetworkSegmentId{Value: s.GetSiteID().String()},
+		VpcId: &cwssaws.VpcId{Value: s.VpcID.String()},
+		Name:  s.Name,
+	}
+	if s.DomainID != nil {
+		proto.SubdomainId = &cwssaws.DomainId{Value: s.DomainID.String()}
+	}
+	if s.MTU != nil {
+		mtu := int32(*s.MTU)
+		proto.Mtu = &mtu
+	}
+	if s.IPv4Prefix != nil {
+		proto.Prefixes = []*cwssaws.NetworkPrefix{
+			{
+				Gateway: s.IPv4Gateway,
+				Prefix:  fmt.Sprintf("%s/%d", *s.IPv4Prefix, s.PrefixLength),
+			},
+		}
+	}
+	return proto
+}
+
+// FromProto populates this Subnet from its workflow proto representation.
+// A nil proto is a no-op. This is the inverse of `ToProto` and exists
+// for convention symmetry — currently no code path on the cloud side
+// reconstructs a full Subnet entity from a `cwssaws.NetworkSegment` (the
+// site is the destination, not the source), but the method is provided
+// so future reconciliation flows have a single canonical entry point.
+//
+// Field-level contract:
+//   - `s.ID` is preserved on a missing or unparseable `proto.Id`,
+//     because callers pre-validate the UUID before calling.
+//   - Optional pointer fields (DomainID, MTU, IPv4Prefix, IPv4Gateway)
+//     are cleared when the proto omits them OR when the proto value is
+//     invalid (e.g. an unparseable UUID, an unparseable prefix). This
+//     makes `FromProto` a clean reset rather than a partial merge.
+func (s *Subnet) FromProto(proto *cwssaws.NetworkSegment) {
+	if proto == nil {
+		return
+	}
+	if proto.Id != nil {
+		if id, err := uuid.Parse(proto.Id.Value); err == nil {
+			s.ID = id
+		}
+	}
+	if proto.VpcId != nil {
+		if id, err := uuid.Parse(proto.VpcId.Value); err == nil {
+			s.VpcID = id
+		}
+	}
+	s.Name = proto.Name
+	if proto.SubdomainId != nil {
+		if id, err := uuid.Parse(proto.SubdomainId.Value); err == nil {
+			s.DomainID = &id
+		} else {
+			s.DomainID = nil
+		}
+	} else {
+		s.DomainID = nil
+	}
+	if proto.Mtu != nil {
+		m := int(*proto.Mtu)
+		s.MTU = &m
+	} else {
+		s.MTU = nil
+	}
+	s.IPv4Prefix = nil
+	s.IPv4Gateway = nil
+	if len(proto.Prefixes) > 0 && proto.Prefixes[0] != nil {
+		// The proto carries `<prefix>/<length>` as a single string; split
+		// it back into the entity's two fields. A malformed value clears
+		// both rather than leaving the receiver in a partial state.
+		prefix, length, ok := splitNetworkPrefix(proto.Prefixes[0].Prefix)
+		if ok {
+			s.IPv4Prefix = &prefix
+			s.PrefixLength = length
+			s.IPv4Gateway = proto.Prefixes[0].Gateway
+		}
+	}
+}
+
+// subnetValidStatuses holds the `SubnetStatusMap` keys as `[]any` for
+// reuse by `validation.In(...)` -- built once at init so `Validate`
+// avoids the map iteration + slice allocation on every call.
+var subnetValidStatuses = func() []any {
+	out := make([]any, 0, len(SubnetStatusMap))
+	for st := range SubnetStatusMap {
+		out = append(out, st)
+	}
+	return out
+}()
+
+// Validate checks that the populated Subnet is wire-safe -- gates
+// against half-states `FromProto` may leave behind on malformed input
+// (notably nil `IPv4Prefix` after a failed prefix split) and mirrors
+// the API-side rules at the entity boundary. Mirrors the
+// MachineCapability / InfiniBandPartition pattern.
+func (s *Subnet) Validate() error {
+	return validation.ValidateStruct(s,
+		validation.Field(&s.Name,
+			validation.Required.Error("Subnet Name must be specified"),
+			validation.Length(2, 256).Error("Subnet Name must be at least 2 characters and maximum 256 characters"),
+			validation.By(validateSubnetNameWhitespace)),
+		validation.Field(&s.Status,
+			validation.Required.Error("Subnet Status must be specified"),
+			validation.In(subnetValidStatuses...).Error(fmt.Sprintf("invalid Subnet Status: %q", s.Status))),
+		validation.Field(&s.VpcID,
+			validation.By(validateSubnetVpcIDRequired)),
+		validation.Field(&s.IPv4Prefix,
+			validation.Required.Error("Subnet IPv4Prefix must be specified")),
+	)
+}
+
+// validateSubnetVpcIDRequired rejects a `uuid.Nil` VpcID. `FromProto`
+// preserves the receiver's `VpcID` when the proto's value is missing or
+// unparseable (the "required ID fields are preserved" rule), so a
+// zero-initialised receiver could otherwise leak `uuid.Nil` past the
+// entity-boundary gate.
+func validateSubnetVpcIDRequired(value interface{}) error {
+	id, ok := value.(uuid.UUID)
+	if !ok || id == uuid.Nil {
+		return errors.New("Subnet VpcID must be set")
+	}
+	return nil
+}
+
+// validateSubnetNameWhitespace rejects Names with leading or trailing
+// whitespace, mirroring the API-side `util.ValidateNameCharacters`
+// rule so the wire-bound DB-model gate matches the API one.
+func validateSubnetNameWhitespace(value interface{}) error {
+	s, ok := value.(string)
+	if !ok {
+		return errors.New("Subnet Name must be a string")
+	}
+	if strings.TrimSpace(s) != s {
+		return errors.New("Subnet Name must not contain leading or trailing whitespace")
+	}
+	return nil
+}
+
+// splitNetworkPrefix splits a `<prefix>/<length>` string into its parts.
+// Returns false when the value is missing the separator or the length
+// is not a non-negative integer.
+func splitNetworkPrefix(s string) (string, int, bool) {
+	prefix, lengthStr, ok := strings.Cut(s, "/")
+	if !ok || prefix == "" || lengthStr == "" {
+		return "", 0, false
+	}
+	length, err := strconv.Atoi(lengthStr)
+	if err != nil || length < 0 {
+		return "", 0, false
+	}
+	return prefix, length, true
 }
 
 // SubnetCreateInput parameters for Create method
@@ -230,6 +404,9 @@ type SubnetDAO interface {
 	Clear(ctx context.Context, tx *db.Tx, input SubnetClearInput) (*Subnet, error)
 	//
 	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
+	//
+	// GetPrefixUsage returns IPv4 interface usage for this subnet (in-memory IPAM simulation).
+	GetPrefixUsage(ctx context.Context, tx *db.Tx, sn *Subnet) (*cipam.Usage, error)
 }
 
 // SubnetSQLDAO is an implementation of the SubnetDAO interface
@@ -676,6 +853,102 @@ func (ssd SubnetSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) err
 	}
 
 	return nil
+}
+
+// queryEthernetInterfaceIPsForSubnet returns iface row count and, for interfaces with IPs,
+// each interface's assigned addresses. COUNT(*) equals len(rows) for the same join/filter on one SELECT.
+func queryEthernetInterfaceIPsForSubnet(ctx context.Context, idb bun.IDB, subnetID uuid.UUID) (ifaceRows int64, ipStrings [][]string, err error) {
+	type row struct {
+		IPAddresses []string `bun:"ip_addresses,array"`
+	}
+	var rows []row
+	err = idb.NewRaw(
+		`SELECT ifc.ip_addresses FROM "interface" AS ifc INNER JOIN instance AS inst ON inst.id = ifc.instance_id
+		 WHERE ifc.subnet_id = ? AND ifc.deleted IS NULL AND inst.deleted IS NULL`,
+		subnetID,
+	).Scan(ctx, &rows)
+	if err != nil {
+		return 0, nil, err
+	}
+	count := int64(len(rows))
+	ips := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r.IPAddresses) > 0 {
+			ips = append(ips, r.IPAddresses)
+		}
+	}
+	return count, ips, nil
+}
+
+// GetPrefixUsage derives IPv4 interface usage stats for this Subnet via an in-memory IPAM simulation.
+func (ssd SubnetSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, sn *Subnet) (*cipam.Usage, error) {
+	if sn == nil {
+		return nil, fmt.Errorf("Failed to calculate usage stats for Subnet: nil argument specified")
+	}
+
+	if sn.IPv4Prefix == nil || *sn.IPv4Prefix == "" {
+		return nil, fmt.Errorf("Failed to calculate usage stats for Subnet %q: %w", sn.ID.String(), errSubnetNoIPv4Prefix)
+	}
+
+	var cidr string
+	if strings.Contains(*sn.IPv4Prefix, "/") {
+		cidr = *sn.IPv4Prefix
+	} else {
+		cidr = fmt.Sprintf("%s/%d", *sn.IPv4Prefix, sn.PrefixLength)
+	}
+
+	idb := db.GetIDB(tx, ssd.dbSession)
+	ifcCount, ips, err := queryEthernetInterfaceIPsForSubnet(ctx, idb, sn.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	ipamer := cipam.New(ctx)
+	ipamPrefix, err := ipamer.NewPrefix(ctx, cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	validatedCidr := ipamPrefix.Cidr
+	netIpPrefix, err := netip.ParsePrefix(validatedCidr)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ipAddresses := range ips {
+		for _, ipStr := range ipAddresses {
+			netIpAddr, ierr := netip.ParseAddr(strings.TrimSpace(ipStr))
+			if ierr != nil || !netIpAddr.Is4() {
+				continue
+			}
+			if !netIpPrefix.Contains(netIpAddr) {
+				continue
+			}
+			_, ierr = ipamer.AcquireSpecificIP(ctx, validatedCidr, netIpAddr.String())
+			if ierr != nil {
+				continue
+			}
+		}
+	}
+
+	ipamPrefix = ipamer.PrefixFrom(ctx, validatedCidr)
+	if ipamPrefix == nil {
+		return nil, fmt.Errorf("Prefix %q was not found in IPAM after loading IPs", validatedCidr)
+	}
+
+	usage := ipamPrefix.Usage()
+
+	acquiredIPs := uint64(ifcCount) + 2
+	if acquiredIPs > usage.AvailableIPs {
+		acquiredIPs = usage.AvailableIPs
+	}
+	return &cipam.Usage{
+		AvailableIPs:              usage.AvailableIPs,
+		AcquiredIPs:               acquiredIPs,
+		AvailableSmallestPrefixes: usage.AvailableSmallestPrefixes,
+		AvailablePrefixes:         usage.AvailablePrefixes,
+		AcquiredPrefixes:          usage.AcquiredPrefixes,
+	}, nil
 }
 
 // NewSubnetDAO returns a new SubnetDAO

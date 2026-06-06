@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -21,9 +7,11 @@ import (
 	"errors"
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
+
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // APIVpcPeeringCreateRequest captures the request data for creating a new VPC peering
@@ -38,8 +26,8 @@ type APIVpcPeeringCreateRequest struct {
 }
 
 // Validate ensures the values passed in create request are acceptable
-func (vpcr APIVpcPeeringCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&vpcr,
+func (vpcr *APIVpcPeeringCreateRequest) Validate() error {
+	err := validation.ValidateStruct(vpcr,
 		validation.Field(&vpcr.Vpc1ID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -61,6 +49,26 @@ func (vpcr APIVpcPeeringCreateRequest) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ToProto builds the workflow request that asks a Site to create a new
+// VPC peering for this API request. `vp` is the just-persisted DB
+// record; its `ToProto()` is the source of the canonical wire fields
+// (peering ID, VpcId, PeerVpcId).
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see (Site existence, VPC existence, RBAC). There is no
+// request-only data layered on top of the entity for the peering
+// create flow: the API request just carries the same VPC IDs that end
+// up on the entity, so this is a thin wrapper around `vp.ToProto()`.
+func (vpcr *APIVpcPeeringCreateRequest) ToProto(vp *cdbm.VpcPeering) *cwssaws.VpcPeeringCreationRequest {
+	vpProto := vp.ToProto()
+	return &cwssaws.VpcPeeringCreationRequest{
+		Id:        vpProto.Id,
+		VpcId:     vpProto.VpcId,
+		PeerVpcId: vpProto.PeerVpcId,
+	}
 }
 
 // APIVpcPeering represents a VPC peering connection

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,14 +10,16 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/extra/bundebug"
@@ -105,7 +93,7 @@ func testInstanceBuildInfrastructureProvider(t *testing.T, dbSession *db.Session
 	ip := &InfrastructureProvider{
 		ID:          uuid.New(),
 		Name:        name,
-		DisplayName: db.GetStrPtr("TestInfraProvider"),
+		DisplayName: cutil.GetPtr("TestInfraProvider"),
 		Org:         "test",
 	}
 	_, err := dbSession.DB.NewInsert().Model(ip).Exec(context.Background())
@@ -117,13 +105,13 @@ func testInstanceBuildSite(t *testing.T, dbSession *db.Session, ip *Infrastructu
 	st := &Site{
 		ID:                          uuid.New(),
 		Name:                        name,
-		DisplayName:                 db.GetStrPtr("Test"),
+		DisplayName:                 cutil.GetPtr("Test"),
 		Org:                         "test",
 		InfrastructureProviderID:    ip.ID,
-		SiteControllerVersion:       db.GetStrPtr("1.0.0"),
-		SiteAgentVersion:            db.GetStrPtr("1.0.0"),
-		RegistrationToken:           db.GetStrPtr("1234-5678-9012-3456"),
-		RegistrationTokenExpiration: db.GetTimePtr(db.GetCurTime()),
+		SiteControllerVersion:       cutil.GetPtr("1.0.0"),
+		SiteAgentVersion:            cutil.GetPtr("1.0.0"),
+		RegistrationToken:           cutil.GetPtr("1234-5678-9012-3456"),
+		RegistrationTokenExpiration: cutil.GetPtr(db.GetCurTime()),
 		Status:                      SiteStatusPending,
 		CreatedBy:                   uuid.New(),
 	}
@@ -137,7 +125,7 @@ func testInstanceBuildTenant(t *testing.T, dbSession *db.Session, name string) *
 		ID:             uuid.New(),
 		Name:           name,
 		Org:            "test",
-		OrgDisplayName: db.GetStrPtr(name + "-display"),
+		OrgDisplayName: cutil.GetPtr(name + "-display"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(tenant).Exec(context.Background())
 	assert.Nil(t, err)
@@ -198,7 +186,7 @@ func testInstanceBuildNetworkSecurityGroup(t *testing.T, dbSession *db.Session, 
 		Rules: []*NetworkSecurityGroupRule{
 			&NetworkSecurityGroupRule{
 				&cwssaws.NetworkSecurityGroupRuleAttributes{
-					Id:     db.GetStrPtr(uuid.NewString()),
+					Id:     cutil.GetPtr(uuid.NewString()),
 					Action: cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				},
 			},
@@ -240,10 +228,10 @@ func testInstanceBuildOperatingSystem(t *testing.T, dbSession *db.Session, name 
 func testInstanceBuildUser(t *testing.T, dbSession *db.Session, starfleetID string) *User {
 	user := &User{
 		ID:          uuid.New(),
-		StarfleetID: db.GetStrPtr(starfleetID),
-		Email:       db.GetStrPtr("jdoe@test.com"),
-		FirstName:   db.GetStrPtr("John"),
-		LastName:    db.GetStrPtr("Doe"),
+		StarfleetID: cutil.GetPtr(starfleetID),
+		Email:       cutil.GetPtr("jdoe@test.com"),
+		FirstName:   cutil.GetPtr("John"),
+		LastName:    cutil.GetPtr("Doe"),
 	}
 	_, err := dbSession.DB.NewInsert().Model(user).Exec(context.Background())
 	assert.Nil(t, err)
@@ -261,7 +249,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -284,7 +272,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			is: []Instance{
 				{
 					Name:                     "test",
-					Description:              db.GetStrPtr("Test description"),
+					Description:              cutil.GetPtr("Test description"),
 					TenantID:                 tenant.ID,
 					InfrastructureProviderID: ip.ID,
 					SiteID:                   site.ID,
@@ -299,14 +287,14 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 					},
 					VpcID:                    vpc.ID,
 					MachineID:                &machine.ID,
-					Hostname:                 db.GetStrPtr("test.com"),
-					OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
+					Hostname:                 cutil.GetPtr("test.com"),
+					OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
 					Status:                   InstanceStatusPending,
-					PowerStatus:              db.GetStrPtr(InstancePowerStatusBootCompleted),
-					IpxeScript:               db.GetStrPtr("ipxe"),
+					PowerStatus:              cutil.GetPtr(InstancePowerStatusBootCompleted),
+					IpxeScript:               cutil.GetPtr("ipxe"),
 					AlwaysBootWithCustomIpxe: true,
 					PhoneHomeEnabled:         true,
-					UserData:                 db.GetStrPtr("data"),
+					UserData:                 cutil.GetPtr("data"),
 					CreatedBy:                user.ID,
 					Labels:                   map[string]string{},
 				},
@@ -318,13 +306,13 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "create multiple, some with null fields",
 			is: []Instance{
 				{
-					Name: "test1", Description: db.GetStrPtr("Test description"), TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), AlwaysBootWithCustomIpxe: true, PhoneHomeEnabled: true, UserData: db.GetStrPtr("data"), IsUpdatePending: true, CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test1", Description: cutil.GetPtr("Test description"), TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), AlwaysBootWithCustomIpxe: true, PhoneHomeEnabled: true, UserData: cutil.GetPtr("data"), IsUpdatePending: true, CreatedBy: user.ID, Labels: map[string]string{},
 				},
 				{
-					Name: "test2", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: nil, OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), InfinityRCRStatus: db.GetStrPtr("RESOURCE_GRANTED"), Status: InstanceStatusPending, IpxeScript: nil, PhoneHomeEnabled: false, UserData: nil, CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test2", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: nil, OperatingSystemID: cutil.GetPtr(operatingSystem.ID), InfinityRCRStatus: cutil.GetPtr("RESOURCE_GRANTED"), Status: InstanceStatusPending, IpxeScript: nil, PhoneHomeEnabled: false, UserData: nil, CreatedBy: user.ID, Labels: map[string]string{},
 				},
 				{
-					Name: "test3", Description: db.GetStrPtr("Test description 3"), TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), InfinityRCRStatus: db.GetStrPtr("RESOURCE_GRANTED"), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), AlwaysBootWithCustomIpxe: true, UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test3", Description: cutil.GetPtr("Test description 3"), TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), InfinityRCRStatus: cutil.GetPtr("RESOURCE_GRANTED"), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), AlwaysBootWithCustomIpxe: true, UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: false,
@@ -333,7 +321,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on tenant_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: dummyUUID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: dummyUUID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -342,7 +330,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on infrastructure_provider_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: dummyUUID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: dummyUUID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -351,7 +339,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on site_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: dummyUUID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: dummyUUID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -360,7 +348,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on instance_type_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &dummyUUID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &dummyUUID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -369,7 +357,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on vpc_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: dummyUUID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: dummyUUID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -378,7 +366,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on machine_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &dummyMachineID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &dummyMachineID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -387,7 +375,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on operating_system_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(dummyUUID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(dummyUUID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -396,7 +384,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 			desc: "failure - foreign key violation on network_security_group_id",
 			is: []Instance{
 				{
-					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, NetworkSecurityGroupID: db.GetStrPtr(uuid.NewString()), VpcID: vpc.ID, MachineID: &machine.ID, Hostname: db.GetStrPtr("test.com"), OperatingSystemID: db.GetUUIDPtr(dummyUUID), Status: InstanceStatusPending, IpxeScript: db.GetStrPtr("ipxe"), UserData: db.GetStrPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
+					Name: "test", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site.ID, InstanceTypeID: &instanceType.ID, NetworkSecurityGroupID: cutil.GetPtr(uuid.NewString()), VpcID: vpc.ID, MachineID: &machine.ID, Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(dummyUUID), Status: InstanceStatusPending, IpxeScript: cutil.GetPtr("ipxe"), UserData: cutil.GetPtr("data"), CreatedBy: user.ID, Labels: map[string]string{},
 				},
 			},
 			expectError: true,
@@ -462,7 +450,7 @@ func TestInstanceSQLDAO_GetByID(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -473,7 +461,7 @@ func TestInstanceSQLDAO_GetByID(t *testing.T) {
 		ctx, nil,
 		InstanceCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
@@ -481,14 +469,14 @@ func TestInstanceSQLDAO_GetByID(t *testing.T) {
 			NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -628,7 +616,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant1, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant1, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant1, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -639,7 +627,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 		ctx, nil,
 		InstanceCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant1.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
@@ -647,12 +635,12 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -671,12 +659,12 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -695,12 +683,12 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusProvisioning,
 			CreatedBy:                user.ID,
@@ -719,11 +707,11 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusReady,
 			CreatedBy:                user.ID,
@@ -731,6 +719,29 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	assert.NotNil(t, i4)
+
+	i5, err := isd.Create(
+		ctx, nil,
+		InstanceCreateInput{
+			Name:                     "test5",
+			TenantID:                 tenant1.ID,
+			InfrastructureProviderID: ip.ID,
+			SiteID:                   site.ID,
+			InstanceTypeID:           &instanceType.ID,
+			VpcID:                    vpc.ID,
+			MachineID:                &machine.ID,
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			AlwaysBootWithCustomIpxe: true,
+			UserData:                 cutil.GetPtr("userdata"),
+			Labels:                   map[string]string{},
+			Status:                   InstanceStatusRepairing,
+			CreatedBy:                user.ID,
+		},
+	)
+	assert.NoError(t, err)
+	assert.NotNil(t, i5)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -758,18 +769,19 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			},
 			wantErr:   nil,
 			wantEmpty: false,
-			wantCount: 4,
+			wantCount: 5,
 			wantStatusMap: map[string]int{
 				InstanceStatusPending:      2,
 				InstanceStatusProvisioning: 1,
 				InstanceStatusConfiguring:  0,
 				InstanceStatusReady:        1,
 				InstanceStatusUpdating:     0,
+				InstanceStatusRepairing:    1,
 				InstanceStatusTerminating:  0,
 				InstanceStatusError:        0,
-				"total":                    4,
+				"total":                    5,
 			},
-			reqTenant:          db.GetUUIDPtr(tenant1.ID),
+			reqTenant:          cutil.GetPtr(tenant1.ID),
 			verifyChildSpanner: true,
 		},
 		{
@@ -782,7 +794,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			},
 			wantErr:   nil,
 			wantEmpty: true,
-			reqTenant: db.GetUUIDPtr(tenant2.ID),
+			reqTenant: cutil.GetPtr(tenant2.ID),
 		},
 		{
 			name: "get instance status count with no filter instance returns success",
@@ -794,16 +806,17 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 			},
 			wantErr:   nil,
 			wantEmpty: false,
-			wantCount: 4,
+			wantCount: 5,
 			wantStatusMap: map[string]int{
 				InstanceStatusPending:      2,
 				InstanceStatusProvisioning: 1,
 				InstanceStatusConfiguring:  0,
 				InstanceStatusReady:        1,
 				InstanceStatusUpdating:     0,
+				InstanceStatusRepairing:    1,
 				InstanceStatusTerminating:  0,
 				InstanceStatusError:        0,
-				"total":                    4,
+				"total":                    5,
 			},
 		},
 	}
@@ -824,6 +837,7 @@ func TestInstanceSQLDAO_GetCountByStatus(t *testing.T) {
 				assert.EqualValues(t, tt.wantStatusMap, got)
 				if len(got) > 0 {
 					assert.EqualValues(t, got[InstanceStatusPending], 2)
+					assert.EqualValues(t, got[InstanceStatusRepairing], 1)
 					assert.EqualValues(t, got["total"], tt.wantCount)
 				}
 			}
@@ -928,10 +942,10 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 
 	instanceGroup1 := []Instance{}
 	for i := 0; i < totalCount/2; i++ {
-		machine := testMachineBuildMachineWithID(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest1"), fmt.Sprintf("fm100-%d", i))
+		machine := testMachineBuildMachineWithID(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest1"), fmt.Sprintf("fm100-%d", i))
 
 		_, err := mcd.Create(ctx, nil, MachineCapabilityCreateInput{MachineID: &machine.ID, InstanceTypeID: &instanceType.ID, Type: MachineCapabilityTypeInfiniBand, Name: "Test Capability",
-			Frequency: db.GetStrPtr("3 GHz"), Capacity: db.GetStrPtr("12 TB"), Vendor: db.GetStrPtr("Test Vendor"), Count: db.GetIntPtr(1)})
+			Frequency: cutil.GetPtr("3 GHz"), Capacity: cutil.GetPtr("12 TB"), Vendor: cutil.GetPtr("Test Vendor"), Count: cutil.GetPtr(1)})
 		assert.NoError(t, err)
 
 		instance, err := isd.Create(
@@ -945,14 +959,14 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 				NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr("test.com"),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 db.GetStrPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{fmt.Sprintf("region%v", i): fmt.Sprintf("west%v", i)},
 				Status:                   InstanceStatusPending,
-				PowerStatus:              db.GetStrPtr(InstancePowerStatusBootCompleted),
+				PowerStatus:              cutil.GetPtr(InstancePowerStatusBootCompleted),
 				CreatedBy:                user.ID,
 			},
 		)
@@ -964,7 +978,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 
 	instanceGroup2 := []Instance{}
 	for i := 0; i < totalCount/2; i++ {
-		machine := testMachineBuildMachineWithID(t, dbSession, ip.ID, site2.ID, &instanceType2.ID, db.GetStrPtr("mcTypeTest1"), fmt.Sprintf("fm200-%d", i))
+		machine := testMachineBuildMachineWithID(t, dbSession, ip.ID, site2.ID, &instanceType2.ID, cutil.GetPtr("mcTypeTest1"), fmt.Sprintf("fm200-%d", i))
 
 		instance, err := isd.Create(
 			ctx, nil,
@@ -977,11 +991,11 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 				NetworkSecurityGroupID:   &networkSecurityGroup2.ID,
 				VpcID:                    vpc2.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr("test.com"),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem2.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem2.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 db.GetStrPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{},
 				Status:                   InstanceStatusPending,
 				CreatedBy:                user.ID,
@@ -1038,7 +1052,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			expectedCount:       paginator.DefaultLimit,
 			expectedTotal:       &totalCount,
 			expectedError:       false,
-			expectedPowerStatus: db.GetStrPtr(InstancePowerStatusBootCompleted),
+			expectedPowerStatus: cutil.GetPtr(InstancePowerStatusBootCompleted),
 			verifyChildSpanner:  true,
 		},
 		{
@@ -1168,7 +1182,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 				VpcIDs: []uuid.UUID{vpc2.ID},
 			},
 			PageInput: paginator.PageInput{
-				Limit: db.GetIntPtr(totalCount),
+				Limit: cutil.GetPtr(totalCount),
 			},
 			expectedCount: totalCount/2 + 1,
 			expectedError: false,
@@ -1254,11 +1268,11 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 				SiteIDs:                   []uuid.UUID{site.ID},
 			},
 			PageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(0),
-				Limit:  db.GetIntPtr(5),
+				Offset: cutil.GetPtr(0),
+				Limit:  cutil.GetPtr(5),
 			},
 			expectedCount: 5,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -1268,10 +1282,10 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 				SiteIDs:                   []uuid.UUID{site.ID},
 			},
 			PageInput: paginator.PageInput{
-				Offset: db.GetIntPtr(5),
+				Offset: cutil.GetPtr(5),
 			},
 			expectedCount: 10,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -1288,13 +1302,13 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &instanceGroup1[0],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
 			desc: "GetAll with name search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("test-"),
+				SearchQuery: cutil.GetPtr("test-"),
 			},
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
@@ -1302,7 +1316,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with status search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr(InstanceStatusPending),
+				SearchQuery: cutil.GetPtr(InstanceStatusPending),
 			},
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
@@ -1310,7 +1324,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with label query returns no objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("region250"),
+				SearchQuery: cutil.GetPtr("region250"),
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -1318,7 +1332,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with label query returns multiple objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("region1"),
+				SearchQuery: cutil.GetPtr("region1"),
 			},
 			expectedCount: 6,
 			expectedError: false,
@@ -1326,7 +1340,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with status search query returns no objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr(InstanceStatusReady),
+				SearchQuery: cutil.GetPtr(InstanceStatusReady),
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -1334,7 +1348,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with combination of name and status search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("test- ready"),
+				SearchQuery: cutil.GetPtr("test- ready"),
 			},
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
@@ -1342,7 +1356,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		{
 			desc: "GetAll with empty search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr(""),
+				SearchQuery: cutil.GetPtr(""),
 			},
 			expectedCount: paginator.DefaultLimit,
 			expectedError: false,
@@ -1385,7 +1399,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &instanceGroup1[0],
 			expectedCount: totalCount / 2,
-			expectedTotal: db.GetIntPtr(totalCount / 2),
+			expectedTotal: cutil.GetPtr(totalCount / 2),
 			expectedError: false,
 		},
 		{
@@ -1401,7 +1415,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &instanceGroup1[0],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
@@ -1417,7 +1431,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:     &instanceGroup1[0],
 			expectedCount:  20,
-			expectedTotal:  db.GetIntPtr(totalCount),
+			expectedTotal:  cutil.GetPtr(totalCount),
 			expectedError:  false,
 			paramRelations: []string{TenantRelationName},
 		},
@@ -1434,7 +1448,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &instanceGroup1[0],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 		{
@@ -1450,7 +1464,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:     &instanceGroup1[0],
 			expectedCount:  20,
-			expectedTotal:  db.GetIntPtr(totalCount),
+			expectedTotal:  cutil.GetPtr(totalCount),
 			expectedError:  false,
 			paramRelations: []string{InstanceTypeRelationName},
 		},
@@ -1467,7 +1481,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 			},
 			firstEntry:    &instanceGroup1[0],
 			expectedCount: 20,
-			expectedTotal: db.GetIntPtr(totalCount),
+			expectedTotal: cutil.GetPtr(totalCount),
 			expectedError: false,
 		},
 	}
@@ -1558,6 +1572,7 @@ type InstanceWithAllocation struct {
 	AlwaysBootWithCustomIpxe               bool                                    `bun:"always_boot_with_custom_ipxe,notnull"`
 	PhoneHomeEnabled                       bool                                    `bun:"phone_home_enabled,notnull"`
 	UserData                               *string                                 `bun:"user_data"`
+	AutoNetwork                            bool                                    `bun:"auto_network,notnull"`
 	Labels                                 map[string]string                       `bun:"labels,type:jsonb"`
 	IsUpdatePending                        bool                                    `bun:"is_update_pending,notnull"`
 	InfinityRCRStatus                      *string                                 `bun:"infinity_rcr_status"`
@@ -1658,7 +1673,7 @@ func TestInstanceSQLDAO_GetAll_WithUnknownColumns(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant1, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant1, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant1, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -1669,7 +1684,7 @@ func TestInstanceSQLDAO_GetAll_WithUnknownColumns(t *testing.T) {
 		ctx, nil,
 		InstanceCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant1.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
@@ -1677,12 +1692,12 @@ func TestInstanceSQLDAO_GetAll_WithUnknownColumns(t *testing.T) {
 			NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -1701,12 +1716,12 @@ func TestInstanceSQLDAO_GetAll_WithUnknownColumns(t *testing.T) {
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -1807,7 +1822,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 
 	instanceGroup1 := []Instance{}
 	for i := 0; i < totalCount/2; i++ {
-		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest1"))
+		machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest1"))
 
 		instance, err := isd.Create(
 			ctx, nil,
@@ -1820,14 +1835,14 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 				NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 				VpcID:                    vpc.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr("test.com"),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 db.GetStrPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{fmt.Sprintf("region%v", i): fmt.Sprintf("west%v", i)},
 				Status:                   InstanceStatusPending,
-				PowerStatus:              db.GetStrPtr(InstancePowerStatusBootCompleted),
+				PowerStatus:              cutil.GetPtr(InstancePowerStatusBootCompleted),
 				CreatedBy:                user.ID,
 			},
 		)
@@ -1839,7 +1854,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 
 	instanceGroup2 := []Instance{}
 	for i := 0; i < totalCount/2; i++ {
-		machine := testMachineBuildMachine(t, dbSession, ip.ID, site2.ID, &instanceType2.ID, db.GetStrPtr("mcTypeTest1"))
+		machine := testMachineBuildMachine(t, dbSession, ip.ID, site2.ID, &instanceType2.ID, cutil.GetPtr("mcTypeTest1"))
 
 		instance, err := isd.Create(
 			ctx, nil,
@@ -1852,11 +1867,11 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 				NetworkSecurityGroupID:   &networkSecurityGroup2.ID,
 				VpcID:                    vpc2.ID,
 				MachineID:                &machine.ID,
-				Hostname:                 db.GetStrPtr("test.com"),
-				OperatingSystemID:        db.GetUUIDPtr(operatingSystem2.ID),
-				IpxeScript:               db.GetStrPtr("ipxe"),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem2.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 db.GetStrPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   map[string]string{},
 				Status:                   InstanceStatusPending,
 				CreatedBy:                user.ID,
@@ -2073,7 +2088,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with name search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("test-"),
+				SearchQuery: cutil.GetPtr("test-"),
 			},
 			expectedCount: totalCount,
 			expectedError: false,
@@ -2081,7 +2096,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with status search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr(InstanceStatusPending),
+				SearchQuery: cutil.GetPtr(InstanceStatusPending),
 			},
 			expectedCount: totalCount,
 			expectedError: false,
@@ -2089,7 +2104,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with label query returns no objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("region250"),
+				SearchQuery: cutil.GetPtr("region250"),
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -2097,7 +2112,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with label query returns multiple objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("region1"),
+				SearchQuery: cutil.GetPtr("region1"),
 			},
 			expectedCount: 6,
 			expectedError: false,
@@ -2105,7 +2120,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with status search query returns no objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr(InstanceStatusReady),
+				SearchQuery: cutil.GetPtr(InstanceStatusReady),
 			},
 			expectedCount: 0,
 			expectedError: false,
@@ -2113,7 +2128,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with combination of name and status search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr("test- ready"),
+				SearchQuery: cutil.GetPtr("test- ready"),
 			},
 			expectedCount: totalCount,
 			expectedError: false,
@@ -2121,7 +2136,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		{
 			desc: "GetCount with empty search query returns objects",
 			filter: InstanceFilterInput{
-				SearchQuery: db.GetStrPtr(""),
+				SearchQuery: cutil.GetPtr(""),
 			},
 			expectedCount: totalCount,
 			expectedError: false,
@@ -2188,8 +2203,8 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 	instanceType2 := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType2")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant, site, "testNetworkSecurityGroup")
 	networkSecurityGroup2 := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant2, site2, "testNetworkSecurityGroup2")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
-	machine2 := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, &instanceType2.ID, db.GetStrPtr("mcTypeTest2"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
+	machine2 := testMachineBuildMachine(t, dbSession, ip2.ID, site2.ID, &instanceType2.ID, cutil.GetPtr("mcTypeTest2"))
 
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	allocation2 := testInstanceBuildAllocation(t, dbSession, ip, tenant2, site2, "testAllocation2")
@@ -2208,7 +2223,7 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 		ctx, nil,
 		InstanceCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
@@ -2216,13 +2231,13 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
-			UserData:                 db.GetStrPtr("userdata"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
-			PowerStatus:              db.GetStrPtr(InstancePowerStatusBootCompleted),
+			PowerStatus:              cutil.GetPtr(InstancePowerStatusBootCompleted),
 			CreatedBy:                user.ID,
 		},
 	)
@@ -2292,8 +2307,8 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			desc:                          "Can update string fields",
 			id:                            i1.ID,
 			instance:                      i1,
-			paramName:                     db.GetStrPtr("updatedName"),
-			paramDescription:              db.GetStrPtr("Updated description"),
+			paramName:                     cutil.GetPtr("updatedName"),
+			paramDescription:              cutil.GetPtr("Updated description"),
 			paramTenantID:                 nil,
 			paramInfrastructureProviderID: nil,
 			paramSiteID:                   nil,
@@ -2303,20 +2318,20 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			paramNetworkSecurityGroupID:   &networkSecurityGroup2.ID,
 			paramNetworkSecurityGroupPropagationDetails: nil,
 
-			paramHostname:          db.GetStrPtr("updated.com"),
+			paramHostname:          cutil.GetPtr("updated.com"),
 			paramOperatingSystemID: nil,
-			paramIpxeScript:        db.GetStrPtr("updatedIpxe"),
-			paramUserData:          db.GetStrPtr("updatedUserData"),
-			paramInfinityRCRStatus: db.GetStrPtr("RESOURCE_GRANTED"),
-			paramStatus:            db.GetStrPtr(InstanceStatusReady),
-			paramPowerStatus:       db.GetStrPtr(InstancePowerStatusRebooting),
+			paramIpxeScript:        cutil.GetPtr("updatedIpxe"),
+			paramUserData:          cutil.GetPtr("updatedUserData"),
+			paramInfinityRCRStatus: cutil.GetPtr("RESOURCE_GRANTED"),
+			paramStatus:            cutil.GetPtr(InstanceStatusReady),
+			paramPowerStatus:       cutil.GetPtr(InstancePowerStatusRebooting),
 			paramLabels: map[string]string{
 				"region": "us-west",
 				"env":    "test",
 			},
 			expectedError:                                  false,
-			expectedName:                                   db.GetStrPtr("updatedName"),
-			expectedDescription:                            db.GetStrPtr("Updated description"),
+			expectedName:                                   cutil.GetPtr("updatedName"),
+			expectedDescription:                            cutil.GetPtr("Updated description"),
 			expectedTenantID:                               &tenant.ID,
 			expectedInfrastructureProviderID:               &ip.ID,
 			expectedSiteID:                                 &site.ID,
@@ -2325,13 +2340,13 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			expectedNetworkSecurityGroupPropagationDetails: nil,
 			expectedVpcID:                                  &vpc.ID,
 			expectedMachineID:                              &machine.ID,
-			expectedHostname:                               db.GetStrPtr("updated.com"),
-			expectedOperatingSystemID:                      db.GetUUIDPtr(operatingSystem.ID),
-			expectedIpxeScript:                             db.GetStrPtr("updatedIpxe"),
-			expectedUserData:                               db.GetStrPtr("updatedUserData"),
-			expectedInfinityRCRStatus:                      db.GetStrPtr("RESOURCE_GRANTED"),
-			expectedStatus:                                 db.GetStrPtr(InstanceStatusReady),
-			expectedPowerStatus:                            db.GetStrPtr(InstancePowerStatusRebooting),
+			expectedHostname:                               cutil.GetPtr("updated.com"),
+			expectedOperatingSystemID:                      cutil.GetPtr(operatingSystem.ID),
+			expectedIpxeScript:                             cutil.GetPtr("updatedIpxe"),
+			expectedUserData:                               cutil.GetPtr("updatedUserData"),
+			expectedInfinityRCRStatus:                      cutil.GetPtr("RESOURCE_GRANTED"),
+			expectedStatus:                                 cutil.GetPtr(InstanceStatusReady),
+			expectedPowerStatus:                            cutil.GetPtr(InstancePowerStatusRebooting),
 			expectedLabels: map[string]string{
 				"region": "us-west",
 				"env":    "test",
@@ -2353,18 +2368,18 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			paramHostname:                 nil,
 			paramOperatingSystemID:        &operatingSystem2.ID,
 			paramNetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{}},
-			paramAlwaysBootWithCustomIpxe:               db.GetBoolPtr(true),
-			paramEnablePhoneHome:                        db.GetBoolPtr(true),
-			paramIsUpdatePending:                        db.GetBoolPtr(true),
+			paramAlwaysBootWithCustomIpxe:               cutil.GetPtr(true),
+			paramEnablePhoneHome:                        cutil.GetPtr(true),
+			paramIsUpdatePending:                        cutil.GetPtr(true),
 			paramIpxeScript:                             nil,
 			paramUserData:                               nil,
 			paramStatus:                                 nil,
 			paramPowerStatus:                            nil,
-			paramIsMissingOnSite:                        db.GetBoolPtr(true),
+			paramIsMissingOnSite:                        cutil.GetPtr(true),
 			paramLabels:                                 map[string]string{},
 
 			expectedError:                    false,
-			expectedName:                     db.GetStrPtr("updatedName"),
+			expectedName:                     cutil.GetPtr("updatedName"),
 			expectedTenantID:                 &tenant2.ID,
 			expectedInfrastructureProviderID: &ip2.ID,
 			expectedSiteID:                   &site2.ID,
@@ -2374,17 +2389,17 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			expectedVpcID:                                  &vpc2.ID,
 			expectedMachineID:                              &machine2.ID,
 			expectedControllerInstanceID:                   &dummyUUID,
-			expectedHostname:                               db.GetStrPtr("updated.com"),
+			expectedHostname:                               cutil.GetPtr("updated.com"),
 			expectedOperatingSystemID:                      &operatingSystem2.ID,
 			expectedNetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{}},
-			expectedIpxeScript:                             db.GetStrPtr("updatedIpxe"),
-			expectAlwaysBootWithCustomIpxe:                 db.GetBoolPtr(true),
-			expectEnablePhoneHome:                          db.GetBoolPtr(true),
-			expectIsUpdatePending:                          db.GetBoolPtr(true),
-			expectedUserData:                               db.GetStrPtr("updatedUserData"),
-			expectedStatus:                                 db.GetStrPtr(InstanceStatusReady),
-			expectedPowerStatus:                            db.GetStrPtr(InstancePowerStatusRebooting),
-			expectedIsMissingOnSite:                        db.GetBoolPtr(true),
+			expectedIpxeScript:                             cutil.GetPtr("updatedIpxe"),
+			expectAlwaysBootWithCustomIpxe:                 cutil.GetPtr(true),
+			expectEnablePhoneHome:                          cutil.GetPtr(true),
+			expectIsUpdatePending:                          cutil.GetPtr(true),
+			expectedUserData:                               cutil.GetPtr("updatedUserData"),
+			expectedStatus:                                 cutil.GetPtr(InstanceStatusReady),
+			expectedPowerStatus:                            cutil.GetPtr(InstancePowerStatusRebooting),
+			expectedIsMissingOnSite:                        cutil.GetPtr(true),
 		},
 		{
 			desc:                          "Error on update of unknown object",
@@ -2395,7 +2410,7 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			paramInfrastructureProviderID: &dummyUUID,
 			paramSiteID:                   &dummyUUID,
 			paramInstanceTypeID:           &dummyUUID,
-			paramNetworkSecurityGroupID:   db.GetStrPtr(dummyUUID.String()),
+			paramNetworkSecurityGroupID:   cutil.GetPtr(dummyUUID.String()),
 			paramVpcID:                    &dummyUUID,
 			paramMachineID:                &dummyMachineID,
 			paramHostname:                 nil,
@@ -2416,7 +2431,7 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			paramInfrastructureProviderID: &dummyUUID,
 			paramSiteID:                   &dummyUUID,
 			paramInstanceTypeID:           &dummyUUID,
-			paramNetworkSecurityGroupID:   db.GetStrPtr(dummyUUID.String()),
+			paramNetworkSecurityGroupID:   cutil.GetPtr(dummyUUID.String()),
 			paramVpcID:                    &dummyUUID,
 			paramMachineID:                &dummyMachineID,
 			paramHostname:                 nil,
@@ -2453,54 +2468,56 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			paramLabels:                   map[string]string{},
 
 			expectedError:                    false,
-			expectedName:                     db.GetStrPtr("updatedName"),
-			expectedDescription:              db.GetStrPtr("Updated description"),
+			expectedName:                     cutil.GetPtr("updatedName"),
+			expectedDescription:              cutil.GetPtr("Updated description"),
 			expectedTenantID:                 &tenant2.ID,
 			expectedInfrastructureProviderID: &ip2.ID,
 			expectedSiteID:                   &site2.ID,
 			expectedInstanceTypeID:           &instanceType2.ID,
 			expectedVpcID:                    &vpc2.ID,
 			expectedMachineID:                &machine2.ID,
-			expectedHostname:                 db.GetStrPtr("updated.com"),
+			expectedHostname:                 cutil.GetPtr("updated.com"),
 			expectedOperatingSystemID:        &operatingSystem2.ID,
-			expectedIpxeScript:               db.GetStrPtr("updatedIpxe"),
+			expectedIpxeScript:               cutil.GetPtr("updatedIpxe"),
 
-			expectedUserData:          db.GetStrPtr("updatedUserData"),
-			expectedInfinityRCRStatus: db.GetStrPtr("RESOURCE_GRANTED"),
-			expectedStatus:            db.GetStrPtr(InstanceStatusReady),
-			expectedPowerStatus:       db.GetStrPtr(InstancePowerStatusRebooting),
-			expectedIsMissingOnSite:   db.GetBoolPtr(true),
+			expectedUserData:          cutil.GetPtr("updatedUserData"),
+			expectedInfinityRCRStatus: cutil.GetPtr("RESOURCE_GRANTED"),
+			expectedStatus:            cutil.GetPtr(InstanceStatusReady),
+			expectedPowerStatus:       cutil.GetPtr(InstancePowerStatusRebooting),
+			expectedIsMissingOnSite:   cutil.GetPtr(true),
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			got, err := isd.Update(ctx, nil,
 				InstanceUpdateInput{
-					InstanceID:                             tc.id,
-					Name:                                   tc.paramName,
-					Description:                            tc.paramDescription,
-					TenantID:                               tc.paramTenantID,
-					InfrastructureProviderID:               tc.paramInfrastructureProviderID,
-					SiteID:                                 tc.paramSiteID,
-					InstanceTypeID:                         tc.paramInstanceTypeID,
-					NetworkSecurityGroupID:                 tc.paramNetworkSecurityGroupID,
-					NetworkSecurityGroupPropagationDetails: tc.paramNetworkSecurityGroupPropagationDetails,
-					VpcID:                                  tc.paramVpcID,
-					MachineID:                              tc.paramMachineID,
-					ControllerInstanceID:                   tc.paramControlledInstanceID,
-					Hostname:                               tc.paramHostname,
-					OperatingSystemID:                      tc.paramOperatingSystemID,
-					IpxeScript:                             tc.paramIpxeScript,
-					AlwaysBootWithCustomIpxe:               tc.paramAlwaysBootWithCustomIpxe,
-					PhoneHomeEnabled:                       tc.paramEnablePhoneHome,
-					UserData:                               tc.paramUserData,
-					Labels:                                 tc.paramLabels,
-					IsUpdatePending:                        tc.paramIsUpdatePending,
-					InfinityRCRStatus:                      tc.paramInfinityRCRStatus,
-					Status:                                 tc.paramStatus,
-					PowerStatus:                            tc.paramPowerStatus,
-					IsMissingOnSite:                        tc.paramIsMissingOnSite,
-					TpmEkCertificate:                       tc.paramTpmEkCertificate,
+					InstanceID: tc.id,
+					InstanceUpdateCommonInput: InstanceUpdateCommonInput{
+						Name:                                   tc.paramName,
+						Description:                            tc.paramDescription,
+						TenantID:                               tc.paramTenantID,
+						InfrastructureProviderID:               tc.paramInfrastructureProviderID,
+						SiteID:                                 tc.paramSiteID,
+						InstanceTypeID:                         tc.paramInstanceTypeID,
+						NetworkSecurityGroupID:                 tc.paramNetworkSecurityGroupID,
+						NetworkSecurityGroupPropagationDetails: tc.paramNetworkSecurityGroupPropagationDetails,
+						VpcID:                                  tc.paramVpcID,
+						MachineID:                              tc.paramMachineID,
+						ControllerInstanceID:                   tc.paramControlledInstanceID,
+						Hostname:                               tc.paramHostname,
+						OperatingSystemID:                      tc.paramOperatingSystemID,
+						IpxeScript:                             tc.paramIpxeScript,
+						AlwaysBootWithCustomIpxe:               tc.paramAlwaysBootWithCustomIpxe,
+						PhoneHomeEnabled:                       tc.paramEnablePhoneHome,
+						UserData:                               tc.paramUserData,
+						Labels:                                 tc.paramLabels,
+						IsUpdatePending:                        tc.paramIsUpdatePending,
+						InfinityRCRStatus:                      tc.paramInfinityRCRStatus,
+						Status:                                 tc.paramStatus,
+						PowerStatus:                            tc.paramPowerStatus,
+						IsMissingOnSite:                        tc.paramIsMissingOnSite,
+						TpmEkCertificate:                       tc.paramTpmEkCertificate,
+					},
 				},
 			)
 			assert.Equal(t, tc.expectedError, err != nil)
@@ -2606,7 +2623,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -2617,7 +2634,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 		ctx, nil,
 		InstanceCreateInput{
 			Name:                     "test1",
-			Description:              db.GetStrPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
@@ -2626,11 +2643,11 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
 			ControllerInstanceID:     &dummyUUID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{"label1": "value1"},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -2645,7 +2662,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 		ctx, nil,
 		InstanceCreateInput{
 			Name:                     "test2",
-			Description:              db.GetStrPtr("Test description 2"),
+			Description:              cutil.GetPtr("Test description 2"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
@@ -2654,11 +2671,11 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
 			ControllerInstanceID:     &dummyUUID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
@@ -2727,7 +2744,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 
 			expectedUpdate:                   true,
 			expectedError:                    false,
-			expectedName:                     db.GetStrPtr("test1"),
+			expectedName:                     cutil.GetPtr("test1"),
 			expectedDescription:              nil,
 			expectedTenantID:                 &tenant.ID,
 			expectedInfrastructureProviderID: &ip.ID,
@@ -2743,7 +2760,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 			expectedIpxeScript:           nil,
 			expectRebootWithCustomIpxe:   nil,
 			expectedUserData:             nil,
-			expectedStatus:               db.GetStrPtr(InstanceStatusPending),
+			expectedStatus:               cutil.GetPtr(InstanceStatusPending),
 			verifyChildSpanner:           true,
 			expectedLabels:               nil,
 		},
@@ -2768,8 +2785,8 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 			paramUserData:   false,
 
 			expectedError:                    false,
-			expectedName:                     db.GetStrPtr("test2"),
-			expectedDescription:              db.GetStrPtr("Test description 2"),
+			expectedName:                     cutil.GetPtr("test2"),
+			expectedDescription:              cutil.GetPtr("Test description 2"),
 			expectedTenantID:                 &tenant.ID,
 			expectedInfrastructureProviderID: &ip.ID,
 			expectedSiteID:                   &site.ID,
@@ -2778,11 +2795,11 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 			expectedVpcID:                    &vpc.ID,
 			expectedMachineID:                &machine.ID,
 			expectedControllerInstanceID:     &dummyUUID,
-			expectedHostname:                 db.GetStrPtr("test.com"),
-			expectedOperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			expectedIpxeScript:               db.GetStrPtr("ipxe"),
-			expectedUserData:                 db.GetStrPtr("userdata"),
-			expectedStatus:                   db.GetStrPtr(InstanceStatusPending),
+			expectedHostname:                 cutil.GetPtr("test.com"),
+			expectedOperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			expectedIpxeScript:               cutil.GetPtr("ipxe"),
+			expectedUserData:                 cutil.GetPtr("userdata"),
+			expectedStatus:                   cutil.GetPtr(InstanceStatusPending),
 			expectedLabels:                   map[string]string{},
 		},
 	}
@@ -2871,7 +2888,7 @@ func TestInstanceSQLDAO_Delete(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -2890,13 +2907,13 @@ func TestInstanceSQLDAO_Delete(t *testing.T) {
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
 			ControllerInstanceID:     &dummyUUID,
-			Hostname:                 db.GetStrPtr("test.com"),
-			OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
-			IpxeScript:               db.GetStrPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 db.GetStrPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
-			InfinityRCRStatus:        db.GetStrPtr("RESOURCE_RELEASED"),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_RELEASED"),
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 		},
@@ -2955,7 +2972,7 @@ func TestInstanceSQLDAO_CreateMultiple(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
 	networkSecurityGroup := testInstanceBuildNetworkSecurityGroup(t, dbSession, tenant, site, "testNetworkSecurityGroup")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -2977,7 +2994,7 @@ func TestInstanceSQLDAO_CreateMultiple(t *testing.T) {
 			inputs: []InstanceCreateInput{
 				{
 					Name:                     "test-batch-1",
-					Description:              db.GetStrPtr("Test batch description 1"),
+					Description:              cutil.GetPtr("Test batch description 1"),
 					TenantID:                 tenant.ID,
 					InfrastructureProviderID: ip.ID,
 					SiteID:                   site.ID,
@@ -2985,14 +3002,14 @@ func TestInstanceSQLDAO_CreateMultiple(t *testing.T) {
 					NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 					VpcID:                    vpc.ID,
 					MachineID:                &machine.ID,
-					Hostname:                 db.GetStrPtr("test1.com"),
-					OperatingSystemID:        db.GetUUIDPtr(operatingSystem.ID),
+					Hostname:                 cutil.GetPtr("test1.com"),
+					OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
 					Status:                   InstanceStatusPending,
-					PowerStatus:              db.GetStrPtr(InstancePowerStatusBootCompleted),
-					IpxeScript:               db.GetStrPtr("ipxe1"),
+					PowerStatus:              cutil.GetPtr(InstancePowerStatusBootCompleted),
+					IpxeScript:               cutil.GetPtr("ipxe1"),
 					AlwaysBootWithCustomIpxe: true,
 					PhoneHomeEnabled:         true,
-					UserData:                 db.GetStrPtr("data1"),
+					UserData:                 cutil.GetPtr("data1"),
 					CreatedBy:                user.ID,
 					Labels:                   map[string]string{"env": "test"},
 				},
@@ -3008,7 +3025,7 @@ func TestInstanceSQLDAO_CreateMultiple(t *testing.T) {
 				},
 				{
 					Name:                     "test-batch-3",
-					Description:              db.GetStrPtr("Test batch description 3"),
+					Description:              cutil.GetPtr("Test batch description 3"),
 					TenantID:                 tenant.ID,
 					InfrastructureProviderID: ip.ID,
 					SiteID:                   site.ID,
@@ -3108,7 +3125,7 @@ func TestInstanceSQLDAO_UpdateMultiple(t *testing.T) {
 	tenant := testInstanceBuildTenant(t, dbSession, "testTenant")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcTypeTest"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcTypeTest"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, uuid.New())
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -3155,75 +3172,70 @@ func TestInstanceSQLDAO_UpdateMultiple(t *testing.T) {
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
+	// UpdateMultiple applies a single shared update mask to N instance
+	// IDs. Each subtest sets the same fields on every targeted row;
+	// heterogeneous per-row updates require separate calls.
 	tests := []struct {
 		desc               string
-		inputs             []InstanceUpdateInput
+		input              InstanceUpdateMultipleInput
 		expectError        bool
 		expectedCount      int
+		expectStatus       *string
+		expectName         *string
 		verifyChildSpanner bool
 	}{
 		{
-			desc: "batch update three instances",
-			inputs: []InstanceUpdateInput{
-				{
-					InstanceID:        i1.ID,
-					Name:              db.GetStrPtr("test-update-1-modified"),
-					Status:            db.GetStrPtr(InstanceStatusReady),
+			desc: "batch update three instances with shared patch",
+			input: InstanceUpdateMultipleInput{
+				InstanceIDs: []uuid.UUID{i1.ID, i2.ID, i3.ID},
+				InstanceUpdateCommonInput: InstanceUpdateCommonInput{
+					Status:            cutil.GetPtr(InstanceStatusReady),
 					MachineID:         &machine.ID,
-					OperatingSystemID: db.GetUUIDPtr(operatingSystem.ID),
+					OperatingSystemID: cutil.GetPtr(operatingSystem.ID),
 					Labels:            map[string]string{"updated": "true"},
-				},
-				{
-					InstanceID:     i2.ID,
-					Name:           db.GetStrPtr("test-update-2-modified"),
-					Status:         db.GetStrPtr(InstanceStatusConfiguring),
-					InstanceTypeID: &instanceType.ID,
-				},
-				{
-					InstanceID: i3.ID,
-					Name:       db.GetStrPtr("test-update-3-modified"),
-					Status:     db.GetStrPtr(InstanceStatusError),
 				},
 			},
 			expectError:        false,
 			expectedCount:      3,
+			expectStatus:       cutil.GetPtr(InstanceStatusReady),
 			verifyChildSpanner: true,
 		},
 		{
-			desc:               "batch update with empty input",
-			inputs:             []InstanceUpdateInput{},
-			expectError:        false,
-			expectedCount:      0,
-			verifyChildSpanner: false,
+			desc:          "batch update with empty input",
+			input:         InstanceUpdateMultipleInput{},
+			expectError:   false,
+			expectedCount: 0,
 		},
 		{
-			desc: "batch update single instance",
-			inputs: []InstanceUpdateInput{
-				{
-					InstanceID: i1.ID,
-					Status:     db.GetStrPtr(InstanceStatusUpdating),
+			desc: "batch update single instance via slice of one",
+			input: InstanceUpdateMultipleInput{
+				InstanceIDs: []uuid.UUID{i1.ID},
+				InstanceUpdateCommonInput: InstanceUpdateCommonInput{
+					Status: cutil.GetPtr(InstanceStatusUpdating),
 				},
 			},
 			expectError:   false,
 			expectedCount: 1,
+			expectStatus:  cutil.GetPtr(InstanceStatusUpdating),
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := isd.UpdateMultiple(ctx, nil, tc.inputs)
+			got, err := isd.UpdateMultiple(ctx, nil, tc.input)
 			assert.Equal(t, tc.expectError, err != nil)
 			if !tc.expectError {
 				assert.NotNil(t, got)
 				assert.Equal(t, tc.expectedCount, len(got))
-				// Verify updates and that results are returned in the same order as inputs
+				// Result order must match input order; every row should
+				// reflect the shared mask values.
 				for i, instance := range got {
-					assert.Equal(t, tc.inputs[i].InstanceID, instance.ID, "result order should match input order")
-					if tc.inputs[i].Name != nil {
-						assert.Equal(t, *tc.inputs[i].Name, instance.Name)
+					assert.Equal(t, tc.input.InstanceIDs[i], instance.ID, "result order should match input order")
+					if tc.expectStatus != nil {
+						assert.Equal(t, *tc.expectStatus, instance.Status)
 					}
-					if tc.inputs[i].Status != nil {
-						assert.Equal(t, *tc.inputs[i].Status, instance.Status)
+					if tc.expectName != nil {
+						assert.Equal(t, *tc.expectName, instance.Name)
 					}
 				}
 			}
@@ -3244,19 +3256,43 @@ func TestInstanceSQLDAO_UpdateMultiple_ExceedsMaxBatchItems(t *testing.T) {
 	defer dbSession.Close()
 	isd := NewInstanceDAO(dbSession)
 
-	// Create inputs exceeding MaxBatchItems
-	inputs := make([]InstanceUpdateInput, db.MaxBatchItems+1)
-	for i := range inputs {
-		inputs[i] = InstanceUpdateInput{
-			InstanceID: uuid.New(),
-			Name:       db.GetStrPtr(fmt.Sprintf("test-%d", i)),
-		}
+	// Create IDs exceeding MaxBatchItems
+	ids := make([]uuid.UUID, db.MaxBatchItems+1)
+	for i := range ids {
+		ids[i] = uuid.New()
+	}
+	input := InstanceUpdateMultipleInput{
+		InstanceIDs:               ids,
+		InstanceUpdateCommonInput: InstanceUpdateCommonInput{Name: cutil.GetPtr("test")},
 	}
 
-	_, err := isd.UpdateMultiple(ctx, nil, inputs)
+	_, err := isd.UpdateMultiple(ctx, nil, input)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "batch size")
 	assert.Contains(t, err.Error(), "exceeds maximum allowed")
+}
+
+// TestInstanceSQLDAO_UpdateMultiple_RejectsDuplicateIDs covers the
+// pre-write guard against duplicate InstanceIDs in a single call.
+// Without it, the post-fetch SELECT returns one row per unique ID
+// while the input slice still counts duplicates, surfacing as a
+// post-write count-mismatch with a partially applied batch.
+func TestInstanceSQLDAO_UpdateMultiple_RejectsDuplicateIDs(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInstanceInitDB(t)
+	defer dbSession.Close()
+	isd := NewInstanceDAO(dbSession)
+
+	dupID := uuid.New()
+	input := InstanceUpdateMultipleInput{
+		InstanceIDs:               []uuid.UUID{dupID, uuid.New(), dupID},
+		InstanceUpdateCommonInput: InstanceUpdateCommonInput{Status: cutil.GetPtr(InstanceStatusReady)},
+	}
+
+	_, err := isd.UpdateMultiple(ctx, nil, input)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate instance id")
+	assert.Contains(t, err.Error(), dupID.String())
 }
 
 func TestInstanceSQLDAO_GetAll_WithNames(t *testing.T) {
@@ -3379,7 +3415,7 @@ func TestInstanceSQLDAO_UpdateMultiple_AllFields(t *testing.T) {
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	user := testInstanceBuildUser(t, dbSession, "testUser")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
-	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, db.GetStrPtr("mcType"))
+	machine := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, &instanceType.ID, cutil.GetPtr("mcType"))
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	_ = testBuildAllocationConstraint(t, dbSession, allocation, AllocationResourceTypeInstanceType, instanceType.ID, AllocationConstraintTypeReserved, 10, user.ID)
 	operatingSystem := testInstanceBuildOperatingSystem(t, dbSession, "testOS")
@@ -3400,38 +3436,41 @@ func TestInstanceSQLDAO_UpdateMultiple_AllFields(t *testing.T) {
 	// Prepare new values for update
 	newControllerInstanceID := uuid.New()
 
-	// Update with ALL fields set to new values
-	input := InstanceUpdateInput{
-		InstanceID:               instance.ID,
-		Name:                     db.GetStrPtr("updated-instance-name"),
-		Description:              db.GetStrPtr("updated description"),
-		TenantID:                 &tenant.ID,
-		InfrastructureProviderID: &ip.ID,
-		SiteID:                   &site.ID,
-		InstanceTypeID:           &instanceType.ID,
-		// NetworkSecurityGroupID is a FK, skip it
-		NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
-			FriendlyStatus: "propagated",
+	// Update with ALL fields set to new values, applied as a shared
+	// mask to a single-ID slice.
+	input := InstanceUpdateMultipleInput{
+		InstanceIDs: []uuid.UUID{instance.ID},
+		InstanceUpdateCommonInput: InstanceUpdateCommonInput{
+			Name:                     cutil.GetPtr("updated-instance-name"),
+			Description:              cutil.GetPtr("updated description"),
+			TenantID:                 &tenant.ID,
+			InfrastructureProviderID: &ip.ID,
+			SiteID:                   &site.ID,
+			InstanceTypeID:           &instanceType.ID,
+			// NetworkSecurityGroupID is a FK, skip it
+			NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
+				FriendlyStatus: "propagated",
+			},
+			VpcID:                    &vpc.ID,
+			MachineID:                &machine.ID,
+			ControllerInstanceID:     &newControllerInstanceID,
+			Hostname:                 cutil.GetPtr("new-hostname.example.com"),
+			OperatingSystemID:        &operatingSystem.ID,
+			IpxeScript:               cutil.GetPtr("new-ipxe-script"),
+			AlwaysBootWithCustomIpxe: cutil.GetPtr(true),
+			PhoneHomeEnabled:         cutil.GetPtr(true),
+			UserData:                 cutil.GetPtr("new-userdata"),
+			Labels:                   map[string]string{"env": "prod", "team": "platform"},
+			IsUpdatePending:          cutil.GetPtr(true),
+			InfinityRCRStatus:        cutil.GetPtr("RESOURCE_GRANTED"),
+			TpmEkCertificate:         cutil.GetPtr("tpm-cert-data"),
+			Status:                   cutil.GetPtr(InstanceStatusReady),
+			PowerStatus:              cutil.GetPtr("on"),
+			IsMissingOnSite:          cutil.GetPtr(true),
 		},
-		VpcID:                    &vpc.ID,
-		MachineID:                &machine.ID,
-		ControllerInstanceID:     &newControllerInstanceID,
-		Hostname:                 db.GetStrPtr("new-hostname.example.com"),
-		OperatingSystemID:        &operatingSystem.ID,
-		IpxeScript:               db.GetStrPtr("new-ipxe-script"),
-		AlwaysBootWithCustomIpxe: db.GetBoolPtr(true),
-		PhoneHomeEnabled:         db.GetBoolPtr(true),
-		UserData:                 db.GetStrPtr("new-userdata"),
-		Labels:                   map[string]string{"env": "prod", "team": "platform"},
-		IsUpdatePending:          db.GetBoolPtr(true),
-		InfinityRCRStatus:        db.GetStrPtr("RESOURCE_GRANTED"),
-		TpmEkCertificate:         db.GetStrPtr("tpm-cert-data"),
-		Status:                   db.GetStrPtr(InstanceStatusReady),
-		PowerStatus:              db.GetStrPtr("on"),
-		IsMissingOnSite:          db.GetBoolPtr(true),
 	}
 
-	results, err := isd.UpdateMultiple(ctx, nil, []InstanceUpdateInput{input})
+	results, err := isd.UpdateMultiple(ctx, nil, input)
 	assert.NoError(t, err)
 	assert.Len(t, results, 1)
 
@@ -3462,4 +3501,31 @@ func TestInstanceSQLDAO_UpdateMultiple_AllFields(t *testing.T) {
 	assert.Equal(t, InstanceStatusReady, updated.Status, "Status not updated")
 	assert.Equal(t, "on", *updated.PowerStatus, "PowerStatus not updated")
 	assert.True(t, updated.IsMissingOnSite, "IsMissingOnSite not updated")
+}
+
+func TestInstance_GetSiteID(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	t.Run("falls back to ID when ControllerInstanceID is nil", func(t *testing.T) {
+		i := &Instance{ID: id}
+		got := i.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, id, *got)
+	})
+	t.Run("uses ControllerInstanceID when set", func(t *testing.T) {
+		i := &Instance{ID: id, ControllerInstanceID: &ctrlID}
+		got := i.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, ctrlID, *got)
+	})
+}
+
+func TestInstance_ToReleaseRequestProto(t *testing.T) {
+	id := uuid.New()
+	i := &Instance{ID: id}
+	req := i.ToReleaseRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, id.String(), req.Id.Value)
+	assert.Nil(t, req.Issue)
 }

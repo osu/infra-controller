@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package vpcprefix
 
@@ -26,16 +12,16 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/ipam"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/ipam"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ManageVpcPrefix is an activity wrapper for managing VPC Prefix lifecycle that allows
@@ -71,7 +57,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 
 	vpcPrefixDAO := cdbm.NewVpcPrefixDAO(mvp.dbSession)
 
-	existingVpcPrefixes, _, err := vpcPrefixDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingVpcPrefixes, _, err := vpcPrefixDAO.GetAll(ctx, nil, cdbm.VpcPrefixFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get VPC Prefixes for Site from DB")
 		return err
@@ -116,7 +102,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 		// Reset missing flag if necessary
 		var isMissingOnSite *bool
 		if vpcPrefix.IsMissingOnSite {
-			isMissingOnSite = cdb.GetBoolPtr(false)
+			isMissingOnSite = cwutil.GetPtr(false)
 		}
 
 		if isMissingOnSite != nil {
@@ -129,7 +115,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 
 		// If VPC Prefix is not in Deleting state, then update status to Ready
 		if vpcPrefix.Status != cdbm.VpcPrefixStatusDeleting && vpcPrefix.Status != cdbm.VpcPrefixStatusReady {
-			err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cdb.GetStrPtr(cdbm.VpcPrefixStatusReady), cdb.GetStrPtr("VPC Prefix has been re-detected on Site"))
+			err = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cwutil.GetPtr(cdbm.VpcPrefixStatusReady), cwutil.GetPtr("VPC Prefix has been re-detected on Site"))
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
 			}
@@ -193,15 +179,15 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 			}
 
 			// Set isMissingOnSite flag to true and update status, user can decide on deletion
-			_, serr := vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{VpcPrefixID: vpcPrefix.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+			_, serr := vpcPrefixDAO.Update(ctx, nil, cdbm.VpcPrefixUpdateInput{VpcPrefixID: vpcPrefix.ID, IsMissingOnSite: cwutil.GetPtr(true)})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to set missing on Site flag in DB")
 				continue
 			}
 
-			serr = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cdb.GetStrPtr(cdbm.VpcPrefixStatusError), cdb.GetStrPtr("VPC Prefix is missing on Site"))
+			serr = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cwutil.GetPtr(cdbm.VpcPrefixStatusError), cwutil.GetPtr("VPC Prefix is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update VPC Prefix status detail in DB")
 			}
 		}
 	}

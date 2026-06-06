@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package vpcpeering
 
@@ -25,15 +11,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
-	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
-	cdbp "github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
-	sc "github.com/NVIDIA/infra-controller-rest/workflow/pkg/client/site"
+	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
 // ManageVpcPeering is an activity wrapper for managing VPC Peering lifecycle
@@ -80,7 +66,7 @@ func (mvp ManageVpcPeering) UpdateVpcPeeringsInDB(
 	}
 
 	vpcPeeringDAO := cdbm.NewVpcPeeringDAO(mvp.dbSession)
-	existingVpcPeerings, _, err := vpcPeeringDAO.GetAll(ctx, nil, cdbm.VpcPeeringFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
+	existingVpcPeerings, _, err := vpcPeeringDAO.GetAll(ctx, nil, cdbm.VpcPeeringFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to get VPC Peeringes for site from DB")
 		return err
@@ -131,7 +117,7 @@ func (mvp ManageVpcPeering) UpdateVpcPeeringsInDB(
 
 		// If VPC Peering is not in Deleting state, then update status to Ready
 		if vpcPeering.Status != cdbm.VpcPeeringStatusDeleting && vpcPeering.Status != cdbm.VpcPeeringStatusReady {
-			err = mvp.updateVpcPeeringStatusInDB(ctx, nil, vpcPeering.ID, cdb.GetStrPtr(cdbm.VpcPeeringStatusReady), cdb.GetStrPtr("VPC Peering has been re-detected on Site"))
+			err = mvp.updateVpcPeeringStatusInDB(ctx, nil, vpcPeering.ID, cwutil.GetPtr(cdbm.VpcPeeringStatusReady), cwutil.GetPtr("VPC Peering has been re-detected on Site"))
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to update VPC Peering status detail in DB")
 			}
