@@ -48,6 +48,7 @@ use super::hardware_info::MachineInventory;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
+use super::machine_boot_interface::MachineBootInterface;
 use super::metadata::Metadata;
 use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
@@ -81,9 +82,30 @@ pub mod topology;
 pub mod upgrade_policy;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuOsOperationalState {
+    pub state_detail: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuRepresentorStatus {
+    pub name: String,
+    pub carrier_up: Option<bool>,
+    pub state: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DpuInfoStatusObservation {
+    pub os_operational_state: Option<DpuOsOperationalState>,
+    pub firmware_version: Option<String>,
+    pub representors: Vec<DpuRepresentorStatus>,
+    pub last_heartbeat: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DpuInfo {
     pub id: String,
     pub loopback_ip: String,
+    pub observed_status: Option<DpuInfoStatusObservation>,
 }
 
 type DpuDeviceMappings = (HashMap<MachineId, String>, HashMap<String, Vec<MachineId>>);
@@ -109,6 +131,11 @@ pub struct ManagedHostStateSnapshot {
     pub host_snapshot: Machine,
     pub dpu_snapshots: Vec<Machine>,
     pub dpa_interface_snapshots: Vec<DpaInterface>,
+    /// The host's boot interface (MAC + Redfish interface id), captured by
+    /// site-explorer. Populated at read time by `load_object_state` (like
+    /// `dpa_interface_snapshots`); `None` until the host has been explored with
+    /// a fully-resolved boot interface.
+    pub boot_interface: Option<MachineBootInterface>,
     /// If there is an instance provisioned on top of the machine, this holds
     /// its state
     pub instance: Option<InstanceSnapshot>,
@@ -186,6 +213,8 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             host_snapshot,
             dpu_snapshots,
             dpa_interface_snapshots,
+            // Filled by load_object_state later (see dpa_interface_snapshots).
+            boot_interface: None,
             managed_state,
             instance,
             rack_health_overrides,
@@ -706,6 +735,9 @@ pub struct Machine {
 
     /// Last time when scout contacted the machine.
     pub last_scout_contact_time: Option<DateTime<Utc>>,
+
+    /// Build version of forge-scout last observed during machine discovery registration.
+    pub last_scout_observed_version: Option<String>,
 
     /// Failure cause. If failure cause is critical, machine will move into Failed state.
     pub failure_details: FailureDetails,
