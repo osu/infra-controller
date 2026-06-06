@@ -6,7 +6,9 @@ This document contains frequently asked questions about NVIDIA Infra Controller 
 
 **Where does NICo run? Is it a container/microservice, a single container, or a collection deployed via Helm?**
 
-NICo commonly runs on a Kubernetes cluster (with 3 or 5 control plane nodes recommended), though there is no requirement to do so. NICo runs as a set of microservices for API, DNS, DHCP, Hardware Monitoring, BMC Console, Rack Management, etc. There is currently no helm chart for NICo deployment; it can be deployed with Kubernetes Kustomize manifests.
+NICo commonly runs on a Kubernetes cluster (with 3 or 5 control plane nodes recommended), though there is no requirement to do so. NICo runs as a set of microservices for API, DNS, DHCP, Hardware Monitoring, BMC Console, Rack Management, etc.
+
+NICo can be deployed with Helm charts (located in  the `/helm`) directory or with Kubernetes Kustomize manifests.
 
 **Does NICo install Cumulus Linux onto Ethernet switches?**
 
