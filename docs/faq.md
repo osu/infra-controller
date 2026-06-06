@@ -76,7 +76,7 @@ No, NICo does not communicate with NetQ.
 
 **Does NICo bring up NVLink?**
 
-No, NICo does not bring up NVLink. Instead, NICo manages NVLink partitions through NMX-M APIs.
+NICo supports NVLink bring-up through [Rack-Level Administration (RLA)](manuals/rack_level_admin.md) and manages NVLink partitions through NMX-C APIs.
 
 **Does NICo support NVLink partitioning?**
 
