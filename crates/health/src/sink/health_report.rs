@@ -15,7 +15,11 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use carbide_uuid::machine::MachineId;
 
@@ -33,9 +37,42 @@ struct HealthReportKey {
     source: ReportSource,
 }
 
+struct LastSent {
+    content_hash: u64,
+    sent_at: Instant,
+}
+
 pub struct HealthReportSink {
     queue: Arc<DedupQueue<HealthReportKey, Arc<HealthReport>>>,
     skip_empty_reports: bool,
+    suppress_unchanged_interval: Option<Duration>,
+    last_sent: Mutex<HashMap<HealthReportKey, LastSent>>,
+}
+
+fn content_hash(report: &HealthReport) -> u64 {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut hasher = DefaultHasher::new();
+
+    let mut successes = BTreeSet::new();
+    for s in &report.successes {
+        successes.insert((s.probe_id.as_str(), s.target.as_deref()));
+    }
+    successes.hash(&mut hasher);
+
+    let mut alerts: BTreeMap<(&str, Option<&str>), (&str, Vec<&str>)> = BTreeMap::new();
+    for a in &report.alerts {
+        let mut cls: Vec<&str> = a.classifications.iter().map(|c| c.as_str()).collect();
+        cls.sort_unstable();
+        alerts.insert((a.probe_id.as_str(), a.target.as_deref()), (&a.message, cls));
+    }
+    for ((probe, target), (msg, cls)) in &alerts {
+        probe.hash(&mut hasher);
+        target.hash(&mut hasher);
+        msg.hash(&mut hasher);
+        cls.hash(&mut hasher);
+    }
+
+    hasher.finish()
 }
 
 impl HealthReportSink {
@@ -87,6 +124,8 @@ impl HealthReportSink {
         Ok(Self {
             queue,
             skip_empty_reports: config.skip_empty_reports,
+            suppress_unchanged_interval: config.suppress_unchanged_interval,
+            last_sent: Mutex::new(HashMap::new()),
         })
     }
 
@@ -95,6 +134,8 @@ impl HealthReportSink {
         Ok(Self {
             queue: Arc::new(DedupQueue::new()),
             skip_empty_reports: true,
+            suppress_unchanged_interval: None,
+            last_sent: Mutex::new(HashMap::new()),
         })
     }
 
@@ -130,6 +171,25 @@ impl DataSink for HealthReportSink {
                 id: machine_id,
                 source: report.source,
             };
+
+            if let Some(suppress_interval) = self.suppress_unchanged_interval {
+                if report.alerts.is_empty() {
+                    let hash = content_hash(report);
+                    let mut last_sent = self.last_sent.lock().expect("last_sent mutex poisoned");
+                    if let Some(prev) = last_sent.get(&key) {
+                        if prev.content_hash == hash && prev.sent_at.elapsed() < suppress_interval {
+                            tracing::debug!(
+                                source = ?report.source,
+                                machine_id = %key.id,
+                                "Suppressing unchanged success-only health report"
+                            );
+                            return;
+                        }
+                    }
+                    last_sent.insert(key.clone(), LastSent { content_hash: hash, sent_at: Instant::now() });
+                }
+            }
+
             self.queue.save_latest(key, Arc::clone(report));
         } else {
             tracing::warn!(
@@ -143,8 +203,14 @@ impl DataSink for HealthReportSink {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    use mac_address::MacAddress;
 
     use super::*;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::sink::events::{Classification, HealthReportAlert, HealthReportSuccess, Probe};
 
     fn machine_id(value: &str) -> MachineId {
         value.parse().expect("valid machine id")
@@ -161,6 +227,54 @@ mod tests {
             observed_at: None,
             successes: Vec::new(),
             alerts: Vec::new(),
+        })
+    }
+
+    fn machine_context(id: MachineId) -> EventContext {
+        EventContext {
+            endpoint_key: "00:00:00:00:00:01".to_string(),
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse::<IpAddr>().unwrap(),
+                port: Some(443),
+                mac: MacAddress::from_str("00:00:00:00:00:01").unwrap(),
+            },
+            collector_type: "test",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: id,
+                machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
+            })),
+            rack_id: None,
+        }
+    }
+
+    fn success_report(source: ReportSource) -> Arc<HealthReport> {
+        Arc::new(HealthReport {
+            source,
+            target: Some(HealthReportTarget::Machine),
+            observed_at: None,
+            successes: vec![HealthReportSuccess {
+                probe_id: Probe::Sensor,
+                target: Some("fan0".to_string()),
+            }],
+            alerts: Vec::new(),
+        })
+    }
+
+    fn alert_report(source: ReportSource) -> Arc<HealthReport> {
+        Arc::new(HealthReport {
+            source,
+            target: Some(HealthReportTarget::Machine),
+            observed_at: None,
+            successes: Vec::new(),
+            alerts: vec![HealthReportAlert {
+                probe_id: Probe::Sensor,
+                target: Some("fan0".to_string()),
+                message: "Fan speed critical".to_string(),
+                classifications: vec![Classification::SensorCritical],
+            }],
         })
     }
 
@@ -229,5 +343,96 @@ mod tests {
         assert_eq!(second_key.id, machine_b);
         assert_eq!(third_key.id, machine_a);
         assert_eq!(third_report.source, ReportSource::TrayLeakDetection);
+    }
+
+    #[test]
+    fn unchanged_success_only_report_suppressed_within_interval() {
+        let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
+        let ctx = machine_context(mid);
+        let sink = HealthReportSink {
+            queue: Arc::new(DedupQueue::new()),
+            skip_empty_reports: false,
+            suppress_unchanged_interval: Some(Duration::from_secs(300)),
+            last_sent: Mutex::new(HashMap::new()),
+        };
+        let report = success_report(ReportSource::BmcSensors);
+        let event = CollectorEvent::HealthReport(Arc::clone(&report));
+
+        sink.handle_event(&ctx, &event);
+        assert_eq!(sink.queue.pop().is_some(), true, "first send should go through");
+
+        sink.handle_event(&ctx, &event);
+        assert_eq!(sink.queue.pop().is_none(), true, "identical repeat within interval should be suppressed");
+    }
+
+    #[test]
+    fn report_with_alerts_never_suppressed() {
+        let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
+        let ctx = machine_context(mid);
+        let sink = HealthReportSink {
+            queue: Arc::new(DedupQueue::new()),
+            skip_empty_reports: false,
+            suppress_unchanged_interval: Some(Duration::from_secs(300)),
+            last_sent: Mutex::new(HashMap::new()),
+        };
+        let report = alert_report(ReportSource::BmcSensors);
+        let event = CollectorEvent::HealthReport(Arc::clone(&report));
+
+        sink.handle_event(&ctx, &event);
+        sink.handle_event(&ctx, &event);
+
+        // DedupQueue replaces the value for the same key, so only one entry exists,
+        // but both sends reached the queue (not suppressed).
+        assert_eq!(sink.queue.pop().is_some(), true);
+    }
+
+    #[test]
+    fn changed_content_always_forwarded() {
+        let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
+        let ctx = machine_context(mid);
+        let sink = HealthReportSink {
+            queue: Arc::new(DedupQueue::new()),
+            skip_empty_reports: false,
+            suppress_unchanged_interval: Some(Duration::from_secs(300)),
+            last_sent: Mutex::new(HashMap::new()),
+        };
+
+        let report_a = success_report(ReportSource::BmcSensors);
+        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&report_a)));
+        sink.queue.pop();
+
+        let report_b = Arc::new(HealthReport {
+            source: ReportSource::BmcSensors,
+            target: Some(HealthReportTarget::Machine),
+            observed_at: None,
+            successes: vec![HealthReportSuccess {
+                probe_id: Probe::Sensor,
+                target: Some("fan1".to_string()),
+            }],
+            alerts: Vec::new(),
+        });
+        sink.handle_event(&ctx, &CollectorEvent::HealthReport(Arc::clone(&report_b)));
+
+        assert!(sink.queue.pop().is_some(), "changed content should bypass suppression");
+    }
+
+    #[test]
+    fn suppression_disabled_forwards_all_reports() {
+        let mid = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
+        let ctx = machine_context(mid);
+        let sink = HealthReportSink {
+            queue: Arc::new(DedupQueue::new()),
+            skip_empty_reports: false,
+            suppress_unchanged_interval: None,
+            last_sent: Mutex::new(HashMap::new()),
+        };
+        let report = success_report(ReportSource::BmcSensors);
+        let event = CollectorEvent::HealthReport(Arc::clone(&report));
+
+        sink.handle_event(&ctx, &event);
+        sink.queue.pop();
+        sink.handle_event(&ctx, &event);
+
+        assert!(sink.queue.pop().is_some(), "with suppression disabled all sends should go through");
     }
 }
