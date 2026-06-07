@@ -287,14 +287,9 @@ func (r *APIDeleteRuleRequest) Validate() error {
 
 // APIListRulesRequest binds query parameters for GET /rule. Pagination is
 // bound separately via pagination.PageRequest.
-//
-// IsDefault is a *bool so we can distinguish unset (no filter) from explicit
-// true/false. Echo's binder leaves the pointer nil when the parameter is
-// absent and fills it for "true" / "false" strings.
 type APIListRulesRequest struct {
 	SiteID        string `query:"siteId"`
 	OperationType string `query:"operationType"`
-	IsDefault     *bool  `query:"isDefault"`
 }
 
 func (r *APIListRulesRequest) Validate() error {
@@ -310,9 +305,7 @@ func (r *APIListRulesRequest) Validate() error {
 // ToProto converts the list filters into the Flow ListOperationRulesRequest.
 // Returns an error if operationType is invalid.
 func (r *APIListRulesRequest) ToProto(page pagination.PageRequest) (*flowv1.ListOperationRulesRequest, error) {
-	req := &flowv1.ListOperationRulesRequest{
-		IsDefault: r.IsDefault,
-	}
+	req := &flowv1.ListOperationRulesRequest{}
 	if r.OperationType != "" {
 		opType, err := operationTypeFromAPI(r.OperationType)
 		if err != nil {
@@ -341,9 +334,6 @@ func (r *APIListRulesRequest) QueryValues(page pagination.PageRequest) url.Value
 	v.Set("siteId", r.SiteID)
 	if r.OperationType != "" {
 		v.Set("operationType", r.OperationType)
-	}
-	if r.IsDefault != nil {
-		v.Set("isDefault", strconv.FormatBool(*r.IsDefault))
 	}
 	if page.PageNumber != nil && *page.PageNumber != 0 {
 		v.Set("pageNumber", strconv.Itoa(*page.PageNumber))

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -366,7 +365,7 @@ func NewListRulesHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 
 // Handle godoc
 // @Summary List Operation Rules
-// @Description List Operation Rules on a Site, with optional operationType and isDefault filters and pagination.
+// @Description List Operation Rules on a Site, with optional operationType filter and pagination.
 // @Tags rule
 // @Accept json
 // @Produce json
@@ -374,7 +373,6 @@ func NewListRulesHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Param org path string true "Name of NGC organization"
 // @Param siteId query string true "ID of the Site"
 // @Param operationType query string false "Filter by operation type (power_control|firmware_control)"
-// @Param isDefault query boolean false "Filter by default flag"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APIOperationRule
@@ -388,13 +386,6 @@ func (h ListRulesHandler) Handle(c echo.Context) error {
 	var apiRequest model.APIListRulesRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
-	}
-	if v := c.QueryParam("isDefault"); v != "" {
-		// Validate eagerly so we return a precise 400 message rather than the
-		// generic one Echo's binder would produce for a malformed *bool.
-		if _, perr := strconv.ParseBool(v); perr != nil {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid isDefault query parameter, expected true|false", nil)
-		}
 	}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)

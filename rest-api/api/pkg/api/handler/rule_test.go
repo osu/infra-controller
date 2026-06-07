@@ -379,7 +379,6 @@ func TestListRulesHandler_Handle(t *testing.T) {
 			queryParams: map[string]string{
 				"siteId":        site.ID.String(),
 				"operationType": model.APIOperationTypePowerControl,
-				"isDefault":     "true",
 			},
 			mockRules:      listed,
 			expectedStatus: http.StatusOK,
@@ -387,8 +386,6 @@ func TestListRulesHandler_Handle(t *testing.T) {
 				t.Helper()
 				require.NotNil(t, req.OperationType)
 				assert.Equal(t, flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL, *req.OperationType)
-				require.NotNil(t, req.IsDefault)
-				assert.True(t, *req.IsDefault)
 			},
 		},
 		{
@@ -401,12 +398,6 @@ func TestListRulesHandler_Handle(t *testing.T) {
 			name:           "failure - invalid operationType",
 			user:           providerUser,
 			queryParams:    map[string]string{"siteId": site.ID.String(), "operationType": "bogus"},
-			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "failure - invalid isDefault",
-			user:           providerUser,
-			queryParams:    map[string]string{"siteId": site.ID.String(), "isDefault": "maybe"},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{

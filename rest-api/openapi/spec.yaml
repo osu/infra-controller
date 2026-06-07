@@ -10332,12 +10332,6 @@ paths:
           required: false
           description: Filter by operation type.
         - schema:
-            type: boolean
-          name: isDefault
-          in: query
-          required: false
-          description: Filter by the default-rule flag.
-        - schema:
             type: integer
             minimum: 1
           name: pageNumber

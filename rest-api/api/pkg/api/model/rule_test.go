@@ -278,12 +278,10 @@ func TestAPIListRulesRequest_Validate(t *testing.T) {
 }
 
 func TestAPIListRulesRequest_ToProto(t *testing.T) {
-	yes := true
 	pageNum, pageSize := 2, 10
 	req := APIListRulesRequest{
 		SiteID:        "site-id",
 		OperationType: APIOperationTypePowerControl,
-		IsDefault:     &yes,
 	}
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
 
@@ -291,8 +289,6 @@ func TestAPIListRulesRequest_ToProto(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, pb.OperationType)
 	assert.Equal(t, flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL, *pb.OperationType)
-	require.NotNil(t, pb.IsDefault)
-	assert.True(t, *pb.IsDefault)
 	require.NotNil(t, pb.Limit)
 	assert.Equal(t, int32(10), *pb.Limit)
 	require.NotNil(t, pb.Offset)
@@ -300,19 +296,16 @@ func TestAPIListRulesRequest_ToProto(t *testing.T) {
 }
 
 func TestAPIListRulesRequest_QueryValues(t *testing.T) {
-	no := false
 	pageNum, pageSize := 1, 50
 	req := APIListRulesRequest{
 		SiteID:        "site-id",
 		OperationType: APIOperationTypePowerControl,
-		IsDefault:     &no,
 	}
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
 
 	v := req.QueryValues(page)
 	assert.Equal(t, "site-id", v.Get("siteId"))
 	assert.Equal(t, APIOperationTypePowerControl, v.Get("operationType"))
-	assert.Equal(t, "false", v.Get("isDefault"))
 	assert.Equal(t, "1", v.Get("pageNumber"))
 	assert.Equal(t, "50", v.Get("pageSize"))
 }
