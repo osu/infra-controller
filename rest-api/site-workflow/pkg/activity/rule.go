@@ -1,0 +1,184 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package activity
+
+import (
+	"context"
+	"errors"
+
+	"github.com/rs/zerolog/log"
+	"go.temporal.io/sdk/temporal"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
+	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+)
+
+// ManageRule is an activity wrapper for Operation Rule management via Flow
+type ManageRule struct {
+	flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient
+}
+
+// NewManageRule returns a new ManageRule client
+func NewManageRule(flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient) ManageRule {
+	return ManageRule{
+		flowGrpcAtomicClient: flowGrpcAtomicClient,
+	}
+}
+
+// CreateOperationRuleOnFlow creates an Operation Rule via Flow.
+func (mr *ManageRule) CreateOperationRuleOnFlow(ctx context.Context, request *flowv1.CreateOperationRuleRequest) (*flowv1.CreateOperationRuleResponse, error) {
+	logger := log.With().Str("Activity", "CreateOperationRuleOnFlow").Logger()
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		err := errors.New("received empty create operation rule request")
+		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+	}
+
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
+	}
+
+	response, err := grpcClient.GrpcServiceClient().CreateOperationRule(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to create operation rule using Flow gRPC API")
+		return nil, swe.WrapErr(err)
+	}
+	if response == nil {
+		return nil, swe.WrapErr(errors.New("Flow CreateOperationRule returned nil response"))
+	}
+
+	logger.Info().Str("RuleID", response.GetId().GetId()).Msg("Completed activity")
+	return response, nil
+}
+
+// GetOperationRuleFromFlow retrieves an Operation Rule by ID via Flow.
+func (mr *ManageRule) GetOperationRuleFromFlow(ctx context.Context, request *flowv1.GetOperationRuleRequest) (*flowv1.OperationRule, error) {
+	logger := log.With().Str("Activity", "GetOperationRuleFromFlow").Logger()
+	logger.Info().Msg("Starting activity")
+
+	var err error
+	switch {
+	case request == nil:
+		err = errors.New("received empty get operation rule request")
+	case request.GetRuleId() == nil || request.GetRuleId().GetId() == "":
+		err = errors.New("received get operation rule request without rule ID")
+	}
+	if err != nil {
+		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+	}
+
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
+	}
+
+	response, err := grpcClient.GrpcServiceClient().GetOperationRule(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to get operation rule using Flow gRPC API")
+		return nil, swe.WrapErr(err)
+	}
+
+	logger.Info().Str("RuleID", request.GetRuleId().GetId()).Msg("Completed activity")
+	return response, nil
+}
+
+// ListOperationRulesFromFlow lists Operation Rules via Flow. Filters and pagination
+// fields on flowv1.ListOperationRulesRequest are honored by Flow.
+func (mr *ManageRule) ListOperationRulesFromFlow(ctx context.Context, request *flowv1.ListOperationRulesRequest) (*flowv1.ListOperationRulesResponse, error) {
+	logger := log.With().Str("Activity", "ListOperationRulesFromFlow").Logger()
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		err := errors.New("received empty list operation rules request")
+		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+	}
+
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
+	}
+
+	response, err := grpcClient.GrpcServiceClient().ListOperationRules(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to list operation rules using Flow gRPC API")
+		return nil, swe.WrapErr(err)
+	}
+	if response == nil {
+		return nil, swe.WrapErr(errors.New("Flow ListOperationRules returned nil response"))
+	}
+
+	logger.Info().
+		Int("RuleCount", len(response.GetRules())).
+		Int32("Total", response.GetTotalCount()).
+		Msg("Completed activity")
+	return response, nil
+}
+
+// UpdateOperationRuleOnFlow updates an Operation Rule via Flow. Note that
+// is_default is not updatable via this path on Flow; use SetRuleAsDefault for
+// that (not exposed in this MVP).
+func (mr *ManageRule) UpdateOperationRuleOnFlow(ctx context.Context, request *flowv1.UpdateOperationRuleRequest) (*emptypb.Empty, error) {
+	logger := log.With().Str("Activity", "UpdateOperationRuleOnFlow").Logger()
+	logger.Info().Msg("Starting activity")
+
+	var err error
+	switch {
+	case request == nil:
+		err = errors.New("received empty update operation rule request")
+	case request.GetRuleId() == nil || request.GetRuleId().GetId() == "":
+		err = errors.New("received update operation rule request without rule ID")
+	}
+	if err != nil {
+		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+	}
+
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
+	}
+
+	response, err := grpcClient.GrpcServiceClient().UpdateOperationRule(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to update operation rule using Flow gRPC API")
+		return nil, swe.WrapErr(err)
+	}
+
+	logger.Info().Str("RuleID", request.GetRuleId().GetId()).Msg("Completed activity")
+	return response, nil
+}
+
+// DeleteOperationRuleOnFlow deletes an Operation Rule via Flow.
+func (mr *ManageRule) DeleteOperationRuleOnFlow(ctx context.Context, request *flowv1.DeleteOperationRuleRequest) (*emptypb.Empty, error) {
+	logger := log.With().Str("Activity", "DeleteOperationRuleOnFlow").Logger()
+	logger.Info().Msg("Starting activity")
+
+	var err error
+	switch {
+	case request == nil:
+		err = errors.New("received empty delete operation rule request")
+	case request.GetRuleId() == nil || request.GetRuleId().GetId() == "":
+		err = errors.New("received delete operation rule request without rule ID")
+	}
+	if err != nil {
+		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
+	}
+
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
+	}
+
+	response, err := grpcClient.GrpcServiceClient().DeleteOperationRule(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to delete operation rule using Flow gRPC API")
+		return nil, swe.WrapErr(err)
+	}
+
+	logger.Info().Str("RuleID", request.GetRuleId().GetId()).Msg("Completed activity")
+	return response, nil
+}

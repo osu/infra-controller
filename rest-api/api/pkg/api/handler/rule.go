@@ -1,0 +1,677 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	temporalEnums "go.temporal.io/api/enums/v1"
+	tClient "go.temporal.io/sdk/client"
+	tp "go.temporal.io/sdk/temporal"
+	"google.golang.org/protobuf/types/known/emptypb"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
+	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+)
+
+// errRuleResponseSent is a sentinel returned by ruleHandlerPrepare to tell the
+// caller that an HTTP error response has already been written and the handler
+// should bail. cutil.NewAPIErrorResponse returns nil on success, so we can't
+// just bubble its result up — we'd lose the signal that the request is done.
+var errRuleResponseSent = errors.New("response sent")
+
+// ruleHandlerPrepare runs the auth + site lookup + Flow-enabled check + Temporal
+// client retrieval common to every rule handler. On any failure it writes the
+// HTTP error response itself and returns errRuleResponseSent; the caller MUST
+// return nil from Handle to avoid double-writing.
+//
+// We factor this out because the rule API has 5 sibling handlers that all share
+// the same preamble. Other resources (e.g. task.go) duplicate it inline; here
+// the savings are large enough to justify a helper, but the helper stays
+// pass-through (no business logic) so the per-handler control flow still reads
+// like task.go.
+func ruleHandlerPrepare(
+	c echo.Context,
+	dbSession *cdb.Session,
+	scp *sc.ClientPool,
+	dbUser *cdbm.User,
+	org string,
+	siteIDStr string,
+	logger zerolog.Logger,
+	ctx context.Context,
+) (*cdbm.Site, tClient.Client, error) {
+	if dbUser == nil {
+		logger.Error().Msg("invalid User object found in request context")
+		_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	ok, err := auth.ValidateOrgMembership(dbUser, org)
+	if !ok {
+		if err != nil {
+			logger.Error().Err(err).Msg("error validating org membership for User in request")
+		} else {
+			logger.Warn().Msg("could not validate org membership for user, access denied")
+		}
+		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	infrastructureProvider, err := common.GetInfrastructureProviderForOrg(ctx, nil, dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, dbSession)
+	if err != nil {
+		switch {
+		case errors.Is(err, common.ErrInvalidID):
+			_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Site specified in request: invalid ID", nil)
+		case errors.Is(err, cdb.ErrDoesNotExist):
+			_ = cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request does not exist", nil)
+		default:
+			logger.Error().Err(err).Msg("error retrieving Site from DB")
+			_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request due to DB error", nil)
+		}
+		return nil, nil, errRuleResponseSent
+	}
+
+	if site.InfrastructureProviderID != infrastructureProvider.ID {
+		_ = cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request doesn't belong to current org's Provider", nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	siteConfig := &cdbm.SiteConfig{}
+	if site.Config != nil {
+		siteConfig = site.Config
+	}
+	if !siteConfig.Flow {
+		logger.Warn().Msg("site does not have NICo Flow enabled")
+		_ = cutil.NewAPIErrorResponse(c, http.StatusPreconditionFailed, "Site does not have NICo Flow enabled", nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	stc, err := scp.GetClientByID(site.ID)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
+		_ = cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+		return nil, nil, errRuleResponseSent
+	}
+
+	return site, stc, nil
+}
+
+// ~~~~~ Create Rule Handler ~~~~~ //
+
+// CreateRuleHandler is the API Handler for creating a new Operation Rule.
+type CreateRuleHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewCreateRuleHandler initializes and returns a new handler for creating a Rule.
+func NewCreateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CreateRuleHandler {
+	return CreateRuleHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Create an Operation Rule
+// @Description Create a new Operation Rule on the target Site. The rule definition is validated server-side; on validation failure no state changes.
+// @Tags rule
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param body body model.APICreateRuleRequest true "Create rule request"
+// @Success 201 {object} model.APIOperationRule
+// @Router /v2/org/{org}/nico/rule [post]
+func (h CreateRuleHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Create", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	apiRequest := model.APICreateRuleRequest{}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if verr := apiRequest.Validate(); verr != nil {
+		logger.Warn().Err(verr).Msg("error validating create rule request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, verr.Error(), nil)
+	}
+
+	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if err != nil {
+		// errRuleResponseSent — error response already written.
+		return nil
+	}
+
+	flowRequest, ferr := apiRequest.ToProto()
+	if ferr != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
+	}
+
+	// Dedicated workflow ID per request so Create is never deduped.
+	workflowID := fmt.Sprintf("rule-create-%s", uuid.NewString())
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "CreateOperationRule", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule CreateOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule creation workflow", nil)
+	}
+
+	var flowResponse flowv1.CreateOperationRuleResponse
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "CreateOperationRule")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule creation workflow on Site: %s", unwrapErr), nil)
+	}
+
+	// Flow's CreateOperationRule returns only the new rule's ID; echo the
+	// request back so the client gets the canonical view without an extra GET.
+	created := &model.APIOperationRule{
+		ID:             flowResponse.GetId().GetId(),
+		Name:           apiRequest.Name,
+		Description:    apiRequest.Description,
+		OperationType:  apiRequest.OperationType,
+		OperationCode:  apiRequest.OperationCode,
+		RuleDefinition: apiRequest.RuleDefinition,
+	}
+
+	logger.Info().Str("RuleID", created.ID).Msg("finishing API handler")
+	return c.JSON(http.StatusCreated, created)
+}
+
+// ~~~~~ Get Rule Handler ~~~~~ //
+
+// GetRuleHandler is the API Handler for getting an Operation Rule by ID.
+type GetRuleHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewGetRuleHandler initializes and returns a new handler for getting a Rule.
+func NewGetRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetRuleHandler {
+	return GetRuleHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Get an Operation Rule
+// @Description Get an Operation Rule by UUID
+// @Tags rule
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param id path string true "UUID of the Rule"
+// @Param siteId query string true "ID of the Site"
+// @Success 200 {object} model.APIOperationRule
+// @Router /v2/org/{org}/nico/rule/{id} [get]
+func (h GetRuleHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Get", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	ruleID := c.Param("id")
+	h.tracerSpan.SetAttribute(handlerSpan, attribute.String("rule_id", ruleID), logger)
+	if _, err := uuid.Parse(ruleID); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rule ID specified in URL", nil)
+	}
+
+	var apiRequest model.APIGetRuleRequest
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if err := apiRequest.Validate(); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+
+	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if err != nil {
+		return nil
+	}
+
+	flowRequest := &flowv1.GetOperationRuleRequest{
+		RuleId: &flowv1.UUID{Id: ruleID},
+	}
+	workflowID := fmt.Sprintf("rule-get-%s", ruleID)
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "GetOperationRule", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule GetOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule retrieval workflow", nil)
+	}
+
+	var flowResponse flowv1.OperationRule
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "GetOperationRule")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		// Flow returns NotFound as gRPC code 5 → 404; UnwrapWorkflowError
+		// already maps it for us. Preserve that here.
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule retrieval workflow on Site: %s", unwrapErr), nil)
+	}
+
+	if flowResponse.GetId() == nil || flowResponse.GetId().GetId() == "" {
+		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Rule not found", nil)
+	}
+
+	apiRule, err := model.NewAPIOperationRule(&flowResponse)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to convert Flow rule to API model")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to render Rule response", nil)
+	}
+
+	logger.Info().Str("RuleID", apiRule.ID).Msg("finishing API handler")
+	return c.JSON(http.StatusOK, apiRule)
+}
+
+// ~~~~~ List Rules Handler ~~~~~ //
+
+// ListRulesHandler is the API Handler for listing Operation Rules.
+type ListRulesHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewListRulesHandler initializes a new ListRulesHandler.
+func NewListRulesHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) ListRulesHandler {
+	return ListRulesHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary List Operation Rules
+// @Description List Operation Rules on a Site, with optional operationType and isDefault filters and pagination.
+// @Tags rule
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param siteId query string true "ID of the Site"
+// @Param operationType query string false "Filter by operation type (power_control|firmware_control)"
+// @Param isDefault query boolean false "Filter by default flag"
+// @Param pageNumber query integer false "Page number of results returned"
+// @Param pageSize query integer false "Number of results per page"
+// @Success 200 {array} model.APIOperationRule
+// @Router /v2/org/{org}/nico/rule [get]
+func (h ListRulesHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "List", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	var apiRequest model.APIListRulesRequest
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	if v := c.QueryParam("isDefault"); v != "" {
+		// Validate eagerly so we return a precise 400 message rather than the
+		// generic one Echo's binder would produce for a malformed *bool.
+		if _, perr := strconv.ParseBool(v); perr != nil {
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid isDefault query parameter, expected true|false", nil)
+		}
+	}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if err := apiRequest.Validate(); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+
+	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if err != nil {
+		return nil
+	}
+
+	pageRequest := pagination.PageRequest{}
+	if err := c.Bind(&pageRequest); err != nil {
+		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
+	}
+	if err := pageRequest.Validate(nil); err != nil {
+		logger.Warn().Err(err).Msg("error validating pagination request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate pagination request data", err)
+	}
+
+	flowRequest, ferr := apiRequest.ToProto(pageRequest)
+	if ferr != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
+	}
+
+	workflowID := fmt.Sprintf("rules-list-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "ListOperationRules", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule ListOperationRules workflow")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule list workflow", nil)
+	}
+
+	var flowResponse flowv1.ListOperationRulesResponse
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "ListOperationRules")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		logger.Error().Err(unwrapErr).Msg("failed to get result from ListOperationRules workflow")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule list workflow on Site: %s", unwrapErr), nil)
+	}
+
+	apiRules := make([]*model.APIOperationRule, 0, len(flowResponse.GetRules()))
+	for _, pbRule := range flowResponse.GetRules() {
+		r, cerr := model.NewAPIOperationRule(pbRule)
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("failed to convert Flow rule to API model")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to render Rule response", nil)
+		}
+		apiRules = append(apiRules, r)
+	}
+
+	total := int(flowResponse.GetTotalCount())
+	pageResponse := pagination.NewPageResponse(*pageRequest.PageNumber, *pageRequest.PageSize, total, pageRequest.OrderByStr)
+	pageHeader, err := json.Marshal(pageResponse)
+	if err != nil {
+		logger.Error().Err(err).Msg("error marshaling pagination response")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create pagination response", nil)
+	}
+	c.Response().Header().Set(pagination.ResponseHeaderName, string(pageHeader))
+
+	logger.Info().Int("Count", len(apiRules)).Int("Total", total).Msg("finishing API handler")
+	return c.JSON(http.StatusOK, apiRules)
+}
+
+// ~~~~~ Update Rule Handler ~~~~~ //
+
+// UpdateRuleHandler is the API Handler for updating an Operation Rule.
+type UpdateRuleHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewUpdateRuleHandler initializes a new UpdateRuleHandler.
+func NewUpdateRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) UpdateRuleHandler {
+	return UpdateRuleHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Update an Operation Rule
+// @Description Patch a Rule's mutable fields (name, description, ruleDefinition). operationType and operationCode are immutable; create a new rule to change them.
+// @Tags rule
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param id path string true "UUID of the Rule"
+// @Param body body model.APIUpdateRuleRequest true "Update rule request"
+// @Success 204 "No Content"
+// @Router /v2/org/{org}/nico/rule/{id} [patch]
+func (h UpdateRuleHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Update", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	ruleID := c.Param("id")
+	h.tracerSpan.SetAttribute(handlerSpan, attribute.String("rule_id", ruleID), logger)
+	if _, err := uuid.Parse(ruleID); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rule ID specified in URL", nil)
+	}
+
+	apiRequest := model.APIUpdateRuleRequest{}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if verr := apiRequest.Validate(); verr != nil {
+		logger.Warn().Err(verr).Msg("error validating update rule request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, verr.Error(), nil)
+	}
+
+	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if err != nil {
+		return nil
+	}
+
+	flowRequest, ferr := apiRequest.ToProto(ruleID)
+	if ferr != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
+	}
+
+	workflowID := fmt.Sprintf("rule-update-%s-%s", ruleID, uuid.NewString())
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "UpdateOperationRule", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule UpdateOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule update workflow", nil)
+	}
+
+	var flowResponse emptypb.Empty
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "UpdateOperationRule")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		logger.Error().Err(unwrapErr).Msg("failed to get result from UpdateOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule update workflow on Site: %s", unwrapErr), nil)
+	}
+
+	logger.Info().Str("RuleID", ruleID).Msg("finishing API handler")
+	return c.NoContent(http.StatusNoContent)
+}
+
+// ~~~~~ Delete Rule Handler ~~~~~ //
+
+// DeleteRuleHandler is the API Handler for deleting an Operation Rule.
+//
+// Flow rejects deletion of rules that are still associated with racks or that
+// are the active default for an operation. The caller must dissociate first;
+// this handler surfaces the Flow error verbatim via UnwrapWorkflowError so the
+// client gets a meaningful 4xx.
+type DeleteRuleHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
+
+// NewDeleteRuleHandler initializes a new DeleteRuleHandler.
+func NewDeleteRuleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) DeleteRuleHandler {
+	return DeleteRuleHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
+}
+
+// Handle godoc
+// @Summary Delete an Operation Rule
+// @Description Delete an Operation Rule by UUID. Rules associated with a rack or active as a default must be dissociated first.
+// @Tags rule
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param org path string true "Name of NGC organization"
+// @Param id path string true "UUID of the Rule"
+// @Param siteId query string true "ID of the Site"
+// @Success 204 "No Content"
+// @Router /v2/org/{org}/nico/rule/{id} [delete]
+func (h DeleteRuleHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Rule", "Delete", c, h.tracerSpan)
+	if handlerSpan != nil {
+		defer handlerSpan.End()
+	}
+
+	ruleID := c.Param("id")
+	h.tracerSpan.SetAttribute(handlerSpan, attribute.String("rule_id", ruleID), logger)
+	if _, err := uuid.Parse(ruleID); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Rule ID specified in URL", nil)
+	}
+
+	var apiRequest model.APIDeleteRuleRequest
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+	if err := c.Bind(&apiRequest); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
+	}
+	if err := apiRequest.Validate(); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+
+	_, stc, err := ruleHandlerPrepare(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, logger, ctx)
+	if err != nil {
+		return nil
+	}
+
+	flowRequest := &flowv1.DeleteOperationRuleRequest{
+		RuleId: &flowv1.UUID{Id: ruleID},
+	}
+	workflowID := fmt.Sprintf("rule-delete-%s", ruleID)
+	workflowOptions := tClient.StartWorkflowOptions{
+		ID:                       workflowID,
+		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: temporalEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		TaskQueue:                queue.SiteTaskQueue,
+	}
+
+	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+	defer cancel()
+
+	we, err := stc.ExecuteWorkflow(wfCtx, workflowOptions, "DeleteOperationRule", flowRequest)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to schedule DeleteOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Rule deletion workflow", nil)
+	}
+
+	var flowResponse emptypb.Empty
+	if err := we.Get(wfCtx, &flowResponse); err != nil {
+		var timeoutErr *tp.TimeoutError
+		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Rule", "DeleteOperationRule")
+		}
+		code, unwrapErr := common.UnwrapWorkflowError(err)
+		logger.Error().Err(unwrapErr).Msg("failed to get result from DeleteOperationRule workflow")
+		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Rule deletion workflow on Site: %s", unwrapErr), nil)
+	}
+
+	logger.Info().Str("RuleID", ruleID).Msg("finishing API handler")
+	return c.NoContent(http.StatusNoContent)
+}

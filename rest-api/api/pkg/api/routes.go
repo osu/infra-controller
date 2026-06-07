@@ -898,6 +898,32 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCancelTaskHandler(dbSession, tc, scp, cfg),
 		},
+		// Operation Rule endpoints (Flow)
+		{
+			Path:    apiPathPrefix + "/rule",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/rule",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewListRulesHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/rule/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/rule/:id",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateRuleHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/rule/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteRuleHandler(dbSession, tc, scp, cfg),
+		},
 		{
 			Path:    apiPathPrefix + "/rack",
 			Method:  http.MethodGet,

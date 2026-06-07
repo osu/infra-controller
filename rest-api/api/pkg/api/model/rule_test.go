@@ -1,0 +1,370 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package model
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+)
+
+func sampleRuleDefinition() APIRuleDefinition {
+	return APIRuleDefinition{
+		Version: "v1",
+		Steps: []APISequenceStep{
+			{
+				ComponentType: "Compute",
+				Stage:         1,
+				MaxParallel:   4,
+				Timeout:       "60s",
+				PreOperation: []APIActionConfig{
+					{Name: "VerifyReachability", Timeout: "10s"},
+				},
+				MainOperation: APIActionConfig{
+					Name:    "PowerControl",
+					Timeout: "30s",
+					Parameters: map[string]any{
+						"operation": "on",
+					},
+				},
+				Retry: &APIRetryPolicy{
+					MaxAttempts:        3,
+					InitialInterval:    "1s",
+					BackoffCoefficient: 2.0,
+					MaxInterval:        "30s",
+				},
+			},
+		},
+	}
+}
+
+func TestAPICreateRuleRequest_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     APICreateRuleRequest
+		wantErr string
+	}{
+		{
+			name: "valid",
+			req: APICreateRuleRequest{
+				SiteID:         "site-id",
+				Name:           "my-rule",
+				OperationType:  APIOperationTypePowerControl,
+				OperationCode:  "power_on",
+				RuleDefinition: sampleRuleDefinition(),
+			},
+		},
+		{
+			name: "missing siteId",
+			req: APICreateRuleRequest{
+				Name:          "x",
+				OperationType: APIOperationTypePowerControl,
+				OperationCode: "power_on",
+			},
+			wantErr: "siteId is required",
+		},
+		{
+			name: "missing name",
+			req: APICreateRuleRequest{
+				SiteID:        "site-id",
+				OperationType: APIOperationTypePowerControl,
+				OperationCode: "power_on",
+			},
+			wantErr: "name is required",
+		},
+		{
+			name: "missing operationType",
+			req: APICreateRuleRequest{
+				SiteID:        "site-id",
+				Name:          "x",
+				OperationCode: "power_on",
+			},
+			wantErr: "operationType is required",
+		},
+		{
+			name: "invalid operationType",
+			req: APICreateRuleRequest{
+				SiteID:        "site-id",
+				Name:          "x",
+				OperationType: "bogus",
+				OperationCode: "power_on",
+			},
+			wantErr: "invalid operationType",
+		},
+		{
+			name: "missing operationCode",
+			req: APICreateRuleRequest{
+				SiteID:        "site-id",
+				Name:          "x",
+				OperationType: APIOperationTypePowerControl,
+			},
+			wantErr: "operationCode is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestAPICreateRuleRequest_ToProto(t *testing.T) {
+	req := APICreateRuleRequest{
+		SiteID:         "site-id",
+		Name:           "my-rule",
+		Description:    "desc",
+		OperationType:  APIOperationTypeFirmwareControl,
+		OperationCode:  "upgrade",
+		RuleDefinition: sampleRuleDefinition(),
+	}
+
+	pb, err := req.ToProto()
+	require.NoError(t, err)
+	require.NotNil(t, pb)
+	assert.Equal(t, "my-rule", pb.GetName())
+	assert.Equal(t, "desc", pb.GetDescription())
+	assert.Equal(t, flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL, pb.GetOperationType())
+	assert.Equal(t, "upgrade", pb.GetOperationCode())
+
+	// Round-trip the rule definition JSON to make sure snake_case is preserved.
+	var rd map[string]any
+	require.NoError(t, json.Unmarshal([]byte(pb.GetRuleDefinitionJson()), &rd))
+	assert.Equal(t, "v1", rd["version"])
+	steps, ok := rd["steps"].([]any)
+	require.True(t, ok)
+	require.Len(t, steps, 1)
+	step := steps[0].(map[string]any)
+	assert.Equal(t, "Compute", step["component_type"])
+	assert.Equal(t, float64(4), step["max_parallel"])
+	main := step["main_operation"].(map[string]any)
+	assert.Equal(t, "PowerControl", main["name"])
+}
+
+func TestAPIUpdateRuleRequest_Validate(t *testing.T) {
+	name := "new-name"
+	tests := []struct {
+		name    string
+		req     APIUpdateRuleRequest
+		wantErr string
+	}{
+		{
+			name: "valid - rename only",
+			req: APIUpdateRuleRequest{
+				SiteID: "site-id",
+				Name:   &name,
+			},
+		},
+		{
+			name:    "missing siteId",
+			req:     APIUpdateRuleRequest{Name: &name},
+			wantErr: "siteId is required",
+		},
+		{
+			name:    "no fields to update",
+			req:     APIUpdateRuleRequest{SiteID: "site-id"},
+			wantErr: "at least one of name",
+		},
+		{
+			name: "empty name explicitly",
+			req: APIUpdateRuleRequest{
+				SiteID: "site-id",
+				Name:   stringPtr(""),
+			},
+			wantErr: "name cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestAPIUpdateRuleRequest_ToProto(t *testing.T) {
+	name := "new-name"
+	desc := "new-desc"
+	rd := sampleRuleDefinition()
+	req := APIUpdateRuleRequest{
+		SiteID:         "site-id",
+		Name:           &name,
+		Description:    &desc,
+		RuleDefinition: &rd,
+	}
+
+	pb, err := req.ToProto("rule-id")
+	require.NoError(t, err)
+	assert.Equal(t, "rule-id", pb.GetRuleId().GetId())
+	assert.Equal(t, "new-name", pb.GetName())
+	assert.Equal(t, "new-desc", pb.GetDescription())
+	require.NotNil(t, pb.RuleDefinitionJson)
+	assert.Contains(t, *pb.RuleDefinitionJson, `"component_type":"Compute"`)
+}
+
+func TestAPIUpdateRuleRequest_ToProto_OmitsRuleDef(t *testing.T) {
+	name := "new-name"
+	req := APIUpdateRuleRequest{
+		SiteID: "site-id",
+		Name:   &name,
+	}
+	pb, err := req.ToProto("rule-id")
+	require.NoError(t, err)
+	assert.Nil(t, pb.RuleDefinitionJson)
+}
+
+func TestAPIGetRuleRequest_Validate(t *testing.T) {
+	require.Error(t, (&APIGetRuleRequest{}).Validate())
+	require.NoError(t, (&APIGetRuleRequest{SiteID: "site-id"}).Validate())
+}
+
+func TestAPIDeleteRuleRequest_Validate(t *testing.T) {
+	require.Error(t, (&APIDeleteRuleRequest{}).Validate())
+	require.NoError(t, (&APIDeleteRuleRequest{SiteID: "site-id"}).Validate())
+}
+
+func TestAPIListRulesRequest_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     APIListRulesRequest
+		wantErr string
+	}{
+		{name: "valid - no filters", req: APIListRulesRequest{SiteID: "site-id"}},
+		{
+			name: "valid - filters",
+			req: APIListRulesRequest{
+				SiteID:        "site-id",
+				OperationType: APIOperationTypePowerControl,
+			},
+		},
+		{name: "missing siteId", req: APIListRulesRequest{}, wantErr: "siteId"},
+		{
+			name:    "invalid operationType",
+			req:     APIListRulesRequest{SiteID: "site-id", OperationType: "bogus"},
+			wantErr: "invalid operationType",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestAPIListRulesRequest_ToProto(t *testing.T) {
+	yes := true
+	pageNum, pageSize := 2, 10
+	req := APIListRulesRequest{
+		SiteID:        "site-id",
+		OperationType: APIOperationTypePowerControl,
+		IsDefault:     &yes,
+	}
+	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+
+	pb, err := req.ToProto(page)
+	require.NoError(t, err)
+	require.NotNil(t, pb.OperationType)
+	assert.Equal(t, flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL, *pb.OperationType)
+	require.NotNil(t, pb.IsDefault)
+	assert.True(t, *pb.IsDefault)
+	require.NotNil(t, pb.Limit)
+	assert.Equal(t, int32(10), *pb.Limit)
+	require.NotNil(t, pb.Offset)
+	assert.Equal(t, int32(10), *pb.Offset) // (page=2 - 1) * size=10
+}
+
+func TestAPIListRulesRequest_QueryValues(t *testing.T) {
+	no := false
+	pageNum, pageSize := 1, 50
+	req := APIListRulesRequest{
+		SiteID:        "site-id",
+		OperationType: APIOperationTypePowerControl,
+		IsDefault:     &no,
+	}
+	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+
+	v := req.QueryValues(page)
+	assert.Equal(t, "site-id", v.Get("siteId"))
+	assert.Equal(t, APIOperationTypePowerControl, v.Get("operationType"))
+	assert.Equal(t, "false", v.Get("isDefault"))
+	assert.Equal(t, "1", v.Get("pageNumber"))
+	assert.Equal(t, "50", v.Get("pageSize"))
+}
+
+func TestAPIOperationRule_FromProto(t *testing.T) {
+	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	updated := created.Add(time.Hour)
+	rdJSON, err := json.Marshal(sampleRuleDefinition())
+	require.NoError(t, err)
+
+	pbRule := &flowv1.OperationRule{
+		Id:                 &flowv1.UUID{Id: "rule-id"},
+		Name:               "my-rule",
+		Description:        "desc",
+		OperationType:      flowv1.OperationType_OPERATION_TYPE_POWER_CONTROL,
+		OperationCode:      "power_on",
+		RuleDefinitionJson: string(rdJSON),
+		IsDefault:          true,
+		CreatedAt:          timestamppb.New(created),
+		UpdatedAt:          timestamppb.New(updated),
+	}
+
+	got, err := NewAPIOperationRule(pbRule)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "rule-id", got.ID)
+	assert.Equal(t, "my-rule", got.Name)
+	assert.Equal(t, "desc", got.Description)
+	assert.Equal(t, APIOperationTypePowerControl, got.OperationType)
+	assert.Equal(t, "power_on", got.OperationCode)
+	assert.True(t, got.IsDefault)
+	assert.Equal(t, created, got.Created)
+	assert.Equal(t, updated, got.Updated)
+	assert.Equal(t, "v1", got.RuleDefinition.Version)
+	require.Len(t, got.RuleDefinition.Steps, 1)
+	assert.Equal(t, "Compute", got.RuleDefinition.Steps[0].ComponentType)
+	assert.Equal(t, "PowerControl", got.RuleDefinition.Steps[0].MainOperation.Name)
+}
+
+func TestAPIOperationRule_FromProto_InvalidJSON(t *testing.T) {
+	pbRule := &flowv1.OperationRule{
+		Id:                 &flowv1.UUID{Id: "rule-id"},
+		RuleDefinitionJson: "not valid json",
+	}
+	_, err := NewAPIOperationRule(pbRule)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid ruleDefinition")
+}
+
+func TestAPIOperationRule_FromProto_NilSafe(t *testing.T) {
+	r := &APIOperationRule{}
+	assert.NoError(t, r.FromProto(nil))
+}
+
+func stringPtr(s string) *string { return &s }
