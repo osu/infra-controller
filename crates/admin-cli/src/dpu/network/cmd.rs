@@ -213,8 +213,11 @@ pub async fn show_dpu_status(
             .iter()
             .filter_map(|status| status.dpu_machine_id)
             .collect();
-        // The Forge API rejects requests carrying more than 100 IDs, so fetch the
-        // backing machines in pages instead of in a single call (see issue #2137).
+        // The Forge API rejects requests carrying more than 100 IDs, and a zero
+        // page size would panic chunks(), so clamp into the valid 1..=100 range
+        // and fetch the backing machines in pages instead of one call (see #2137).
+        const MAX_IDS_PER_REQUEST: usize = 100;
+        let page_size = page_size.clamp(1, MAX_IDS_PER_REQUEST);
         let mut dpus_by_id = HashMap::new();
         for ids in all_ids.chunks(page_size) {
             let dpus = api_client.get_machines_by_ids(ids).await?.machines;
