@@ -6,6 +6,8 @@ package model
 import (
 	"fmt"
 
+	"github.com/google/uuid"
+
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
@@ -31,12 +33,18 @@ type APIUpdateFirmwareRequest struct {
 	// Flow proto field is named `sub_targets` and represents the same
 	// enum subset.
 	Targets []string `json:"targets,omitempty"`
+	// RuleID, when set, overrides the default rule resolution and pins this
+	// firmware operation to the named Operation Rule.
+	RuleID *string `json:"ruleId,omitempty"`
 }
 
 // Validate validates the firmware update request
 func (r *APIUpdateFirmwareRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
+	}
+	if err := validateOptionalUUID("ruleId", r.RuleID); err != nil {
+		return err
 	}
 	return validateFirmwareTargets(r.Targets, r.Version)
 }
@@ -74,6 +82,9 @@ type APIBatchRackFirmwareUpdateRequest struct {
 	SiteID  string      `json:"siteId"`
 	Filter  *RackFilter `json:"filter,omitempty"`
 	Version *string     `json:"version,omitempty"`
+	// RuleID, when set, pins every task spawned by this batch to the named
+	// Operation Rule.
+	RuleID *string `json:"ruleId,omitempty"`
 }
 
 // Validate checks required fields.
@@ -81,7 +92,7 @@ func (r *APIBatchRackFirmwareUpdateRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
-	return nil
+	return validateOptionalUUID("ruleId", r.RuleID)
 }
 
 // ========== Batch Tray Firmware Update Request ==========
@@ -95,6 +106,9 @@ type APIBatchTrayFirmwareUpdateRequest struct {
 	// firmware sub-parts within each matched tray. Same semantics as the
 	// single-tray variant. When non-empty, requires Version.
 	Targets []string `json:"targets,omitempty"`
+	// RuleID, when set, pins every task spawned by this batch to the named
+	// Operation Rule.
+	RuleID *string `json:"ruleId,omitempty"`
 }
 
 // Validate checks required fields and filter constraints.
@@ -106,6 +120,9 @@ func (r *APIBatchTrayFirmwareUpdateRequest) Validate() error {
 		if err := r.Filter.Validate(); err != nil {
 			return err
 		}
+	}
+	if err := validateOptionalUUID("ruleId", r.RuleID); err != nil {
+		return err
 	}
 	return validateFirmwareTargets(r.Targets, r.Version)
 }
@@ -125,6 +142,19 @@ func validateFirmwareTargets(targets []string, version *string) error {
 	}
 	if version == nil || *version == "" {
 		return fmt.Errorf("targets requires version to be set")
+	}
+	return nil
+}
+
+// validateOptionalUUID returns nil if id is nil/empty or a valid UUID;
+// otherwise an error referring to the given field name. Shared across the
+// rack/tray operation request models that grew a ruleId field.
+func validateOptionalUUID(field string, id *string) error {
+	if id == nil || *id == "" {
+		return nil
+	}
+	if _, err := uuid.Parse(*id); err != nil {
+		return fmt.Errorf("%s must be a valid UUID", field)
 	}
 	return nil
 }

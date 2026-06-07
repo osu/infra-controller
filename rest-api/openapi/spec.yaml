@@ -17764,6 +17764,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchUpdateTrayPowerStateRequest:
       title: BatchUpdateTrayPowerStateRequest
       type: object
@@ -17787,6 +17794,13 @@ components:
             - forceoff
             - forcecycle
           description: Target power state
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BatchRackFirmwareUpdateRequest:
       title: BatchRackFirmwareUpdateRequest
       type: object
@@ -17805,6 +17819,13 @@ components:
             - string
             - 'null'
           description: Target firmware version.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
     BringUpRackRequest:
       title: BringUpRackRequest
       type: object
@@ -17819,6 +17840,12 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this bring-up to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
         - siteId: 550e8400-e29b-41d4-a716-446655440000
@@ -17839,6 +17866,13 @@ components:
         description:
           type: string
           description: Optional description for the bring up operation
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every bring-up task
+            spawned by this batch to the named rule and overrides Flow's default
+            rule resolution.
     BringUpRackResponse:
       title: BringUpRackResponse
       type: object
@@ -18200,6 +18234,13 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins every task spawned by
+            this batch to the named rule and overrides Flow's default rule
+            resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           filter:
@@ -18233,6 +18274,12 @@ components:
             - `cycle`: Graceful power cycle (restart)
             - `forceoff`: Forced power off (immediate)
             - `forcecycle`: Forced power cycle (immediate restart)
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this operation to the
+            named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           state: 'on'
@@ -18300,6 +18347,12 @@ components:
             Omitted or empty means "update everything in the bundle"
             (the historical default). Unknown names are rejected.
             Requires `version` to be set.
+        ruleId:
+          type: string
+          format: uuid
+          description: |-
+            Optional Operation Rule UUID. When set, pins this firmware update to
+            the named rule and overrides Flow's default rule resolution.
       examples:
         - siteId: 550e8400-e29b-41d4-a716-446655440000
           version: '24.11.0'

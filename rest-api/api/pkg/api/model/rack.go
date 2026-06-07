@@ -511,6 +511,9 @@ func NewAPIRackValidationResult(protoResp *flowv1.ValidateComponentsResponse) *A
 type APIBringUpRackRequest struct {
 	SiteID      string `json:"siteId"`
 	Description string `json:"description,omitempty"`
+	// RuleID, when set, overrides the default rule resolution and pins the
+	// bring-up operation to the named Operation Rule.
+	RuleID *string `json:"ruleId,omitempty"`
 }
 
 // Validate validates the bring up request
@@ -518,7 +521,7 @@ func (r *APIBringUpRackRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
-	return nil
+	return validateOptionalUUID("ruleId", r.RuleID)
 }
 
 // ========== Bring Up Response ==========
@@ -554,6 +557,9 @@ type APIBatchBringUpRackRequest struct {
 	SiteID      string      `json:"siteId"`
 	Filter      *RackFilter `json:"filter,omitempty"`
 	Description string      `json:"description,omitempty"`
+	// RuleID, when set, pins every bring-up task spawned by this batch to the
+	// named Operation Rule.
+	RuleID *string `json:"ruleId,omitempty"`
 }
 
 // Validate checks required fields.
@@ -561,5 +567,5 @@ func (r *APIBatchBringUpRackRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
-	return nil
+	return validateOptionalUUID("ruleId", r.RuleID)
 }
