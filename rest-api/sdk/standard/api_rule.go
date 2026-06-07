@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
 /*
 NVIDIA Infra Controller REST API
 
@@ -472,7 +475,6 @@ type ApiListRulesRequest struct {
 	siteId        *string
 	org           string
 	operationType *string
-	isDefault     *bool
 	pageNumber    *int32
 	pageSize      *int32
 }
@@ -486,12 +488,6 @@ func (r ApiListRulesRequest) SiteId(siteId string) ApiListRulesRequest {
 // Filter by operation type.
 func (r ApiListRulesRequest) OperationType(operationType string) ApiListRulesRequest {
 	r.operationType = &operationType
-	return r
-}
-
-// Filter by the default-rule flag.
-func (r ApiListRulesRequest) IsDefault(isDefault bool) ApiListRulesRequest {
-	r.isDefault = &isDefault
 	return r
 }
 
@@ -562,9 +558,6 @@ func (a *RuleAPIService) ListRulesExecute(r ApiListRulesRequest) ([]OperationRul
 	parameterAddToHeaderOrQuery(localVarQueryParams, "siteId", r.siteId, "form", "")
 	if r.operationType != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "operationType", r.operationType, "form", "")
-	}
-	if r.isDefault != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "isDefault", r.isDefault, "form", "")
 	}
 	if r.pageNumber != nil {
 		parameterAddToHeaderOrQuery(localVarQueryParams, "pageNumber", r.pageNumber, "form", "")
