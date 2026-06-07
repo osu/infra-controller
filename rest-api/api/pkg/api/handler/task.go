@@ -183,7 +183,7 @@ func (gth GetTaskHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Task not found", nil)
 	}
 
-	apiTask := model.NewAPIRackTask(tasks[0])
+	apiTask := model.NewAPIRackTask(tasks[0], model.WithReport())
 
 	logger.Info().Msg("finishing API handler")
 
@@ -354,7 +354,7 @@ func (cth CancelTaskHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Task cancellation workflow on Site: %s", unwrapErr), nil)
 	}
 
-	apiTask := model.NewAPIRackTask(flowResponse.GetTask())
+	apiTask := model.NewAPIRackTask(flowResponse.GetTask(), model.WithReport())
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusAccepted, apiTask)
@@ -393,6 +393,7 @@ func NewGetRackTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.C
 // @Param id path string true "UUID of the Rack"
 // @Param siteId query string true "ID of the Site"
 // @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param withReport query boolean false "Include the per-task execution report in each response (default false)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APIRackTask
@@ -490,6 +491,7 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.ListTasksRequest{
 		RackId:     &flowv1.UUID{Id: rackID},
 		ActiveOnly: apiRequest.ActiveOnly,
+		WithReport: apiRequest.WithReport,
 	}
 	if pageRequest.Offset != nil && pageRequest.Limit != nil {
 		flowRequest.Pagination = &flowv1.Pagination{
@@ -527,9 +529,13 @@ func (h GetRackTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Rack Tasks: %s", unwrapErr), nil)
 	}
 
+	var taskOpts []model.APIRackTaskOption
+	if apiRequest.WithReport {
+		taskOpts = append(taskOpts, model.WithReport())
+	}
 	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
-		apiTasks = append(apiTasks, model.NewAPIRackTask(t))
+		apiTasks = append(apiTasks, model.NewAPIRackTask(t, taskOpts...))
 	}
 
 	total := int(flowResponse.GetTotal())
@@ -576,6 +582,7 @@ func NewGetTrayTasksHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.C
 // @Param id path string true "UUID of the Tray"
 // @Param siteId query string true "ID of the Site"
 // @Param activeOnly query boolean false "Restrict to non-terminal Tasks"
+// @Param withReport query boolean false "Include the per-task execution report in each response (default false)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
 // @Success 200 {array} model.APIRackTask
@@ -673,6 +680,7 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 	flowRequest := &flowv1.ListTasksRequest{
 		ComponentId: &flowv1.UUID{Id: trayID},
 		ActiveOnly:  apiRequest.ActiveOnly,
+		WithReport:  apiRequest.WithReport,
 	}
 	if pageRequest.Offset != nil && pageRequest.Limit != nil {
 		flowRequest.Pagination = &flowv1.Pagination{
@@ -710,9 +718,13 @@ func (h GetTrayTasksHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute workflow to retrieve all Tray Tasks: %s", unwrapErr), nil)
 	}
 
+	var taskOpts []model.APIRackTaskOption
+	if apiRequest.WithReport {
+		taskOpts = append(taskOpts, model.WithReport())
+	}
 	apiTasks := make([]*model.APIRackTask, 0, len(flowResponse.GetTasks()))
 	for _, t := range flowResponse.GetTasks() {
-		apiTasks = append(apiTasks, model.NewAPIRackTask(t))
+		apiTasks = append(apiTasks, model.NewAPIRackTask(t, taskOpts...))
 	}
 
 	total := int(flowResponse.GetTotal())

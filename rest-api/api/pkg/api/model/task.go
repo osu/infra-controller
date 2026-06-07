@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -25,19 +26,40 @@ var ProtoToAPIRackTaskStatusName = map[flowv1.TaskStatus]string{
 
 // APIRackTask is the API response model for a rack task (OpenAPI schema RackTask).
 type APIRackTask struct {
-	ID          string     `json:"id"`
-	Status      string     `json:"status"`
-	Description string     `json:"description"`
-	Message     string     `json:"message"`
-	Started     *time.Time `json:"started"`
-	Finished    *time.Time `json:"finished"`
-	Created     time.Time  `json:"created"`
-	Updated     time.Time  `json:"updated"`
+	ID          string           `json:"id"`
+	Status      string           `json:"status"`
+	Description string           `json:"description"`
+	Message     string           `json:"message"`
+	Started     *time.Time       `json:"started"`
+	Finished    *time.Time       `json:"finished"`
+	Created     time.Time        `json:"created"`
+	Updated     time.Time        `json:"updated"`
+	Report      *json.RawMessage `json:"report,omitempty"`
 }
 
-func (t *APIRackTask) FromProto(task *flowv1.Task) {
+// APIRackTaskOption configures optional fields populated on an APIRackTask.
+// Used by NewAPIRackTask so list endpoints can omit large optional payloads
+// (Report in particular) by default while single-task endpoints opt in.
+type APIRackTaskOption func(*apiRackTaskOptions)
+
+type apiRackTaskOptions struct {
+	withReport bool
+}
+
+// WithReport populates APIRackTask.Report from Task.report when the proto
+// field is non-empty. Without this option, Report is left nil and is
+// omitted from the JSON response.
+func WithReport() APIRackTaskOption {
+	return func(o *apiRackTaskOptions) { o.withReport = true }
+}
+
+func (t *APIRackTask) FromProto(task *flowv1.Task, opts ...APIRackTaskOption) {
 	if task == nil {
 		return
+	}
+	o := apiRackTaskOptions{}
+	for _, opt := range opts {
+		opt(&o)
 	}
 	if task.GetId() != nil {
 		t.ID = task.GetId().GetId()
@@ -55,11 +77,17 @@ func (t *APIRackTask) FromProto(task *flowv1.Task) {
 	}
 	t.Created = task.GetCreatedAt().AsTime().UTC()
 	t.Updated = task.GetUpdatedAt().AsTime().UTC()
+	if o.withReport {
+		if r := task.GetReport(); r != "" {
+			raw := json.RawMessage(r)
+			t.Report = &raw
+		}
+	}
 }
 
-func NewAPIRackTask(task *flowv1.Task) *APIRackTask {
+func NewAPIRackTask(task *flowv1.Task, opts ...APIRackTaskOption) *APIRackTask {
 	t := &APIRackTask{}
-	t.FromProto(task)
+	t.FromProto(task, opts...)
 	return t
 }
 
@@ -93,6 +121,7 @@ func (r *APICancelTaskRequest) Validate() error {
 type APIGetTasksRequest struct {
 	SiteID     string `query:"siteId"`
 	ActiveOnly bool   `query:"activeOnly"`
+	WithReport bool   `query:"withReport"`
 }
 
 func (r *APIGetTasksRequest) Validate() error {
@@ -110,6 +139,9 @@ func (r *APIGetTasksRequest) QueryValues(page pagination.PageRequest) url.Values
 	v.Set("siteId", r.SiteID)
 	if r.ActiveOnly {
 		v.Set("activeOnly", strconv.FormatBool(r.ActiveOnly))
+	}
+	if r.WithReport {
+		v.Set("withReport", strconv.FormatBool(r.WithReport))
 	}
 	if page.PageNumber != nil && *page.PageNumber != 0 {
 		v.Set("pageNumber", strconv.Itoa(*page.PageNumber))

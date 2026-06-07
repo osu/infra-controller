@@ -10,6 +10,8 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 )
 
 func TestNewAPIRackTask(t *testing.T) {
@@ -168,6 +170,63 @@ func TestNewAPIRackTask_Timestamps(t *testing.T) {
 	assert.NotNil(t, result.Finished)
 	assert.True(t, result.Started.Equal(startTime))
 	assert.True(t, result.Finished.Equal(endTime))
+}
+
+func TestNewAPIRackTask_Report(t *testing.T) {
+	t.Run("report omitted by default", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-1"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: `{"version":1,"stages":[]}`,
+		}
+
+		result := NewAPIRackTask(task)
+
+		assert.Nil(t, result.Report, "Report must default to nil so the JSON field is omitted")
+	})
+
+	t.Run("WithReport populates from non-empty proto report", func(t *testing.T) {
+		body := `{"version":1,"stages":[{"name":"reset","status":"Succeeded"}]}`
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-2"},
+			Status: flowv1.TaskStatus_TASK_STATUS_RUNNING,
+			Report: body,
+		}
+
+		result := NewAPIRackTask(task, WithReport())
+
+		assert.NotNil(t, result.Report)
+		assert.JSONEq(t, body, string(*result.Report))
+	})
+
+	t.Run("WithReport on empty proto report still yields nil", func(t *testing.T) {
+		task := &flowv1.Task{
+			Id:     &flowv1.UUID{Id: "task-rep-3"},
+			Status: flowv1.TaskStatus_TASK_STATUS_PENDING,
+		}
+
+		result := NewAPIRackTask(task, WithReport())
+
+		assert.Nil(t, result.Report, "Empty proto report must not surface as an empty JSON value")
+	})
+}
+
+func TestAPIGetTasksRequest_QueryValues(t *testing.T) {
+	t.Run("withReport=true surfaces in query values", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "site-x", WithReport: true}
+		v := req.QueryValues(pagination.PageRequest{})
+
+		assert.Equal(t, "true", v.Get("withReport"))
+		assert.Equal(t, "site-x", v.Get("siteId"))
+	})
+
+	t.Run("withReport=false is omitted from query values", func(t *testing.T) {
+		req := APIGetTasksRequest{SiteID: "site-y"}
+		v := req.QueryValues(pagination.PageRequest{})
+
+		assert.Empty(t, v.Get("withReport"))
+		assert.False(t, v.Has("withReport"), "Default-false withReport must not affect deterministic workflow ID hashing")
+	})
 }
 
 func TestAPIGetTaskRequest_Validate(t *testing.T) {

@@ -10285,6 +10285,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Rack. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `withReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10299,6 +10301,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: withReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -10937,6 +10945,8 @@ paths:
         Tasks are site-scoped; `siteId` must be the Site that owns the Tray. Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Filters compose with AND: setting `activeOnly=true` restricts the result to tasks that are still in a non-terminal state (`Pending`, `Running`, `Waiting`). Results are paginated; the `X-Pagination` response header reports the total count over the post-filter set.
+
+        By default the `report` field is omitted from each task in the response. Set `withReport=true` to include it; this is opt-in because report bodies can be several KB and pulling them across the list path persists the full payload in each caller-side workflow record. Single-task `GET /rack/task/{id}` and `POST /rack/task/{id}/cancel` always include the report.
       parameters:
         - schema:
             type: string
@@ -10951,6 +10961,12 @@ paths:
           name: activeOnly
           in: query
           description: Restrict results to non-terminal Tasks.
+        - schema:
+            type: boolean
+            default: false
+          name: withReport
+          in: query
+          description: Include the per-task execution report on each returned task.
         - schema:
             type: integer
             example: 1
@@ -17683,11 +17699,61 @@ components:
           type: string
           format: date-time
           description: Timestamp when the task was last updated.
+        report:
+          type: object
+          description: |
+            Structured execution report for the task. Populated on single-task `GET` and `cancel` responses, and on list responses only when `withReport=true` is set.
+
+            The body is an opaque, versioned JSON document produced by the Site execution layer. Clients **must** branch on `version` before interpreting any other field; the rest of the schema is allowed to change between versions without a breaking change to this REST API. Fields outside this anchor are not guaranteed and may be added, removed, or restructured.
+
+            **Current shape (version = 1)** — illustrative only, not part of the typed contract:
+
+            ```
+            {
+              "version": 1,
+              "stages": [
+                {
+                  "name": "string",
+                  "status": "Pending|Running|Succeeded|Failed|Skipped",
+                  "started": "RFC3339 timestamp",
+                  "finished": "RFC3339 timestamp",
+                  "steps": [
+                    {
+                      "name": "string",
+                      "status": "Pending|Running|Succeeded|Failed|Skipped",
+                      "message": "string"
+                    }
+                  ]
+                }
+              ]
+            }
+            ```
+
+            Omitted when the task has not yet produced a report (e.g. still queued) or when the caller did not opt in on list endpoints.
+          additionalProperties: true
+          properties:
+            version:
+              type: integer
+              format: int32
+              minimum: 1
+              description: |
+                Schema version of the report body. Increment on any breaking
+                change to the rest of the document; clients must use this to
+                pick the correct decoder.
+          required:
+            - version
       examples:
         - id: 550e8400-e29b-41d4-a716-446655440000
           status: Running
           description: Power on rack components
           message: 'Processing 3 of 5 components'
+          report:
+            version: 1
+            stages:
+              - name: 'reset-tray'
+                status: Succeeded
+              - name: 'power-on-components'
+                status: Running
     BatchTrayFirmwareUpdateRequest:
       title: BatchTrayFirmwareUpdateRequest
       type: object
