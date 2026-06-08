@@ -41,7 +41,9 @@ use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
 use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::CredentialManager;
+use forge_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
+};
 use libnmxc::NmxcPool;
 use librms::RmsApi;
 use model::machine::Machine;
@@ -3423,7 +3425,79 @@ pub(crate) fn truncate(mut s: String, len: usize) -> String {
     s
 }
 
+/// A site-wide default credential that endpoint exploration requires.
+///
+/// Returned by [`Api::missing_default_credentials`] to let the admin UI warn
+/// operators when one of these has not been configured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultCredential {
+    /// Human-friendly name for display in the admin UI
+    /// (e.g. `"Host UEFI password"`).
+    pub display_name: &'static str,
+    /// The credential's key path, shown to operators for reference.
+    pub key: String,
+}
+
 impl Api {
+    /// Returns the site-wide default credentials that gate endpoint exploration
+    /// (the same set validated by the site explorer's `check_preconditions`) but
+    /// are currently unset.
+    ///
+    /// An empty result means every required default credential is configured. A
+    /// credential counts as configured only when a non-empty password is stored.
+    /// Secrets-backend errors are logged and treated as configured, so a
+    /// transient Vault outage does not surface a misleading "not set" warning.
+    ///
+    /// This performs up to three credential-store lookups and is invoked per
+    /// admin-UI page render; that cost is acceptable for the low-traffic admin
+    /// UI. Keep the checked keys in sync with the site explorer's
+    /// `check_preconditions` (crates/site-explorer/src/credentials.rs).
+    pub async fn missing_default_credentials(&self) -> Vec<DefaultCredential> {
+        let checks = [
+            (
+                "Site-wide BMC root password",
+                CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::SiteWideRoot,
+                },
+            ),
+            (
+                "Host UEFI password",
+                CredentialKey::HostUefi {
+                    credential_type: CredentialType::SiteDefault,
+                },
+            ),
+            (
+                "DPU UEFI password",
+                CredentialKey::DpuUefi {
+                    credential_type: CredentialType::SiteDefault,
+                },
+            ),
+        ];
+
+        let mut missing = Vec::new();
+        for (display_name, key) in checks {
+            match self.credential_manager.get_credentials(&key).await {
+                // Configured iff a non-empty password is stored.
+                Ok(Some(Credentials::UsernamePassword { password, .. }))
+                    if !password.is_empty() => {}
+                Ok(_) => missing.push(DefaultCredential {
+                    display_name,
+                    key: key.to_key_str().into_owned(),
+                }),
+                Err(err) => {
+                    // A backend error is distinct from a genuinely-unset credential;
+                    // don't raise the "not set" warning on a transient secrets failure.
+                    tracing::warn!(
+                        key = %key.to_key_str(),
+                        %err,
+                        "could not verify default credential presence",
+                    );
+                }
+            }
+        }
+        missing
+    }
+
     // This function can just async when
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
