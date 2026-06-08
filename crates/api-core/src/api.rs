@@ -3438,6 +3438,22 @@ pub struct DefaultCredential {
     pub key: String,
 }
 
+/// Human-friendly label for a site-wide default credential key, for the admin UI.
+fn default_credential_display_name(key: &CredentialKey) -> &'static str {
+    match key {
+        CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideRoot,
+        } => "Site-wide BMC root password",
+        CredentialKey::HostUefi {
+            credential_type: CredentialType::SiteDefault,
+        } => "Host UEFI password",
+        CredentialKey::DpuUefi {
+            credential_type: CredentialType::SiteDefault,
+        } => "DPU UEFI password",
+        _ => "Default credential",
+    }
+}
+
 impl Api {
     /// Returns the site-wide default credentials that gate endpoint exploration
     /// (the same set validated by the site explorer's `check_preconditions`) but
@@ -3450,38 +3466,19 @@ impl Api {
     ///
     /// This performs up to three credential-store lookups and is invoked per
     /// admin-UI page render; that cost is acceptable for the low-traffic admin
-    /// UI. Keep the checked keys in sync with the site explorer's
-    /// `check_preconditions` (crates/site-explorer/src/credentials.rs).
+    /// UI. The checked keys are the shared
+    /// [`forge_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS`],
+    /// which the site explorer's `check_preconditions` also iterates, so the two
+    /// cannot drift apart.
     pub async fn missing_default_credentials(&self) -> Vec<DefaultCredential> {
-        let checks = [
-            (
-                "Site-wide BMC root password",
-                CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::SiteWideRoot,
-                },
-            ),
-            (
-                "Host UEFI password",
-                CredentialKey::HostUefi {
-                    credential_type: CredentialType::SiteDefault,
-                },
-            ),
-            (
-                "DPU UEFI password",
-                CredentialKey::DpuUefi {
-                    credential_type: CredentialType::SiteDefault,
-                },
-            ),
-        ];
-
         let mut missing = Vec::new();
-        for (display_name, key) in checks {
+        for key in forge_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS {
             match self.credential_manager.get_credentials(&key).await {
                 // Configured iff a non-empty password is stored.
                 Ok(Some(Credentials::UsernamePassword { password, .. }))
                     if !password.is_empty() => {}
                 Ok(_) => missing.push(DefaultCredential {
-                    display_name,
+                    display_name: default_credential_display_name(&key),
                     key: key.to_key_str().into_owned(),
                 }),
                 Err(err) => {
