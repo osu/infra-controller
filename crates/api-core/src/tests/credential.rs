@@ -390,5 +390,8 @@ async fn test_missing_default_credentials(pool: sqlx::PgPool) {
         .await
         .unwrap();
     let missing = env.api.missing_default_credentials().await;
-    assert!(missing.is_empty(), "expected no missing defaults, got {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "expected no missing defaults, got {missing:?}"
+    );
 }

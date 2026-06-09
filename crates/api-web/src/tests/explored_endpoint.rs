@@ -101,7 +101,10 @@ async fn test_missing_credentials_banner(pool: sqlx::PgPool) {
             "expected missing-credentials banner on {uri}"
         );
         for leak in MUST_NOT_LEAK {
-            assert!(!body.contains(leak), "banner on {uri} must not expose {leak:?}");
+            assert!(
+                !body.contains(leak),
+                "banner on {uri} must not expose {leak:?}"
+            );
         }
     }
 
