@@ -28,7 +28,16 @@ use tower::ServiceExt;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
 use crate::tests::{make_test_app, web_request_builder};
 
-const BANNER_TITLE: &str = "Default credentials are not set";
+const BANNER_TITLE: &str = "Default credential configuration incomplete";
+
+/// Specific details the banner must NOT expose (credential names + vault key
+/// path fragments), so the admin UI doesn't leak which credentials are unset.
+const MUST_NOT_LEAK: [&str; 4] = [
+    "Site-wide BMC root password",
+    "Host UEFI password",
+    "DPU UEFI password",
+    "uefi-metadata-items",
+];
 
 /// The pages that should surface the missing-credentials warning: the
 /// explored-endpoint list views and the root /admin page (per issue #2248).
@@ -82,17 +91,18 @@ async fn test_missing_credentials_banner(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    // Fresh environment: none of the site-wide defaults are set, so every
-    // target page shows the warning listing all three credentials.
+    // Fresh environment: none of the site-wide defaults are set, so every target
+    // page shows the generic warning. The banner must not name the specific
+    // credentials or expose their vault key paths.
     for uri in PAGES {
         let body = get_page(&app, uri).await;
         assert!(
             body.contains(BANNER_TITLE),
             "expected missing-credentials banner on {uri}"
         );
-        assert!(body.contains("Site-wide BMC root password"), "on {uri}");
-        assert!(body.contains("Host UEFI password"), "on {uri}");
-        assert!(body.contains("DPU UEFI password"), "on {uri}");
+        for leak in MUST_NOT_LEAK {
+            assert!(!body.contains(leak), "banner on {uri} must not expose {leak:?}");
+        }
     }
 
     // Configure all three required defaults.
