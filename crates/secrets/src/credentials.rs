@@ -250,6 +250,15 @@ pub enum BmcCredentialType {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum NicLockdownIkm {
+    /// Site-wide SuperNIC lockdown IKM (input key material), versioned for
+    /// rotation. This is the secret the per-NIC lock keys are derived from, not
+    /// a lock key itself. Derived keys are never stored; only this IKM lives in
+    /// Vault.
+    SiteWide { version: u32 },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum BgpCredentialType {
     // Site Wide Credentials
     SiteWideLeafPassword,
@@ -290,6 +299,9 @@ pub enum CredentialKey {
     },
     BmcCredentials {
         credential_type: BmcCredentialType,
+    },
+    NicLockdownIkm {
+        credential_type: NicLockdownIkm,
     },
     ExtensionService {
         service_id: String,
@@ -347,6 +359,7 @@ pub enum CredentialPrefix {
     DpuUefi,
     HostUefi,
     BmcCredentials,
+    NicLockdownIkm,
     ExtensionService,
     NmxM,
     SwitchNvosAdmin,
@@ -369,6 +382,7 @@ impl CredentialPrefix {
             Self::DpuUefi => "machines/all_dpus/",
             Self::HostUefi => "machines/all_hosts/",
             Self::BmcCredentials => "machines/bmc/",
+            Self::NicLockdownIkm => "machines/nic_lockdown_ikm/",
             Self::ExtensionService => "machines/extension-services/",
             Self::NmxM => "nmxm/",
             Self::SwitchNvosAdmin => "switch_nvos/",
@@ -390,6 +404,7 @@ impl CredentialPrefix {
             Self::DpuUefi,
             Self::HostUefi,
             Self::BmcCredentials,
+            Self::NicLockdownIkm,
             Self::ExtensionService,
             Self::NmxM,
             Self::SwitchNvosAdmin,
@@ -414,6 +429,7 @@ impl CredentialKey {
             Self::DpuUefi { .. } => CredentialPrefix::DpuUefi,
             Self::HostUefi { .. } => CredentialPrefix::HostUefi,
             Self::BmcCredentials { .. } => CredentialPrefix::BmcCredentials,
+            Self::NicLockdownIkm { .. } => CredentialPrefix::NicLockdownIkm,
             Self::ExtensionService { .. } => CredentialPrefix::ExtensionService,
             Self::NmxM { .. } => CredentialPrefix::NmxM,
             Self::SwitchNvosAdmin { .. } => CredentialPrefix::SwitchNvosAdmin,
@@ -488,6 +504,11 @@ impl CredentialKey {
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
             },
+            CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
+                NicLockdownIkm::SiteWide { version } => {
+                    Cow::from(format!("machines/nic_lockdown_ikm/site/root/v{version}"))
+                }
+            },
             CredentialKey::ExtensionService {
                 service_id,
                 version,
@@ -550,6 +571,26 @@ mod tests {
         assert!(password.chars().any(|c| c.is_lowercase()));
         assert!(password.chars().any(|c| c.is_ascii_digit()));
         assert!(password.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    // Pins the exact Vault path for the versioned lockdown IKM, including
+    // how the version is rendered (v{N}), since other components and the
+    // seed migration depend on this layout.
+    #[test]
+    fn lockdown_site_wide_path_is_versioned() {
+        let key = CredentialKey::NicLockdownIkm {
+            credential_type: NicLockdownIkm::SiteWide { version: 0 },
+        };
+        assert_eq!(key.to_key_str(), "machines/nic_lockdown_ikm/site/root/v0");
+        assert_eq!(key.prefix(), CredentialPrefix::NicLockdownIkm);
+
+        let key_v12 = CredentialKey::NicLockdownIkm {
+            credential_type: NicLockdownIkm::SiteWide { version: 12 },
+        };
+        assert_eq!(
+            key_v12.to_key_str(),
+            "machines/nic_lockdown_ikm/site/root/v12"
+        );
     }
 
     #[tokio::test]
@@ -700,6 +741,12 @@ mod tests {
                 "machines/bmc/",
             ),
             (
+                CredentialKey::NicLockdownIkm {
+                    credential_type: NicLockdownIkm::SiteWide { version: 0 },
+                },
+                "machines/nic_lockdown_ikm/",
+            ),
+            (
                 CredentialKey::ExtensionService {
                     service_id: "svc1".to_string(),
                     version: "v1".to_string(),
@@ -793,6 +840,9 @@ mod tests {
             CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRoot,
             },
+            CredentialKey::NicLockdownIkm {
+                credential_type: NicLockdownIkm::SiteWide { version: 0 },
+            },
             CredentialKey::ExtensionService {
                 service_id: "s".to_string(),
                 version: "v".to_string(),
@@ -829,6 +879,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 15);
+        assert_eq!(all.len(), 16);
     }
 }
