@@ -162,6 +162,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
         true,
         AddressSelectionStrategy::NextAvailableIp,
+        None,
     )
     .await?;
     txn.commit().await.unwrap();
@@ -496,8 +497,8 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             "admin".to_string(),
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".to_string(),
-                gateway: "172.20.0.1".to_string(),
+                prefix: "172.20.0.0/24".parse().unwrap(),
+                gateway: "172.20.0.1".parse().unwrap(),
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -507,8 +508,8 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             "DEV1-C09-IPMI-01".to_string(),
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".to_string(),
-                gateway: "172.99.0.1".to_string(),
+                prefix: "172.99.0.0/26".parse().unwrap(),
+                gateway: "172.99.0.1".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -518,8 +519,8 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
             "ZERO-DPU-HOST-01-SWP7".to_string(),
             NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::HostInband,
-                prefix: "10.217.18.192/30".to_string(),
-                gateway: "10.217.18.193".to_string(),
+                prefix: "10.217.18.192/30".parse().unwrap(),
+                gateway: "10.217.18.193".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 1,
                 allocation_strategy: Default::default(),

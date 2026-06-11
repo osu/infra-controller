@@ -17,12 +17,17 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
+use carbide_dpf::types::DpfProxyDetails;
 use carbide_firmware::FirmwareConfig;
+use carbide_firmware::defaults::{
+    BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
+    BF3_CEC_VERSION, BF3_NIC_VERSION, BF3_UEFI_VERSION,
+};
 use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
 use carbide_machine_controller::config::power_manager::default_power_options;
 use carbide_machine_controller::config::{
@@ -34,8 +39,9 @@ use carbide_preingestion_manager::PreingestionManagerConfig;
 use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
-use carbide_utils::config::{as_duration, as_std_duration};
+use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
 use chrono::Duration;
+use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use figment::Figment;
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -56,16 +62,22 @@ use model::tenant::identity_config::SigningAlgorithm;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 
-static BF2_NIC: &str = "24.47.2682";
-static BF2_BMC: &str = "BF-25.10-20";
-static BF2_CEC: &str = "4-15";
-static BF2_UEFI: &str = "4.13.2-12-g943a91640d";
-static BF3_NIC: &str = "32.47.2682";
-static BF3_BMC: &str = "BF-25.10-20";
-static BF3_CEC: &str = "00.02.0195.0000_n02";
-static BF3_UEFI: &str = "4.13.2-12-g943a91640d";
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
+
+/// Parses an optional duration ("30d", "12h", ...; absent = `None`) into
+/// `Option<chrono::Duration>`. Hand-rolled because `duration_str` deprecated
+/// its own Option variant -- we do NOT use the deprecated function.
+fn deserialize_option_duration_chrono<'de, D>(
+    deserializer: D,
+) -> Result<Option<chrono::Duration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| duration_str::parse_chrono(&value).map_err(serde::de::Error::custom))
+        .transpose()
+}
 
 /// nico-api configuration file content
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -113,12 +125,12 @@ pub struct CarbideConfig {
     /// DHCP server addresses announced to DPUs during
     /// network provisioning.
     #[serde(default)]
-    pub dhcp_servers: Vec<String>,
+    pub dhcp_servers: Vec<Ipv4Addr>,
 
     /// Route server IP addresses for L2VPN (Ethernet
     /// Virtual) network support on DPUs.
     #[serde(default)]
-    pub route_servers: Vec<String>,
+    pub route_servers: Vec<IpAddr>,
 
     /// Enables route server injection into DPU FRR
     /// configs for L2VPN Ethernet Virtual networks.
@@ -162,6 +174,15 @@ pub struct CarbideConfig {
     /// Controls whether VPCs are mutually isolated or open.
     #[serde(default)]
     pub vpc_isolation_behavior: VpcIsolationBehaviorType,
+
+    /// Strategy for deriving machine hostnames: `ip_address` (default), `fun`
+    /// (stable adjective-noun handles), `serial_number`, or `mac_address`.
+    /// Only `fun` leaves existing hostnames alone (it keeps any real name);
+    /// the others re-derive, so switching to one progressively renames
+    /// existing interfaces as they reconcile. `serial_number` errors on
+    /// duplicate serials rather than assigning a substitute name.
+    #[serde(default)]
+    pub host_naming_strategy: HostNamingStrategyKind,
 
     /// Pinger implementation type (e.g., "OobNetBind") used
     /// by the DPU network monitor to health-check DPU links.
@@ -239,6 +260,19 @@ pub struct CarbideConfig {
 
     /// The interval at which the machine update manager checks for machine updates in seconds.
     pub machine_update_run_interval: Option<u64>,
+
+    /// How long a retained boot interface pair (see the
+    /// `retained_boot_interfaces` table) stays applicable after its
+    /// `machine_interfaces` row was deleted. The default (`None`) retains
+    /// forever: if the machine eventually comes back, the pair is waiting.
+    /// Set a window (e.g. "30d") to keep a MAC that reappears on different
+    /// hardware from inheriting an obsolete Redfish interface id.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_option_duration_chrono",
+        serialize_with = "as_option_duration"
+    )]
+    pub retained_boot_interface_window: Option<chrono::Duration>,
 
     /// SiteExplorer related configuration
     #[serde(default)]
@@ -820,9 +854,13 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
-    /// Additional Helm services to deploy alongside DPF.
+    /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
+    /// Optional proxy configuration for the DPU. When set, containerd on the DPU is
+    /// configured to route outbound HTTPS traffic through the specified proxy.
+    #[serde(default)]
+    pub proxy: Option<DpfProxyDetails>,
 }
 
 impl Default for DpfConfig {
@@ -835,6 +873,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             docker_image_pull_secret: None,
             services: Box::default(),
+            proxy: None,
         }
     }
 }
@@ -1739,7 +1778,7 @@ impl Default for DpuConfig {
                                         Regex::new("BMC_Firmware").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_BMC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_BMC_VERSION)],
                                 },
                             ),
                             (
@@ -1749,7 +1788,7 @@ impl Default for DpuConfig {
                                         Regex::new("Bluefield_FW_ERoT").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_CEC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_CEC_VERSION)],
                                 },
                             ),
                             (
@@ -1759,7 +1798,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_NIC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_NIC_VERSION)],
                                 },
                             ),
                             (
@@ -1769,7 +1808,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_UEFI").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF2_UEFI)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF2_UEFI_VERSION)],
                                 },
                             ),
                         ]),
@@ -1792,7 +1831,7 @@ impl Default for DpuConfig {
                                     preingest_upgrade_when_below: None,
                                     known_firmware: vec![
                                         // BF-24.10-33 (DOCA 2.9) is the expected BMC FW that we expect on BF3s after ingesting them
-                                        FirmwareEntry::standard(BF3_BMC),
+                                        FirmwareEntry::standard(BF3_BMC_VERSION),
                                     ],
                                 },
                             ),
@@ -1804,7 +1843,7 @@ impl Default for DpuConfig {
                                     ),
 
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF3_CEC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_CEC_VERSION)],
                                 },
                             ),
                             (
@@ -1814,7 +1853,7 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_NIC").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF3_NIC)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_NIC_VERSION)],
                                 },
                             ),
                             (
@@ -1824,14 +1863,17 @@ impl Default for DpuConfig {
                                         Regex::new("DPU_UEFI").unwrap(),
                                     ),
                                     preingest_upgrade_when_below: None,
-                                    known_firmware: vec![FirmwareEntry::standard(BF3_UEFI)],
+                                    known_firmware: vec![FirmwareEntry::standard(BF3_UEFI_VERSION)],
                                 },
                             ),
                         ]),
                     },
                 ),
             ]),
-            dpu_nic_firmware_update_versions: vec![BF2_NIC.to_string(), BF3_NIC.to_string()],
+            dpu_nic_firmware_update_versions: vec![
+                BF2_NIC_VERSION.to_string(),
+                BF3_NIC_VERSION.to_string(),
+            ],
             dpu_enable_secure_boot: false,
             num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
         }
@@ -2008,8 +2050,16 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             max_database_connections: value.max_database_connections,
             enable_ip_fabric: value.ib_config.unwrap_or_default().enabled,
             asn: value.asn,
-            dhcp_servers: value.dhcp_servers,
-            route_servers: value.route_servers,
+            dhcp_servers: value
+                .dhcp_servers
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
+            route_servers: value
+                .route_servers
+                .into_iter()
+                .map(|addr| addr.to_string())
+                .collect(),
             enable_route_servers: value.enable_route_servers,
             deny_prefixes: value
                 .deny_prefixes
@@ -2622,7 +2672,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
-        assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
+        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
         assert!(config.route_servers.is_empty());
         assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
@@ -2673,6 +2723,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
@@ -2783,14 +2834,14 @@ mod tests {
         assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(
             config.dhcp_servers,
-            vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+            vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
         );
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(
             config.vpc_peering_policy_on_existing,
             Some(VpcPeeringPolicy::Mixed)
         );
-        assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/path/to/cert"
@@ -2864,6 +2915,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(true.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
@@ -3112,8 +3164,8 @@ mod tests {
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
         assert_eq!(config.bmc_session_lockout_threshold, 5);
-        assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
-        assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+        assert_eq!(config.dhcp_servers, vec![Ipv4Addr::new(99, 101, 102, 103)]);
+        assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
         assert_eq!(
             config.tls.as_ref().unwrap().identity_pemfile_path,
             "/patched/path/to/cert"
@@ -3190,6 +3242,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
+                retained_boot_interface_window: None,
                 enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
@@ -3338,9 +3391,9 @@ mod tests {
             assert_eq!(config.asn, 777);
             assert_eq!(
                 config.dhcp_servers,
-                vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
+                vec![Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)]
             );
-            assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
+            assert_eq!(config.route_servers, vec![Ipv4Addr::new(9, 10, 11, 12)]);
             assert_eq!(config.dpu_network_monitor_pinger_type, None);
             assert_eq!(
                 config.tls.as_ref().unwrap().identity_pemfile_path,
@@ -3714,8 +3767,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("admin").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Admin,
-                prefix: "172.20.0.0/24".to_string(),
-                gateway: "172.20.0.1".to_string(),
+                prefix: "172.20.0.0/24".parse().unwrap(),
+                gateway: "172.20.0.1".parse().unwrap(),
                 mtu: 9000,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),
@@ -3726,8 +3779,8 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
             networks.get("DEV1-C09-IPMI-01").unwrap(),
             &NetworkDefinition {
                 segment_type: NetworkDefinitionSegmentType::Underlay,
-                prefix: "172.99.0.0/26".to_string(),
-                gateway: "172.99.0.1".to_string(),
+                prefix: "172.99.0.0/26".parse().unwrap(),
+                gateway: "172.99.0.1".parse().unwrap(),
                 mtu: 1500,
                 reserve_first: 5,
                 allocation_strategy: Default::default(),

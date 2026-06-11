@@ -35,15 +35,15 @@ use carbide_machine_controller::dpf::DpfOperations;
 use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_rack::bms_client::BmsDsxExchangeHandle;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_secrets::certificates::CertificateProvider;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
+};
 use carbide_site_explorer::EndpointExplorer;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, DatabaseResult, WithTransaction};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
-};
 use libnmxc::NmxcPool;
 use librms::RmsApi;
 use model::machine::Machine;
@@ -2915,6 +2915,13 @@ impl Forge for Api {
         crate::handlers::managed_host::set_primary_dpu(self, request).await
     }
 
+    async fn set_primary_interface(
+        &self,
+        request: Request<rpc::SetPrimaryInterfaceRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::managed_host::set_primary_interface(self, request).await
+    }
+
     async fn create_dpu_extension_service(
         &self,
         request: Request<rpc::CreateDpuExtensionServiceRequest>,
@@ -3467,12 +3474,12 @@ impl Api {
     /// This performs up to three credential-store lookups and is invoked per
     /// admin-UI page render; that cost is acceptable for the low-traffic admin
     /// UI. The checked keys are the shared
-    /// [`forge_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS`],
+    /// [`carbide_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS`],
     /// which the site explorer's `check_preconditions` also iterates, so the two
     /// cannot drift apart.
     pub async fn missing_default_credentials(&self) -> Vec<DefaultCredential> {
         let mut missing = Vec::new();
-        for key in forge_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS {
+        for key in carbide_secrets::credentials::REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS {
             match self.credential_manager.get_credentials(&key).await {
                 // Configured iff a non-empty password is stored.
                 Ok(Some(Credentials::UsernamePassword { password, .. }))

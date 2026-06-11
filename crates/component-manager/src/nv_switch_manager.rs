@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 
@@ -46,6 +46,23 @@ pub struct SwitchSlotAndTrayResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SwitchPowerStateResult {
+    pub bmc_mac: MacAddress,
+    pub power_state: Option<String>,
+    pub error: Option<String>,
+}
+
+impl crate::component_common::ComponentPowerStateResult for SwitchPowerStateResult {
+    fn power_state(&self) -> Option<&str> {
+        self.power_state.as_deref()
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+}
+
 /// Backend trait for NV-Switch management operations.
 ///
 /// Implementations receive physical endpoint information (BMC + NVOS IPs/MACs)
@@ -85,4 +102,9 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[SwitchEndpoint],
     ) -> Result<Vec<SwitchSlotAndTrayResult>, ComponentManagerError>;
+
+    async fn get_power_state(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError>;
 }

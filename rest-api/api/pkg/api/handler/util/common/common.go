@@ -243,9 +243,9 @@ func GetInstanceTypeIDsFromAllocationConstraints(ctx context.Context, acs []cdbm
 func GetAllocationIDsForTenantAtSite(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, ipID uuid.UUID, tenantID uuid.UUID, siteID uuid.UUID) ([]uuid.UUID, error) {
 	aDAO := cdbm.NewAllocationDAO(dbSession)
 	filter := cdbm.AllocationFilterInput{
-		InfrastructureProviderID: &ipID,
-		TenantIDs:                []uuid.UUID{tenantID},
-		SiteIDs:                  []uuid.UUID{siteID},
+		InfrastructureProviderIDs: []uuid.UUID{ipID},
+		TenantIDs:                 []uuid.UUID{tenantID},
+		SiteIDs:                   []uuid.UUID{siteID},
 	}
 	as, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -443,8 +443,12 @@ func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Se
 		siteIDs = []uuid.UUID{*siteID}
 	}
 
+	var providerIDs []uuid.UUID
+	if infrastructureProviderID != nil {
+		providerIDs = []uuid.UUID{*infrastructureProviderID}
+	}
 	aDAO := cdbm.NewAllocationDAO(dbSession)
-	as, _, err := aDAO.GetAll(ctx, tx, cdbm.AllocationFilterInput{InfrastructureProviderID: infrastructureProviderID, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	as, _, err := aDAO.GetAll(ctx, tx, cdbm.AllocationFilterInput{InfrastructureProviderIDs: providerIDs, SiteIDs: siteIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -532,9 +536,9 @@ func CheckMachinesForInstanceTypeAllocation(ctx context.Context, tx *cdb.Tx, dbS
 func GetAllAllocationConstraintsForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, site *cdbm.Site, tenant *cdbm.Tenant, resourceTypeID *uuid.UUID) ([]cdbm.AllocationConstraint, int, error) {
 	aDAO := cdbm.NewAllocationDAO(dbSession)
 	filter := cdbm.AllocationFilterInput{
-		InfrastructureProviderID: &ip.ID,
-		TenantIDs:                []uuid.UUID{tenant.ID},
-		SiteIDs:                  []uuid.UUID{site.ID},
+		InfrastructureProviderIDs: []uuid.UUID{ip.ID},
+		TenantIDs:                 []uuid.UUID{tenant.ID},
+		SiteIDs:                   []uuid.UUID{site.ID},
 	}
 	allocs, _, err := aDAO.GetAll(ctx, tx, filter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
@@ -607,7 +611,7 @@ func GetAndValidateQueryRelations(qParams url.Values, relatedEntities map[string
 }
 
 // GetAllInstanceTypeAllocationStats is a utility function to get all instance type allocation stats
-func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, siteID *uuid.UUID, instanceTypeIDs []uuid.UUID, logger zerolog.Logger, tenantID *uuid.UUID) (map[uuid.UUID]*cam.APIAllocationStats, *cutil.APIError) {
+func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, siteID *uuid.UUID, instanceTypeIDs []uuid.UUID, logger zerolog.Logger, tenantID *uuid.UUID) (map[uuid.UUID]*cam.APIInstanceTypeAllocationStats, *cutil.APIError) {
 	var instances []cdbm.Instance
 	var serr error
 
@@ -704,10 +708,10 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 	}
 
 	// Build allocation stats map for each instance type ID with total, used, max allocatable
-	allocAPIStatsMap := make(map[uuid.UUID]*cam.APIAllocationStats)
+	allocAPIStatsMap := make(map[uuid.UUID]*cam.APIInstanceTypeAllocationStats)
 
 	for _, instanceTypeID := range instanceTypeIDs {
-		aas := &cam.APIAllocationStats{}
+		aas := &cam.APIInstanceTypeAllocationStats{}
 
 		aas.Assigned = instanceTypeIDToMachinesMap[instanceTypeID]
 		aas.Total = instanceTypeToSumConstraintValue[instanceTypeID]
@@ -739,7 +743,7 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 }
 
 // GetInstanceTypeAllocationStats is a utility function to get the allocation stats from allocation constraints and instances based on instancetype
-func GetInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, logger zerolog.Logger, it cdbm.InstanceType, tenantID *uuid.UUID) (*cam.APIAllocationStats, *cutil.APIError) {
+func GetInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Session, logger zerolog.Logger, it cdbm.InstanceType, tenantID *uuid.UUID) (*cam.APIInstanceTypeAllocationStats, *cutil.APIError) {
 	mstats, err := GetAllInstanceTypeAllocationStats(ctx, dbSession, it.SiteID, []uuid.UUID{it.ID}, logger, tenantID)
 	if err != nil {
 		return nil, err
@@ -1601,6 +1605,10 @@ func QueryParamHash(params url.Values) string {
 
 // ExecutePowerControlWorkflow determines the appropriate power control workflow based on state,
 // executes it via Temporal, and returns the raw SubmitTaskResponse.
+//
+// ruleID, when non-nil and non-empty, pins the operation to a specific
+// Operation Rule (overrides Flow's default rule resolution). Must be a valid
+// UUID; callers validate at the API model layer.
 func ExecutePowerControlWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1608,11 +1616,13 @@ func ExecutePowerControlWorkflow(
 	stc tclient.Client,
 	targetSpec *flowv1.OperationTargetSpec,
 	state string,
+	ruleID *string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	var workflowName string
 	var flowRequest interface{}
+	ruleUUID := GetFlowUUIDPtr(ruleID)
 
 	switch state {
 	case cam.PowerControlStateOn:
@@ -1620,18 +1630,21 @@ func ExecutePowerControlWorkflow(
 		flowRequest = &flowv1.PowerOnRackRequest{
 			TargetSpec:  targetSpec,
 			Description: fmt.Sprintf("API power on %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateOff:
 		workflowName = "PowerOffRack"
 		flowRequest = &flowv1.PowerOffRackRequest{
 			TargetSpec:  targetSpec,
 			Description: fmt.Sprintf("API power off %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateCycle:
 		workflowName = "PowerResetRack"
 		flowRequest = &flowv1.PowerResetRackRequest{
 			TargetSpec:  targetSpec,
 			Description: fmt.Sprintf("API power cycle %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateForceOff:
 		workflowName = "PowerOffRack"
@@ -1639,6 +1652,7 @@ func ExecutePowerControlWorkflow(
 			TargetSpec:  targetSpec,
 			Forced:      true,
 			Description: fmt.Sprintf("API force power off %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	case cam.PowerControlStateForceCycle:
 		workflowName = "PowerResetRack"
@@ -1646,6 +1660,7 @@ func ExecutePowerControlWorkflow(
 			TargetSpec:  targetSpec,
 			Forced:      true,
 			Description: fmt.Sprintf("API force power cycle %s", entityName),
+			RuleId:      ruleUUID,
 		}
 	default:
 		return nil, cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid power control state: %s", state), nil)
@@ -1684,6 +1699,9 @@ func ExecutePowerControlWorkflow(
 
 // ExecuteBringUpRackWorkflow builds a BringUpRackRequest, executes the BringUpRack
 // workflow via Temporal, and returns the raw SubmitTaskResponse.
+//
+// ruleID, when non-nil and non-empty, pins the bring-up to a specific
+// Operation Rule.
 func ExecuteBringUpRackWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1691,12 +1709,14 @@ func ExecuteBringUpRackWorkflow(
 	stc tclient.Client,
 	targetSpec *flowv1.OperationTargetSpec,
 	description string,
+	ruleID *string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.BringUpRackRequest{
 		TargetSpec:  targetSpec,
 		Description: description,
+		RuleId:      GetFlowUUIDPtr(ruleID),
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1739,6 +1759,9 @@ func ExecuteBringUpRackWorkflow(
 // the bundle" behavior. Names are passed through verbatim to Flow as
 // `sub_targets`, which resolves them against the tray-type-specific
 // component-manager enums (see flow/pkg/common/firmwarecomponents).
+//
+// ruleID, when non-nil and non-empty, pins the firmware update to a specific
+// Operation Rule.
 func ExecuteFirmwareUpdateWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1747,6 +1770,7 @@ func ExecuteFirmwareUpdateWorkflow(
 	targetSpec *flowv1.OperationTargetSpec,
 	version *string,
 	targets []string,
+	ruleID *string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
@@ -1755,6 +1779,7 @@ func ExecuteFirmwareUpdateWorkflow(
 		TargetVersion: version,
 		SubTargets:    targets,
 		Description:   fmt.Sprintf("API firmware update %s", entityName),
+		RuleId:        GetFlowUUIDPtr(ruleID),
 	}
 
 	workflowOptions := tclient.StartWorkflowOptions{
@@ -1786,4 +1811,15 @@ func ExecuteFirmwareUpdateWorkflow(
 	}
 
 	return &flowResponse, nil
+}
+
+// GetFlowUUIDPtr converts an optional API ID string into Flow's proto UUID
+// wrapper. nil or "" means "no value provided" — callers (and Flow) treat
+// that as "leave unset" / "use default". UUID syntax validation is the
+// model layer's job; this helper only handles the pointer / wrapper plumbing.
+func GetFlowUUIDPtr(id *string) *flowv1.UUID {
+	if id == nil || *id == "" {
+		return nil
+	}
+	return &flowv1.UUID{Id: *id}
 }

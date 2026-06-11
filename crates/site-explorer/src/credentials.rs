@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
     REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS,
 };
@@ -28,7 +28,7 @@ use model::site_explorer::EndpointExplorationError;
 use super::metrics::SiteExplorationMetrics;
 
 const SITEWIDE_BMC_ROOT_CREDENTIAL_KEY: CredentialKey = CredentialKey::BmcCredentials {
-    credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+    credential_type: carbide_secrets::credentials::BmcCredentialType::SiteWideRoot,
 };
 
 pub fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {

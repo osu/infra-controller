@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::{
+use carbide_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialReader, CredentialType,
     CredentialWriter, Credentials,
 };

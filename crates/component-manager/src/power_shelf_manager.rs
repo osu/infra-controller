@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-use forge_secrets::credentials::Credentials;
+use carbide_secrets::credentials::Credentials;
 use mac_address::MacAddress;
 use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 
@@ -58,6 +58,16 @@ pub struct PowerShelfPowerStateResult {
     pub pmc_mac: MacAddress,
     pub power_state: Option<String>,
     pub error: Option<String>,
+}
+
+impl crate::component_common::ComponentPowerStateResult for PowerShelfPowerStateResult {
+    fn power_state(&self) -> Option<&str> {
+        self.power_state.as_deref()
+    }
+
+    fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
 }
 
 /// Backend trait for power shelf management operations.

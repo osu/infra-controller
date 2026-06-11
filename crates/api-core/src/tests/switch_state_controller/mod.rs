@@ -18,13 +18,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
 use component_manager::compute_tray_manager::Backend;
 use component_manager::config::ComponentManagerConfig;
 use db::switch as db_switch;
-use forge_secrets::test_support::credentials::TestCredentialManager;
 use model::switch::{ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
@@ -35,6 +35,7 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
 
 mod fixtures;
+mod maintenance;
 use fixtures::switch::{mark_switch_as_deleted, set_switch_controller_state};
 
 async fn build_test_component_manager(
@@ -49,6 +50,7 @@ async fn build_test_component_manager(
         },
         power_shelf_backend: "mock".into(),
         compute_tray_backend: Backend::Mock,
+        nv_switch_use_state_controller: true,
         ..Default::default()
     };
     component_manager::component_manager::build_component_manager(
@@ -167,7 +169,7 @@ async fn test_switch_deletion_with_state_controller(
         .into_inner()
         .switches
         .remove(0);
-    assert_eq!(switch.controller_state, "{\"state\":\"ready\"}".to_string());
+    assert_eq!(switch.controller_state, r#"{"state":"ready"}"#.to_string());
 
     // Mark the switch as deleted
     mark_switch_as_deleted(pool.acquire().await?.as_mut(), &switch_id).await?;

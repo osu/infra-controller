@@ -249,7 +249,8 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             println!("{pending:#?}");
         }
         PowerMetrics => {
-            println!("{:?}", redfish.get_power_metrics().await?);
+            let power = redfish.get_power_metrics().await?;
+            println!("{}", serde_json::to_string_pretty(&power).unwrap());
         }
         ForceRestart => {
             redfish.power(SystemPowerControl::ForceRestart).await?;
@@ -271,7 +272,8 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             redfish.power(SystemPowerControl::ACPowercycle).await?;
         }
         ThermalMetrics => {
-            println!("{:?}", redfish.get_thermal_metrics().await?);
+            let thermal = redfish.get_thermal_metrics().await?;
+            println!("{}", serde_json::to_string_pretty(&thermal).unwrap());
         }
         TpmReset => {
             redfish.clear_tpm().await?;
@@ -489,6 +491,9 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
         EnableInfiniteBoot => {
             redfish.enable_infinite_boot().await?;
             println!("BIOS changes require a system restart to take effect.");
+        }
+        SetNicMode => {
+            redfish.set_nic_mode(NicMode::Nic).await?;
         }
         SetDpuMode => {
             redfish.set_nic_mode(NicMode::Dpu).await?;
@@ -945,7 +950,7 @@ pub async fn handle_get_chassis(
         match redfish.get_chassis(c).await {
             Ok(chassis) => {
                 if *c == chassis_id {
-                    println!("{chassis:?}");
+                    println!("{}", serde_json::to_string_pretty(&chassis).unwrap());
                     return Ok(());
                 }
             }

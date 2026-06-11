@@ -75,6 +75,7 @@ pub fn get() -> CarbideConfig {
         anycast_site_prefixes: vec![],
         common_tenant_host_asn: None,
         vpc_isolation_behavior: <_ as Default>::default(),
+        host_naming_strategy: <_ as Default>::default(),
         tls: Some(crate::cfg::file::TlsConfig {
             root_cafile_path: "Not a real path".to_string(),
             identity_pemfile_path: "Not a real pemfile".to_string(),
@@ -93,6 +94,7 @@ pub fn get() -> CarbideConfig {
         initial_dpu_agent_upgrade_policy: None,
         max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
+        retained_boot_interface_window: None,
         site_explorer: SiteExplorerConfig {
             enabled: Arc::new(false.into()),
             run_interval: std::time::Duration::from_secs(0),
