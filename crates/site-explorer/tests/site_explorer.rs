@@ -49,6 +49,9 @@ use crate::env::Env;
 
 mod env;
 
+const LAST_RUN_MISSING_CREDENTIAL_KEY: &str = "machines/bmc/site/root";
+const LAST_RUN_MISSING_CREDENTIAL_MESSAGE: &str = "Missing credential machines/bmc/site/root";
+
 trait EnvExt {
     fn new_machine(&self, mac: &str, vendor: &str) -> FakeMachine;
 }
@@ -142,76 +145,134 @@ fn last_run_test_config() -> SiteExplorerConfig {
 }
 
 #[sqlx_test]
-async fn test_site_explorer_records_last_run_success(
+async fn test_site_explorer_records_last_run(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
 
-    let mut machine = env.new_machine("6a:6b:6c:6d:6e:71", "Vendor1");
-    machine.discover_dhcp(env.api()).await?;
-    let bmc_ip: IpAddr = machine.ip.parse()?;
+    #[derive(Clone, Copy, Debug)]
+    enum LastRunSetup {
+        SuccessfulEndpoint { mac: &'static str },
+        PreconditionFailure,
+    }
 
-    let explorer = env.test_site_explorer(last_run_test_config());
-    explorer.insert_endpoints(vec![(
-        bmc_ip,
-        EndpointExplorationReport {
-            endpoint_type: EndpointType::Bmc,
-            ..Default::default()
+    #[derive(Clone, Copy, Debug)]
+    struct ExpectedLastRun {
+        success: bool,
+        error_contains: Option<&'static str>,
+        endpoint_explorations: i64,
+        endpoint_explorations_success: i64,
+        endpoint_explorations_failed: i64,
+    }
+
+    struct Case {
+        name: &'static str,
+        setup: LastRunSetup,
+        expected: ExpectedLastRun,
+    }
+
+    let cases = [
+        Case {
+            name: "successful endpoint exploration",
+            setup: LastRunSetup::SuccessfulEndpoint {
+                mac: "6a:6b:6c:6d:6e:71",
+            },
+            expected: ExpectedLastRun {
+                success: true,
+                error_contains: None,
+                endpoint_explorations: 1,
+                endpoint_explorations_success: 1,
+                endpoint_explorations_failed: 0,
+            },
         },
-    )]);
-
-    explorer.run_single_iteration().await?;
-
-    let report = fetch_exploration_report(env.api()).await;
-    let last_run = report.last_run.expect("last run should be recorded");
-    assert!(last_run.success);
-    assert_eq!(last_run.error, None);
-    assert_eq!(last_run.endpoint_explorations, 1);
-    assert_eq!(last_run.endpoint_explorations_success, 1);
-    assert_eq!(last_run.endpoint_explorations_failed, 0);
-    assert!(!last_run.started_at.is_empty());
-    assert!(!last_run.finished_at.is_empty());
-    Ok(())
-}
-
-#[sqlx_test]
-async fn test_site_explorer_records_last_run_failure(
-    pool: PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = Env::new(pool).await;
-    let explorer = env.test_site_explorer(last_run_test_config());
-    explorer.endpoint_explorer().set_precondition_result(Err(
-        EndpointExplorationError::MissingCredentials {
-            key: "machines/bmc/site/root".to_string(),
-            cause: "missing site-wide credential".to_string(),
+        Case {
+            name: "precondition failure",
+            setup: LastRunSetup::PreconditionFailure,
+            expected: ExpectedLastRun {
+                success: false,
+                error_contains: Some(LAST_RUN_MISSING_CREDENTIAL_MESSAGE),
+                endpoint_explorations: 0,
+                endpoint_explorations_success: 0,
+                endpoint_explorations_failed: 0,
+            },
         },
-    ));
+    ];
 
-    let error = explorer
-        .run_single_iteration()
-        .await
-        .expect_err("precondition failure should fail the run");
-    assert!(
-        error
-            .to_string()
-            .contains("Missing credential machines/bmc/site/root"),
-        "unexpected error: {error}"
-    );
+    for case in cases {
+        let explorer = env.test_site_explorer(last_run_test_config());
+        match case.setup {
+            LastRunSetup::SuccessfulEndpoint { mac } => {
+                let mut machine = env.new_machine(mac, "Vendor1");
+                machine.discover_dhcp(env.api()).await?;
+                let bmc_ip: IpAddr = machine.ip.parse()?;
 
-    let report = fetch_exploration_report(env.api()).await;
-    let last_run = report.last_run.expect("last run should be recorded");
-    assert!(!last_run.success);
-    assert_eq!(last_run.endpoint_explorations, 0);
-    assert_eq!(last_run.endpoint_explorations_success, 0);
-    assert_eq!(last_run.endpoint_explorations_failed, 0);
-    assert!(
-        last_run
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("Missing credential machines/bmc/site/root")),
-        "unexpected last-run error: {:?}",
-        last_run.error
-    );
+                explorer.insert_endpoints(vec![(
+                    bmc_ip,
+                    EndpointExplorationReport {
+                        endpoint_type: EndpointType::Bmc,
+                        ..Default::default()
+                    },
+                )]);
+
+                explorer.run_single_iteration().await?;
+            }
+            LastRunSetup::PreconditionFailure => {
+                explorer.endpoint_explorer().set_precondition_result(Err(
+                    EndpointExplorationError::MissingCredentials {
+                        key: LAST_RUN_MISSING_CREDENTIAL_KEY.to_string(),
+                        cause: "missing site-wide credential".to_string(),
+                    },
+                ));
+
+                let error = explorer
+                    .run_single_iteration()
+                    .await
+                    .expect_err("precondition failure should fail the run");
+                assert!(
+                    error
+                        .to_string()
+                        .contains(LAST_RUN_MISSING_CREDENTIAL_MESSAGE),
+                    "{}: unexpected error: {error}",
+                    case.name
+                );
+            }
+        }
+
+        let report = fetch_exploration_report(env.api()).await;
+        let last_run = report.last_run.expect("last run should be recorded");
+        assert_eq!(last_run.success, case.expected.success, "{}", case.name);
+        assert_eq!(
+            last_run.endpoint_explorations, case.expected.endpoint_explorations,
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            last_run.endpoint_explorations_success, case.expected.endpoint_explorations_success,
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            last_run.endpoint_explorations_failed, case.expected.endpoint_explorations_failed,
+            "{}",
+            case.name
+        );
+        if let Some(expected_error) = case.expected.error_contains {
+            assert!(
+                last_run
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains(expected_error)),
+                "{}: unexpected last-run error: {:?}",
+                case.name,
+                last_run.error
+            );
+        } else {
+            assert_eq!(last_run.error.as_deref(), None, "{}", case.name);
+        }
+        assert!(!last_run.started_at.is_empty(), "{}", case.name);
+        assert!(!last_run.finished_at.is_empty(), "{}", case.name);
+    }
+
     Ok(())
 }
 
