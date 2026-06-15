@@ -1,5 +1,5 @@
 #undef PRODUCT_NAME
-#define PRODUCT_NAME "NICo"
+#define PRODUCT_NAME "NVIDIA Infra Controller"
 
 #undef PRODUCT_SHORT_NAME
 #define PRODUCT_SHORT_NAME "nico"
