@@ -49,6 +49,12 @@ const PAGES: [&str; 4] = [
     "/admin/explored-endpoint/paired",
 ];
 
+const SITE_EXPLORER_RUN_STATUS_PAGES: [&str; 3] = [
+    "/admin/explored-endpoint",
+    "/admin/explored-endpoint/unpaired",
+    "/admin/explored-endpoint/paired",
+];
+
 async fn get_page(app: &axum::Router, uri: &str) -> String {
     let response = app
         .clone()
@@ -97,16 +103,21 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    let body = get_page(&app, "/admin/explored-endpoint").await;
-    assert!(body.contains("Last Site Explorer Run"));
-    assert!(body.contains("Failed"));
-    assert!(body.contains("Missing credential machines/bmc/site/root"));
-    assert!(body.contains("<dt>Attempted</dt>"));
-    assert!(body.contains("<dd>3</dd>"));
-    assert!(body.contains("<dt>Successful</dt>"));
-    assert!(body.contains("<dd>2</dd>"));
-    assert!(body.contains("<dt>Errored</dt>"));
-    assert!(body.contains("<dd>1</dd>"));
+    for uri in SITE_EXPLORER_RUN_STATUS_PAGES {
+        let body = get_page(&app, uri).await;
+        assert!(body.contains("Last Site Explorer Run"), "{uri}");
+        assert!(body.contains("Failed"), "{uri}");
+        assert!(
+            body.contains("Missing credential machines/bmc/site/root"),
+            "{uri}"
+        );
+        assert!(body.contains("<dt>Attempted</dt>"), "{uri}");
+        assert!(body.contains("<dd>3</dd>"), "{uri}");
+        assert!(body.contains("<dt>Successful</dt>"), "{uri}");
+        assert!(body.contains("<dd>2</dd>"), "{uri}");
+        assert!(body.contains("<dt>Errored</dt>"), "{uri}");
+        assert!(body.contains("<dd>1</dd>"), "{uri}");
+    }
 }
 
 #[crate::sqlx_test]
