@@ -163,8 +163,8 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
                 .and_then(|report| report.last_exploration_latency.as_ref())
                 .map(|latency| latency.seconds),
             has_exploration_error: report_ref
-                .and_then(|report| report.last_exploration_error.as_ref())
-                .is_some(),
+                .map(has_last_exploration_error)
+                .unwrap_or_default(),
             bmc_mac_addrs: report_ref
                 .map(|report| {
                     report
@@ -214,6 +214,14 @@ fn last_exploration_error_display(report: &EndpointExplorationReport) -> String 
         .map(|schema| serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.text.clone()))
         .or_else(|| report.last_exploration_error.clone())
         .unwrap_or_default()
+}
+
+fn has_last_exploration_error(report: &EndpointExplorationReport) -> bool {
+    report.last_exploration_error_schema.is_some()
+        || report
+            .last_exploration_error
+            .as_deref()
+            .is_some_and(|error| !error.is_empty())
 }
 
 /// List explored endpoints
@@ -479,8 +487,8 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail<'_> {
                 .map(last_exploration_error_display)
                 .unwrap_or_default(),
             has_exploration_error: report_ref
-                .and_then(|report| report.last_exploration_error.as_ref())
-                .is_some(),
+                .map(has_last_exploration_error)
+                .unwrap_or_default(),
             machine_setup_status: machine_setup_status_to_string(
                 report_ref.and_then(|report| report.machine_setup_status.as_ref()),
             ),

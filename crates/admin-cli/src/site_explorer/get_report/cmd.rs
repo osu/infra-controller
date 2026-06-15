@@ -62,6 +62,14 @@ fn last_exploration_error_display(report: &EndpointExplorationReport) -> String 
         .unwrap_or_default()
 }
 
+fn has_last_exploration_error(report: &EndpointExplorationReport) -> bool {
+    report.last_exploration_error_schema.is_some()
+        || report
+            .last_exploration_error
+            .as_deref()
+            .is_some_and(|error| !error.is_empty())
+}
+
 fn convert_managed_host_to_nice_table(
     explored_endpoints: SiteExplorationReport,
     vendor: Option<String>,
@@ -355,17 +363,14 @@ fn filter_endpoints(
                     .report
                     .as_ref()
                     .map(|x| {
-                        if let Some(error) = &x.last_exploration_error {
-                            if erroronly {
-                                !error.is_empty()
-                            } else if successonly {
-                                error.is_empty()
-                            } else {
-                                // Don't filter
-                                true
-                            }
+                        let has_error = has_last_exploration_error(x);
+                        if erroronly {
+                            has_error
+                        } else if successonly {
+                            !has_error
                         } else {
-                            !erroronly
+                            // Don't filter
+                            true
                         }
                     })
                     .unwrap_or_default()

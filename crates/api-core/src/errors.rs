@@ -455,15 +455,20 @@ fn carbide_backtrace_location() -> Option<(String, String)> {
     let b = Backtrace::capture();
     if b.status() == BacktraceStatus::Captured {
         let b_str = b.to_string();
-        let f = b_str
-            .lines()
-            .skip(1)
-            .skip_while(|l| !l.contains("carbide"))
-            .take(2)
-            .collect::<Vec<&str>>();
-        if f.len() == 2 {
-            let handler = f[0].trim();
-            let location = f[1].trim().replace("at ", "");
+        let mut lines = b_str.lines().skip(1).skip_while(|l| !l.contains("carbide"));
+
+        while let Some(handler) = lines.next() {
+            let Some(location) = lines.next() else {
+                break;
+            };
+            if handler.contains("carbide_backtrace_location")
+                || handler.contains("log_carbide_error")
+            {
+                continue;
+            }
+
+            let handler = handler.trim();
+            let location = location.trim().replace("at ", "");
             return Some((handler.to_string(), location));
         }
     }
@@ -523,8 +528,17 @@ fn status_with_operator_error_schema(mut status: Status, schema: &OperatorErrorS
 }
 
 fn insert_ascii_metadata(status: &mut Status, key: &'static str, value: &str) {
-    if let Ok(value) = MetadataValue::try_from(value) {
-        status.metadata_mut().insert(key, value);
+    match MetadataValue::try_from(value) {
+        Ok(value) => {
+            status.metadata_mut().insert(key, value);
+        }
+        Err(error) => {
+            tracing::warn!(
+                metadata_key = key,
+                error = %error,
+                "Operator error metadata was rejected because it contains non-ASCII content"
+            );
+        }
     }
 }
 

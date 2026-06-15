@@ -1230,10 +1230,12 @@ impl EndpointExplorationError {
             | EndpointExplorationError::MissingCredentials { .. }
             | EndpointExplorationError::SecretsEngineError { .. }
             | EndpointExplorationError::SetCredentials { .. }
-            | EndpointExplorationError::AvoidLockout
-            | EndpointExplorationError::IntermittentUnauthorized { .. } => {
+            | EndpointExplorationError::AvoidLockout => {
                 Some("Verify the BMC credentials configured for this endpoint.")
             }
+            EndpointExplorationError::IntermittentUnauthorized { .. } => Some(
+                "Retry site exploration before changing BMC credentials; escalate if the unauthorized responses persist.",
+            ),
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
                 Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
             }
@@ -1702,6 +1704,26 @@ mod tests {
             schema
                 .text
                 .contains("Invalid Redfish response for DPU BIOS")
+        );
+    }
+
+    #[test]
+    fn intermittent_unauthorized_error_schema_describes_retryable_action() {
+        let error = EndpointExplorationError::IntermittentUnauthorized {
+            details: "temporary unauthorized response".to_string(),
+            response_body: None,
+            response_code: Some(401),
+            consecutive_count: 1,
+        };
+
+        let schema = error.operator_error_schema();
+
+        assert_eq!(schema.error_code, "NICO-SITE-145");
+        assert_eq!(
+            schema.mitigation.as_deref(),
+            Some(
+                "Retry site exploration before changing BMC credentials; escalate if the unauthorized responses persist."
+            )
         );
     }
 

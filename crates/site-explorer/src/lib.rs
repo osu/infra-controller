@@ -1894,19 +1894,30 @@ impl SiteExplorer {
                         )
                             .await
                         {
-                            Ok(state) if !state.is_empty() => format!(" (state: {state})"),
-                            _ => String::new(),
+                            Ok(state) if !state.is_empty() => Some(state),
+                            _ => None,
                         };
                         let schema = error.operator_error_schema();
-                        tracing::info!(
-                            endpoint = %bmc_target_addr,
-                            error = %error,
-                            error_code = %schema.error_code,
-                            mitigation = %schema.mitigation_for_log(),
-                            text = %schema.text,
-                            machine_state = %machine_state,
-                            "Failed to explore endpoint"
-                        );
+                        if let Some(machine_state) = machine_state.as_deref() {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                machine_state,
+                                "Failed to explore endpoint"
+                            );
+                        } else {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                "Failed to explore endpoint"
+                            );
+                        }
                     }
 
                     if let Ok(report) = &mut result {
