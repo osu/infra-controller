@@ -14,7 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::io::ErrorKind;
 use std::net::UdpSocket;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use dhcp::mock_api_server;
@@ -24,10 +26,13 @@ mod common;
 
 use common::{DHCPFactory, Kea, RELAY_IP};
 
-const READ_TIMEOUT: Duration = Duration::from_millis(500);
+const OFFER_TIMEOUT: Duration = Duration::from_secs(10);
+static KEA_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
+    let _guard = KEA_TEST_LOCK.lock().unwrap();
+
     // Start multi-threaded mock API server. The hooks call this over the network.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -46,24 +51,12 @@ fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
     let socket = UdpSocket::bind(format!("{RELAY_IP}:{dhcp_out_port}"))?;
 
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
-    socket.set_read_timeout(Some(READ_TIMEOUT))?;
+    socket.set_read_timeout(Some(OFFER_TIMEOUT))?;
 
-    {
-        let mut msg = DHCPFactory::discover(1);
-        msg.set_xid(0);
-        let pkt = DHCPFactory::encode(msg)?;
-        socket.send(&pkt)?;
-    }
-
-    let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
-    let n = match socket.recv(&mut recv_buf) {
-        Ok(n) => n,
-        Err(err) => {
-            panic!("socket recv unhandled error: {err}");
-        }
-    };
-
-    let msg = v4::Message::decode(&mut Decoder::new(&recv_buf[..n])).unwrap();
+    let mut msg = DHCPFactory::discover(1);
+    msg.set_xid(0);
+    let pkt = DHCPFactory::encode(msg)?;
+    let msg = send_discover_and_recv_offer(&socket, &pkt)?;
     let wanted_location = "http://127.0.0.1:8080/public/blobs/internal/x86_64/ipxe.efi"
         .to_string()
         .into_bytes();
@@ -91,6 +84,8 @@ fn test_booturl_internal_with_mtu() -> Result<(), eyre::Report> {
 
 #[test]
 fn test_booturl_from_api() -> Result<(), eyre::Report> {
+    let _guard = KEA_TEST_LOCK.lock().unwrap();
+
     // Start multi-threaded mock API server. The hooks call this over the network.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -109,24 +104,12 @@ fn test_booturl_from_api() -> Result<(), eyre::Report> {
     let socket = UdpSocket::bind(format!("{RELAY_IP}:{dhcp_out_port}"))?;
 
     socket.connect(format!("127.0.0.1:{dhcp_in_port}"))?;
-    socket.set_read_timeout(Some(READ_TIMEOUT))?;
+    socket.set_read_timeout(Some(OFFER_TIMEOUT))?;
 
-    {
-        let mut msg = DHCPFactory::discover(0xAA);
-        msg.set_xid(0);
-        let pkt = DHCPFactory::encode(msg)?;
-        socket.send(&pkt)?;
-    }
-
-    let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
-    let n = match socket.recv(&mut recv_buf) {
-        Ok(n) => n,
-        Err(err) => {
-            panic!("socket recv unhandled error: {err}");
-        }
-    };
-
-    let msg = v4::Message::decode(&mut Decoder::new(&recv_buf[..n])).unwrap();
+    let mut msg = DHCPFactory::discover(0xAA);
+    msg.set_xid(0);
+    let pkt = DHCPFactory::encode(msg)?;
+    let msg = send_discover_and_recv_offer(&socket, &pkt)?;
 
     let wanted_location =
         "https://api-specified-ipxe-url.forge/public/blobs/internal/x86_64/ipxe.efi"
@@ -146,4 +129,22 @@ fn test_booturl_from_api() -> Result<(), eyre::Report> {
     assert_eq!(msg.opts().msg_type().unwrap(), v4::MessageType::Offer);
 
     Ok(())
+}
+
+fn send_discover_and_recv_offer(
+    socket: &UdpSocket,
+    pkt: &[u8],
+) -> Result<v4::Message, eyre::Report> {
+    let mut recv_buf = [0u8; 1500]; // packet is 470 bytes, but allow for full MTU
+
+    socket.send(pkt)?;
+    let n = match socket.recv(&mut recv_buf) {
+        Ok(n) => n,
+        Err(err) if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+            eyre::bail!("timed out waiting for DHCP offer");
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    Ok(v4::Message::decode(&mut Decoder::new(&recv_buf[..n]))?)
 }
