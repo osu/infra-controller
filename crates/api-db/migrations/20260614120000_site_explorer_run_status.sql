@@ -10,5 +10,15 @@ CREATE TABLE site_explorer_run_status (
     error                           text,
     endpoint_explorations           bigint      NOT NULL,
     endpoint_explorations_success   bigint      NOT NULL,
-    endpoint_explorations_failed    bigint      NOT NULL
+    endpoint_explorations_failed    bigint      NOT NULL,
+    CONSTRAINT site_explorer_run_status_finished_after_started
+        CHECK (finished_at >= started_at),
+    CONSTRAINT site_explorer_run_status_endpoint_explorations_non_negative
+        CHECK (endpoint_explorations >= 0),
+    CONSTRAINT site_explorer_run_status_endpoint_explorations_success_non_negative
+        CHECK (endpoint_explorations_success >= 0),
+    CONSTRAINT site_explorer_run_status_endpoint_explorations_failed_non_negative
+        CHECK (endpoint_explorations_failed >= 0),
+    CONSTRAINT site_explorer_run_status_endpoint_explorations_within_total
+        CHECK (endpoint_explorations_success + endpoint_explorations_failed <= endpoint_explorations)
 );
