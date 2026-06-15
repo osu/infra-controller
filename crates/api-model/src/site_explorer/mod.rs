@@ -36,7 +36,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use super::DpuModel;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::DpuData;
-use crate::errors::{ModelError, ModelResult};
+use crate::errors::{ModelError, ModelResult, OperatorErrorSchema};
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
@@ -1151,6 +1151,10 @@ pub enum EndpointExplorationError {
 }
 
 impl EndpointExplorationError {
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE: &'static str = "NICO-DPU-134";
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION: &'static str =
+        "Force-restart the DPU through Redfish, then re-run site exploration.";
+
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, EndpointExplorationError::Unauthorized { .. })
             || matches!(self, EndpointExplorationError::AvoidLockout)
@@ -1178,6 +1182,66 @@ impl EndpointExplorationError {
             self,
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. }
         )
+    }
+
+    pub fn operator_error_schema(&self) -> OperatorErrorSchema {
+        OperatorErrorSchema::new(
+            self.operator_error_code(),
+            self.to_string(),
+            self.operator_mitigation().map(str::to_string),
+        )
+    }
+
+    pub fn operator_error_code(&self) -> &'static str {
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. } => "NICO-SITE-100",
+            EndpointExplorationError::ConnectionRefused { .. } => "NICO-SITE-101",
+            EndpointExplorationError::Unreachable { .. } => "NICO-SITE-102",
+            EndpointExplorationError::UnsupportedVendor { .. } => "NICO-SITE-120",
+            EndpointExplorationError::RedfishError { .. } => "NICO-SITE-130",
+            EndpointExplorationError::Unauthorized { .. } => "NICO-SITE-140",
+            EndpointExplorationError::MissingCredentials { .. } => "NICO-SITE-141",
+            EndpointExplorationError::SecretsEngineError { .. } => "NICO-SITE-142",
+            EndpointExplorationError::SetCredentials { .. } => "NICO-SITE-143",
+            EndpointExplorationError::MissingRedfish { .. } => "NICO-SITE-121",
+            EndpointExplorationError::MissingVendor => "NICO-SITE-122",
+            EndpointExplorationError::AvoidLockout => "NICO-SITE-144",
+            EndpointExplorationError::Other { .. } => "NICO-SITE-199",
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => "NICO-SITE-131",
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+                Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+            }
+            EndpointExplorationError::IntermittentUnauthorized { .. } => "NICO-SITE-145",
+        }
+    }
+
+    pub fn operator_mitigation(&self) -> Option<&'static str> {
+        match self {
+            EndpointExplorationError::ConnectionTimeout { .. }
+            | EndpointExplorationError::ConnectionRefused { .. }
+            | EndpointExplorationError::Unreachable { .. } => Some(
+                "Verify endpoint network reachability and that the BMC Redfish service is listening.",
+            ),
+            EndpointExplorationError::UnsupportedVendor { .. }
+            | EndpointExplorationError::MissingVendor => {
+                Some("Check the endpoint BMC vendor and whether NICo supports it.")
+            }
+            EndpointExplorationError::Unauthorized { .. }
+            | EndpointExplorationError::MissingCredentials { .. }
+            | EndpointExplorationError::SecretsEngineError { .. }
+            | EndpointExplorationError::SetCredentials { .. }
+            | EndpointExplorationError::AvoidLockout
+            | EndpointExplorationError::IntermittentUnauthorized { .. } => {
+                Some("Verify the BMC credentials configured for this endpoint.")
+            }
+            EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
+                Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+            }
+            EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => Some(
+                "Retry site exploration; this is a known intermittent Viking firmware inventory response.",
+            ),
+            _ => None,
+        }
     }
 
     /// Returns the consecutive count if this is an IntermittentUnauthorized error.
@@ -1614,6 +1678,31 @@ mod tests {
             boot_interface_id: None,
             pause_ingestion_and_poweron: false,
         }
+    }
+
+    #[test]
+    fn dpu_bios_error_schema_contains_operator_action() {
+        let error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+            details: "DPU BMC BIOS attributes not ready".to_string(),
+            response_body: None,
+            response_code: None,
+        };
+
+        let schema = error.operator_error_schema();
+
+        assert_eq!(
+            schema.error_code,
+            EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+        );
+        assert_eq!(
+            schema.mitigation.as_deref(),
+            Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+        );
+        assert!(
+            schema
+                .text
+                .contains("Invalid Redfish response for DPU BIOS")
+        );
     }
 
     /// `find_version` locates the firmware version matching a component regex,

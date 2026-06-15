@@ -1897,7 +1897,16 @@ impl SiteExplorer {
                             Ok(state) if !state.is_empty() => format!(" (state: {state})"),
                             _ => String::new(),
                         };
-                        tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
+                        let schema = error.operator_error_schema();
+                        tracing::info!(
+                            endpoint = %bmc_target_addr,
+                            error = %error,
+                            error_code = %schema.error_code,
+                            mitigation = %schema.mitigation_for_log(),
+                            text = %schema.text,
+                            machine_state = %machine_state,
+                            "Failed to explore endpoint"
+                        );
                     }
 
                     if let Ok(report) = &mut result {

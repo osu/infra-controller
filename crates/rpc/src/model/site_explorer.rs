@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
+use model::errors::OperatorErrorSchema;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
-    EndpointExplorationReport, EthernetInterface, ExploredDpu, ExploredEndpoint,
-    ExploredEndpointSearchFilter, ExploredManagedHost, ExploredManagedHostSearchFilter,
-    InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
-    Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState, SecureBootStatus, Service,
-    SiteExplorationReport, SystemStatus,
+    EndpointExplorationError, EndpointExplorationReport, EthernetInterface, ExploredDpu,
+    ExploredEndpoint, ExploredEndpointSearchFilter, ExploredManagedHost,
+    ExploredManagedHostSearchFilter, InternalLockdownStatus, Inventory, LockdownStatus,
+    MachineSetupDiff, MachineSetupStatus, Manager, NetworkAdapter, NicMode, PCIeDevice, PowerState,
+    SecureBootStatus, Service, SiteExplorationReport, SystemStatus,
 };
 
 use crate as rpc;
@@ -325,6 +326,12 @@ impl From<BootOption> for rpc::site_explorer::BootOption {
 
 impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
     fn from(report: EndpointExplorationReport) -> Self {
+        let last_exploration_error_schema = report
+            .last_exploration_error
+            .as_ref()
+            .map(EndpointExplorationError::operator_error_schema)
+            .map(Into::into);
+
         rpc::site_explorer::EndpointExplorationReport {
             endpoint_type: format!("{:?}", report.endpoint_type),
             last_exploration_error: report.last_exploration_error.map(|error| {
@@ -343,6 +350,17 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
             firmware_versions: serde_json::to_value(&report.versions)
                 .and_then(serde_json::from_value)
                 .unwrap_or_default(),
+            last_exploration_error_schema,
+        }
+    }
+}
+
+impl From<OperatorErrorSchema> for rpc::site_explorer::OperatorErrorSchema {
+    fn from(schema: OperatorErrorSchema) -> Self {
+        Self {
+            error_code: schema.error_code,
+            mitigation: schema.mitigation,
+            text: schema.text,
         }
     }
 }

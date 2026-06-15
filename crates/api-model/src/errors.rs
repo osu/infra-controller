@@ -15,8 +15,40 @@
  * limitations under the License.
  */
 use carbide_uuid::machine::MachineId;
+use serde::{Deserialize, Serialize};
 
 use crate::hardware_info::HardwareInfoError;
+
+/// Operator-facing error schema suitable for logs, API metadata, and UI display.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct OperatorErrorSchema {
+    /// Stable identifier for alerting and centralized log filtering.
+    pub error_code: String,
+    /// Human-readable problem description.
+    pub text: String,
+    /// Suggested operator action when NICo knows a specific mitigation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mitigation: Option<String>,
+}
+
+impl OperatorErrorSchema {
+    pub fn new(
+        error_code: impl Into<String>,
+        text: impl Into<String>,
+        mitigation: Option<String>,
+    ) -> Self {
+        Self {
+            error_code: error_code.into(),
+            text: text.into(),
+            mitigation,
+        }
+    }
+
+    pub fn mitigation_for_log(&self) -> &str {
+        self.mitigation.as_deref().unwrap_or("")
+    }
+}
 
 /// Errors specifically for the (eventual) models crate
 #[derive(thiserror::Error, Debug)]

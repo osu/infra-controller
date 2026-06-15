@@ -28,8 +28,8 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
-    ExploredEndpoint, InternalLockdownStatus, LockdownStatus, MachineSetupStatus, SecureBootStatus,
-    SiteExplorationReport,
+    EndpointExplorationReport, ExploredEndpoint, InternalLockdownStatus, LockdownStatus,
+    MachineSetupStatus, SecureBootStatus, SiteExplorationReport,
 };
 use serde::Deserialize;
 
@@ -157,7 +157,7 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
                 .map(|report| report.endpoint_type.clone())
                 .unwrap_or_default(),
             last_exploration_error: report_ref
-                .and_then(|report| report.last_exploration_error.clone())
+                .map(last_exploration_error_display)
                 .unwrap_or_default(),
             last_exploration_latency: report_ref
                 .and_then(|report| report.last_exploration_latency.as_ref())
@@ -205,6 +205,15 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
                 .unwrap_or_default(),
         }
     }
+}
+
+fn last_exploration_error_display(report: &EndpointExplorationReport) -> String {
+    report
+        .last_exploration_error_schema
+        .as_ref()
+        .map(|schema| serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.text.clone()))
+        .or_else(|| report.last_exploration_error.clone())
+        .unwrap_or_default()
 }
 
 /// List explored endpoints
@@ -467,7 +476,7 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail<'_> {
 
         Self {
             last_exploration_error: report_ref
-                .and_then(|report| report.last_exploration_error.clone())
+                .map(last_exploration_error_display)
                 .unwrap_or_default(),
             has_exploration_error: report_ref
                 .and_then(|report| report.last_exploration_error.as_ref())

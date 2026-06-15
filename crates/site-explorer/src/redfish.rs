@@ -34,6 +34,7 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
 use mac_address::MacAddress;
+use model::errors::OperatorErrorSchema;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
@@ -322,18 +323,34 @@ impl RedfishClient {
                 let details = format!(
                     "DPU BMC BIOS attributes not ready ({error}); scheduling a force-restart to mitigate the known UEFI POST/BMC race"
                 );
-                tracing::warn!("{details}");
-                (
-                    None,
-                    Some(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                        details,
-                        response_body: None,
-                        response_code: None,
-                    }),
-                )
+                let exploration_error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                    details,
+                    response_body: None,
+                    response_code: None,
+                };
+                let schema = exploration_error.operator_error_schema();
+                tracing::warn!(
+                    error = %error,
+                    error_code = %schema.error_code,
+                    mitigation = %schema.mitigation_for_log(),
+                    text = %schema.text,
+                    "Failed to fetch machine setup status"
+                );
+                (None, Some(exploration_error))
             }
             Err(error) => {
-                tracing::warn!(%error, "Failed to fetch machine setup status.");
+                let schema = OperatorErrorSchema::new(
+                    "NICO-SITE-130",
+                    format!("Failed to fetch machine setup status: {error}"),
+                    None,
+                );
+                tracing::warn!(
+                    error = %error,
+                    error_code = %schema.error_code,
+                    mitigation = %schema.mitigation_for_log(),
+                    text = %schema.text,
+                    "Failed to fetch machine setup status"
+                );
                 (None, None)
             }
         };

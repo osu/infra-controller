@@ -18,7 +18,9 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use ::rpc::admin_cli::OutputFormat;
-use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
+use ::rpc::site_explorer::{
+    EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost, SiteExplorationReport,
+};
 use prettytable::{Cell, Row, Table, format, row};
 
 use super::args::Args;
@@ -49,6 +51,15 @@ fn get_endpoints_for_managed_host<'ep>(
             }
         })
         .collect::<HashMap<&str, &ExploredEndpoint>>()
+}
+
+fn last_exploration_error_display(report: &EndpointExplorationReport) -> String {
+    report
+        .last_exploration_error_schema
+        .as_ref()
+        .map(|schema| serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.text.clone()))
+        .or_else(|| report.last_exploration_error.clone())
+        .unwrap_or_default()
 }
 
 fn convert_managed_host_to_nice_table(
@@ -482,7 +493,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
 
     let last_error = report
         .as_ref()
-        .map(|x| x.last_exploration_error())
+        .map(last_exploration_error_display)
         .unwrap_or_default();
 
     let error_segmented = last_error
@@ -559,7 +570,7 @@ async fn display_endpoint(
     table.add_row(row!["Preingestion State", endpoint.preingestion_state]);
     let last_error = report
         .as_ref()
-        .map(|x| x.last_exploration_error())
+        .map(last_exploration_error_display)
         .unwrap_or_default();
 
     let error_segmented = last_error
