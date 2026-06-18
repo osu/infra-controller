@@ -180,11 +180,12 @@ async fn get_exploration_report_for_bmc_address(
     };
 
     let endpoints = api_client.get_explored_endpoints_by_ids(&ips).await?;
+    let last_run = api_client.get_site_explorer_last_run().await?;
 
     Ok(::rpc::site_explorer::SiteExplorationReport {
         endpoints: endpoints.endpoints,
         managed_hosts: managed_host,
-        last_run: None,
+        last_run,
     })
 }
 

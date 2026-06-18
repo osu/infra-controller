@@ -151,6 +151,21 @@ pub(crate) async fn get_site_exploration_report(
     Ok(tonic::Response::new(report.into()))
 }
 
+pub(crate) async fn get_site_explorer_last_run(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<Response<::rpc::site_explorer::SiteExplorerLastRunResponse>, Status> {
+    log_request_data(&request);
+
+    let last_run = db::site_explorer_run_status::fetch(&mut api.db_reader()).await?;
+
+    Ok(tonic::Response::new(
+        ::rpc::site_explorer::SiteExplorerLastRunResponse {
+            last_run: last_run.map(Into::into),
+        },
+    ))
+}
+
 pub(crate) async fn clear_site_exploration_error(
     api: &Api,
     request: Request<rpc::ClearSiteExplorationErrorRequest>,
