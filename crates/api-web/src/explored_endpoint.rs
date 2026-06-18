@@ -29,13 +29,14 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
     ExploredEndpoint, InternalLockdownStatus, LockdownStatus, MachineSetupStatus, SecureBootStatus,
-    SiteExplorationReport, SiteExplorerLastRun,
+    SiteExplorationReport,
 };
 use serde::Deserialize;
 
 use super::pagination::{self, PageContext, PaginationParams};
 use super::{Base, filters};
 use crate::action_status::{self, ActionStatus};
+use crate::site_explorer_run_status::SiteExplorerLastRunDisplay;
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
@@ -57,37 +58,6 @@ struct ExploredEndpointsShowPaired {
     managed_hosts: Vec<ExploredManagedHostDisplay>,
     page: PageContext,
     missing_default_credentials: Vec<DefaultCredential>,
-}
-
-struct SiteExplorerLastRunDisplay {
-    status_label: &'static str,
-    status_class: &'static str,
-    started_at: String,
-    finished_at: String,
-    endpoint_explorations: i64,
-    endpoint_explorations_success: i64,
-    endpoint_explorations_failed: i64,
-    error: String,
-}
-
-impl From<&SiteExplorerLastRun> for SiteExplorerLastRunDisplay {
-    fn from(run: &SiteExplorerLastRun) -> Self {
-        let (status_label, status_class) = if run.success {
-            ("Success", "success")
-        } else {
-            ("Failed", "error")
-        };
-        Self {
-            status_label,
-            status_class,
-            started_at: run.started_at.clone(),
-            finished_at: run.finished_at.clone(),
-            endpoint_explorations: run.endpoint_explorations,
-            endpoint_explorations_success: run.endpoint_explorations_success,
-            endpoint_explorations_failed: run.endpoint_explorations_failed,
-            error: run.error.clone().unwrap_or_default(),
-        }
-    }
 }
 
 fn last_run_from_report(report: &SiteExplorationReport) -> Option<SiteExplorerLastRunDisplay> {

@@ -32,6 +32,20 @@
 			<dt>Errored</dt>
 			<dd>{{ run.endpoint_explorations_failed }}</dd>
 		</div>
+		{% if !run.failure_category.is_empty() %}
+		<div>
+			<dt>Failure Category</dt>
+			<dd>{{ run.failure_category }}</dd>
+		</div>
+		{% endif %}
+		<div>
+			<dt>Last Successful</dt>
+			<dd>{{ run.last_successful_finished_at }}</dd>
+		</div>
+		<div>
+			<dt>Last Failed</dt>
+			<dd>{{ run.last_failed_finished_at }}</dd>
+		</div>
 	</dl>
 	{% if !run.error.is_empty() %}
 	<div class="site-explorer-run-error">
