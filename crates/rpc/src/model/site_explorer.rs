@@ -140,9 +140,14 @@ impl From<SiteExplorerLastRun> for rpc::site_explorer::SiteExplorerLastRun {
             finished_at: run.finished_at.to_rfc3339(),
             success: run.success,
             error: run.error,
+            failure_category: run.failure_category,
             endpoint_explorations: run.endpoint_explorations,
             endpoint_explorations_success: run.endpoint_explorations_success,
             endpoint_explorations_failed: run.endpoint_explorations_failed,
+            last_successful_finished_at: run
+                .last_successful_finished_at
+                .map(|time| time.to_rfc3339()),
+            last_failed_finished_at: run.last_failed_finished_at.map(|time| time.to_rfc3339()),
         }
     }
 }

@@ -390,18 +390,60 @@ impl SiteExplorer {
         metrics: &SiteExplorationMetrics,
         result: &SiteExplorerResult<SiteIdentifiedHosts>,
     ) -> SiteExplorerLastRun {
+        let failure_category = result.as_ref().err().map(Self::run_failure_category);
         SiteExplorerLastRun {
             started_at,
             finished_at,
             success: result.is_ok(),
-            error: result.as_ref().err().map(ToString::to_string),
+            error: result.as_ref().err().map(Self::operator_error_message),
+            failure_category,
             endpoint_explorations: metrics.endpoint_explorations as i64,
             endpoint_explorations_success: metrics.endpoint_explorations_success as i64,
             endpoint_explorations_failed: metrics
                 .endpoint_explorations_failures_by_type
                 .values()
                 .sum::<usize>() as i64,
+            last_successful_finished_at: result.is_ok().then_some(finished_at),
+            last_failed_finished_at: result.is_err().then_some(finished_at),
         }
+    }
+
+    fn run_failure_category(error: &SiteExplorerError) -> String {
+        match error {
+            SiteExplorerError::DatabaseError(_) => "database_error",
+            SiteExplorerError::ModelError(_) => "model_error",
+            SiteExplorerError::AlreadyFoundError { .. } => "already_found",
+            SiteExplorerError::NotFoundError { .. } => "not_found",
+            SiteExplorerError::InvalidArgument(_) => "invalid_argument",
+            SiteExplorerError::EndpointExplorationError { err, .. } => {
+                return exploration_error_to_metric_label(err);
+            }
+            SiteExplorerError::Internal { .. } => "internal",
+        }
+        .to_string()
+    }
+
+    fn operator_error_message(error: &SiteExplorerError) -> String {
+        match error {
+            SiteExplorerError::EndpointExplorationError {
+                err:
+                    EndpointExplorationError::MissingCredentials { .. }
+                    | EndpointExplorationError::SetCredentials { .. },
+                ..
+            } => "Site Explorer credentials are missing or invalid".to_string(),
+            SiteExplorerError::EndpointExplorationError {
+                err: EndpointExplorationError::SecretsEngineError { .. },
+                ..
+            } => "Site Explorer could not access credentials".to_string(),
+            _ => error.to_string(),
+        }
+    }
+
+    fn record_run_status_metric(
+        metrics: &mut SiteExplorationMetrics,
+        result: &SiteExplorerResult<SiteIdentifiedHosts>,
+    ) {
+        metrics.run_failure_category = result.as_ref().err().map(Self::run_failure_category);
     }
 
     async fn record_last_run(&self, last_run: &SiteExplorerLastRun) -> SiteExplorerResult<()> {
@@ -437,8 +479,10 @@ impl SiteExplorer {
                 let result = Err(SiteExplorerError::internal(format!(
                     "Failed to acquire connection: {e}"
                 )));
+                Self::record_run_status_metric(&mut metrics, &result);
                 self.record_last_run_result(started_at, &metrics, &result)
                     .await;
+                self.metric_holder.update_metrics(metrics);
                 return result;
             }
         };
@@ -507,6 +551,7 @@ impl SiteExplorer {
             }
         }
 
+        Self::record_run_status_metric(&mut metrics, &res);
         self.record_last_run_result(started_at, &metrics, &res)
             .await;
 

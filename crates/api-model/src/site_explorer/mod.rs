@@ -741,12 +741,21 @@ pub struct SiteExplorerLastRun {
     /// Error string for a failed run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Failure category for a failed run, suitable for metrics and alert routing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_category: Option<String>,
     /// Number of endpoint exploration attempts made during the run.
     pub endpoint_explorations: i64,
     /// Number of successful endpoint explorations during the run.
     pub endpoint_explorations_success: i64,
     /// Number of endpoint exploration errors during the run.
     pub endpoint_explorations_failed: i64,
+    /// When the most recent successful run finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_successful_finished_at: Option<DateTime<Utc>>,
+    /// When the most recent failed run finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_failed_finished_at: Option<DateTime<Utc>>,
 }
 
 impl EndpointExplorationReport {

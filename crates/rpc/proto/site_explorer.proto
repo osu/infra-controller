@@ -92,6 +92,11 @@ message SiteExplorationReport {
   optional SiteExplorerLastRun last_run = 3;
 }
 
+message SiteExplorerLastRunResponse {
+  // Metadata about the latest site explorer run, if site explorer has run
+  optional SiteExplorerLastRun last_run = 1;
+}
+
 message SiteExplorerLastRun {
   // When the run started
   string started_at = 1;
@@ -107,6 +112,12 @@ message SiteExplorerLastRun {
   int64 endpoint_explorations_success = 6;
   // Number of endpoint exploration errors during the run
   int64 endpoint_explorations_failed = 7;
+  // Failure category for a failed run
+  optional string failure_category = 8;
+  // When the most recent successful run finished
+  optional string last_successful_finished_at = 9;
+  // When the most recent failed run finished
+  optional string last_failed_finished_at = 10;
 }
 
 message ExploredEndpointSearchFilter {
