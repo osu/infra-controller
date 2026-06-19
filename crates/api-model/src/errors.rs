@@ -252,7 +252,10 @@ mod error_code_tests {
     #[test]
     fn rejects_unknown_or_malformed_codes() {
         for bad in ["NICO-BOGUS-100", "NICO-API", "API-400", "NICO-API-xx", ""] {
-            assert!(bad.parse::<ErrorCode>().is_err(), "expected {bad:?} to fail");
+            assert!(
+                bad.parse::<ErrorCode>().is_err(),
+                "expected {bad:?} to fail"
+            );
         }
     }
 

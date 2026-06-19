@@ -338,7 +338,6 @@ impl CarbideError {
     pub fn internal(message: String) -> Self {
         CarbideError::Internal { message }
     }
-
 }
 
 impl OperatorError for CarbideError {
@@ -517,7 +516,11 @@ fn status_from_carbide_error(error: &CarbideError) -> Status {
 }
 
 fn status_with_operator_error_schema(mut status: Status, schema: &OperatorErrorSchema) -> Status {
-    insert_ascii_metadata(&mut status, "nico-error-code", &schema.error_code.to_string());
+    insert_ascii_metadata(
+        &mut status,
+        "nico-error-code",
+        &schema.error_code.to_string(),
+    );
     insert_ascii_metadata(&mut status, "nico-error-text", &schema.text);
     if let Some(mitigation) = &schema.mitigation {
         insert_ascii_metadata(&mut status, "nico-error-mitigation", mitigation);

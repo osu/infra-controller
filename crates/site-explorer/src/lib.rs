@@ -40,6 +40,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::errors::OperatorError;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
@@ -49,7 +50,6 @@ use model::machine_interface::InterfaceType;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
-use model::errors::OperatorError;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,

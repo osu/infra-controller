@@ -1165,8 +1165,7 @@ pub enum EndpointExplorationError {
 impl EndpointExplorationError {
     pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE: ErrorCode =
         ErrorCode::nico(ErrorSubsystem::Dpu, 134);
-    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION: &'static str =
-        "No action needed: site explorer automatically force-restarts the DPU to clear this \
+    pub const INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION: &'static str = "No action needed: site explorer automatically force-restarts the DPU to clear this \
          known UEFI/BMC race and re-explores on its next run (~2 min). It escalates to a BMC \
          reset if the empty BIOS attributes persist.";
 
@@ -1216,10 +1215,16 @@ impl OperatorError for EndpointExplorationError {
         // assumed rather than repeated per arm.
         use ErrorSubsystem::SiteExplorer;
         match self {
-            EndpointExplorationError::ConnectionTimeout { .. } => ErrorCode::nico(SiteExplorer, 100),
-            EndpointExplorationError::ConnectionRefused { .. } => ErrorCode::nico(SiteExplorer, 101),
+            EndpointExplorationError::ConnectionTimeout { .. } => {
+                ErrorCode::nico(SiteExplorer, 100)
+            }
+            EndpointExplorationError::ConnectionRefused { .. } => {
+                ErrorCode::nico(SiteExplorer, 101)
+            }
             EndpointExplorationError::Unreachable { .. } => ErrorCode::nico(SiteExplorer, 102),
-            EndpointExplorationError::UnsupportedVendor { .. } => ErrorCode::nico(SiteExplorer, 120),
+            EndpointExplorationError::UnsupportedVendor { .. } => {
+                ErrorCode::nico(SiteExplorer, 120)
+            }
             EndpointExplorationError::MissingRedfish { .. } => ErrorCode::nico(SiteExplorer, 121),
             EndpointExplorationError::MissingVendor => ErrorCode::nico(SiteExplorer, 122),
             EndpointExplorationError::RedfishError { .. } => ErrorCode::nico(SiteExplorer, 130),
@@ -1227,8 +1232,12 @@ impl OperatorError for EndpointExplorationError {
                 ErrorCode::nico(SiteExplorer, 131)
             }
             EndpointExplorationError::Unauthorized { .. } => ErrorCode::nico(SiteExplorer, 140),
-            EndpointExplorationError::MissingCredentials { .. } => ErrorCode::nico(SiteExplorer, 141),
-            EndpointExplorationError::SecretsEngineError { .. } => ErrorCode::nico(SiteExplorer, 142),
+            EndpointExplorationError::MissingCredentials { .. } => {
+                ErrorCode::nico(SiteExplorer, 141)
+            }
+            EndpointExplorationError::SecretsEngineError { .. } => {
+                ErrorCode::nico(SiteExplorer, 142)
+            }
             EndpointExplorationError::SetCredentials { .. } => ErrorCode::nico(SiteExplorer, 143),
             EndpointExplorationError::AvoidLockout => ErrorCode::nico(SiteExplorer, 144),
             EndpointExplorationError::IntermittentUnauthorized { .. } => {
