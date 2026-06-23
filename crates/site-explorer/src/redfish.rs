@@ -130,16 +130,18 @@ impl RedfishClient {
 
         let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
 
-        if service_root.vendor.is_none() {
-            return Err(EndpointExplorationError::MissingVendor);
+        // Do not gate on the raw `Vendor` field: some BMCs (e.g. Supermicro
+        // SYS-121H-TNR) leave ServiceRoot.Vendor null but still identify
+        // themselves via the `Oem` key. libredfish's `vendor()` already
+        // consults Oem as a fallback, so resolve through it and only reject
+        // when the result is genuinely unrecognized. See NVBug 6338388.
+        match service_root.vendor() {
+            Some(vendor) if vendor != RedfishVendor::Unknown => Ok(vendor),
+            _ => {
+                tracing::info!("No recognized vendor for BMC at {bmc_ip_address}");
+                Err(EndpointExplorationError::MissingVendor)
+            }
         }
-
-        let Some(vendor) = service_root.vendor() else {
-            tracing::info!("No vendor found for BMC at {bmc_ip_address}");
-            return Err(EndpointExplorationError::MissingVendor);
-        };
-
-        Ok(vendor)
     }
 
     pub async fn validate_bmc_credentials(
@@ -230,8 +232,10 @@ impl RedfishClient {
                     .map_err(|err| redact_password(err, curr_password.as_str()))
                     .map_err(map_redfish_error)?;
             }
-            // Handle Vikings
-            RedfishVendor::AMI => {
+            // Vikings and Lenovo GB300s. GB300s are detected as AMI at this
+            // point (vendor isn't refined to LenovoGB300 until later), but both
+            // rotate via the same admin account, so handle them together.
+            RedfishVendor::AMI | RedfishVendor::LenovoGB300 => {
                 /*
                 https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html
 
@@ -741,6 +745,22 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
             RedfishError::NotSupported(_) => Ok(vec![]),
             _ => Err(err),
         })?;
+
+    // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
+    // globally unique, so this signals transient pre-sync data (seen briefly
+    // after a BMC reboot) that would poison anything keyed on the BMC MAC.
+    if let Some(eth0) = ethernet_interfaces.iter().find(|e| {
+        e.id.as_deref()
+            .is_some_and(|id| id.eq_ignore_ascii_case("eth0"))
+    }) && let Some(mac) = eth0.mac_address
+        && crate::is_locally_administered_mac(mac)
+    {
+        tracing::warn!(
+            manager_id = %manager.id,
+            eth0_mac = %mac,
+            "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+        );
+    }
 
     Ok(Manager {
         ethernet_interfaces,

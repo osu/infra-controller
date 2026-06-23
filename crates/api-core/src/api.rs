@@ -88,6 +88,7 @@ pub struct Api {
     pub(crate) metric_emitter: ApiMetricsEmitter,
     pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
     pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
+    pub(crate) secrets_context: Option<crate::secrets::SecretsContext>,
 }
 
 pub(crate) type ScoutStreamType =
@@ -1098,6 +1099,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
+    async fn get_explored_mlx_devices(
+        &self,
+        request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
+        crate::handlers::site_explorer::get_explored_mlx_devices(self, request).await
+    }
+
     async fn update_machine_hardware_info(
         &self,
         request: Request<::rpc::forge::UpdateMachineHardwareInfoRequest>,
@@ -1449,6 +1457,13 @@ impl Forge for Api {
         request: Request<rpc::CredentialDeletionRequest>,
     ) -> Result<Response<rpc::CredentialDeletionResult>, Status> {
         crate::handlers::credential::delete_credential(self, request).await
+    }
+
+    async fn re_wrap_secrets(
+        &self,
+        request: Request<rpc::ReWrapSecretsRequest>,
+    ) -> Result<Response<rpc::ReWrapSecretsResponse>, Status> {
+        crate::handlers::secrets::re_wrap_secrets(self, request).await
     }
 
     /// get_route_servers returns a list of all configured route server
