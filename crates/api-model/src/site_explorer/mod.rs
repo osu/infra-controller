@@ -1280,9 +1280,9 @@ impl OperatorError for EndpointExplorationError {
             ),
             EndpointExplorationError::UnsupportedVendor { .. }
             | EndpointExplorationError::MissingVendor => Some(
-                "Confirm the endpoint's BMC vendor and model are on the hardware compatibility \
-                 list (HCL) for your NICo deployment; an unsupported or unidentified BMC cannot \
-                 be explored.",
+                "Confirm the endpoint's BMC vendor and model are listed in the NICo Hardware \
+                 Compatibility List (https://docs.nvidia.com/infra-controller/documentation/hcl); \
+                 an unsupported or unidentified BMC cannot be explored.",
             ),
             EndpointExplorationError::Unauthorized { .. }
             | EndpointExplorationError::MissingCredentials { .. }
@@ -1304,8 +1304,10 @@ impl OperatorError for EndpointExplorationError {
             }
             EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => Some(
                 "No action needed: a known, intermittent DGX H100 firmware-inventory response \
-                 that clears on its own. Site explorer retries on its next run (~2 min); force \
-                 one with `nico-admin-cli site-explorer refresh <bmc-ip>` if it persists.",
+                 that clears on its own (documented in \
+                 https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html). Site \
+                 explorer retries on its next run (~2 min); force one with \
+                 `nico-admin-cli site-explorer refresh <bmc-ip>` if it persists.",
             ),
             _ => None,
         }
@@ -2224,6 +2226,38 @@ mod tests {
         let mitigation = schema.mitigation.as_deref().expect("has a mitigation");
         assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
         assert!(mitigation.contains("nico-admin-cli credential add-bmc"));
+    }
+
+    #[test]
+    fn unsupported_vendor_error_schema_points_at_hcl() {
+        let error = EndpointExplorationError::UnsupportedVendor {
+            vendor: "unknown".to_string(),
+        };
+
+        let mitigation = error
+            .operator_error_schema()
+            .mitigation
+            .expect("has a mitigation");
+
+        assert!(mitigation.contains("docs.nvidia.com/infra-controller/documentation/hcl"));
+    }
+
+    #[test]
+    fn dgx_h100_fw_inventory_error_schema_describes_retryable_action() {
+        let error = EndpointExplorationError::VikingFWInventoryForbiddenError {
+            details: "HTTP 403 at /redfish/v1/UpdateService/FirmwareInventory".to_string(),
+            response_body: None,
+            response_code: Some(403),
+        };
+
+        let mitigation = error
+            .operator_error_schema()
+            .mitigation
+            .expect("has a mitigation");
+
+        assert!(mitigation.contains("DGX H100"));
+        assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html"));
     }
 
     /// `find_version` locates the firmware version matching a component regex,

@@ -385,8 +385,9 @@ impl OperatorError for CarbideError {
                 Some("Check BMC reachability, credentials, and Redfish service health.")
             }
             CarbideError::UnavailableError(_) => Some(
-                "A dependent service is temporarily unavailable; the caller should retry the \
-                 request with backoff once it recovers.",
+                "A dependent NICo service is temporarily unavailable. Retry the same request \
+                 once it recovers: re-run the Admin CLI command, REST API call, or client \
+                 integration that failed, backing off briefly between attempts.",
             ),
             CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
                 Some("Check configured resource pools and available capacity.")
@@ -573,6 +574,15 @@ fn test_unavailable_error_maps_to_unavailable_status() {
     let err = CarbideError::UnavailableError("service down".into());
     let status: tonic::Status = err.into();
     assert_eq!(status.code(), tonic::Code::Unavailable);
+}
+
+#[test]
+fn unavailable_error_schema_describes_who_should_retry() {
+    let schema = CarbideError::UnavailableError("service down".into()).operator_error_schema();
+
+    let mitigation = schema.mitigation.expect("has a mitigation");
+    assert!(mitigation.contains("Admin CLI"));
+    assert!(mitigation.contains("REST API"));
 }
 
 #[test]
