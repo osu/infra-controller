@@ -361,7 +361,7 @@ impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExploration
         let last_exploration_error_schema = report
             .last_exploration_error
             .as_ref()
-            .map(EndpointExplorationError::operator_error_schema)
+            .map(|error| error.operator_error_schema())
             .map(Into::into);
 
         rpc::site_explorer::EndpointExplorationReport {
