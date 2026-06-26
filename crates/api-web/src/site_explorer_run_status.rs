@@ -121,8 +121,7 @@ mod tests {
 
     #[test]
     fn display_error_is_empty_for_successful_runs() {
-        let display =
-            SiteExplorerLastRunDisplay::from(&last_run_with(true, None, Some("ignored")));
+        let display = SiteExplorerLastRunDisplay::from(&last_run_with(true, None, Some("ignored")));
         assert!(display.error.is_empty());
     }
 }
