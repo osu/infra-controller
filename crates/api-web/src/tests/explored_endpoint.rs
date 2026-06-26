@@ -55,6 +55,8 @@ const SITE_EXPLORER_RUN_STATUS_PAGES: [&str; 3] = [
     "/admin/explored-endpoint/paired",
 ];
 const EXPECTED_MACHINE_RUN_STATUS_PAGE: &str = "/admin/expected-machine";
+const RAW_CREDENTIAL_ERROR: &str =
+    "SiteExplorer run failed due to: Internal { message: \"Missing credential machines/bmc/site/root\" }";
 const SANITIZED_CREDENTIAL_ERROR: &str = "Site Explorer credentials are missing or invalid";
 
 async fn get_page(app: &axum::Router, uri: &str) -> String {
@@ -95,7 +97,7 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         started_at: finished_at,
         finished_at,
         success: false,
-        error: Some(SANITIZED_CREDENTIAL_ERROR.to_string()),
+        error: Some(RAW_CREDENTIAL_ERROR.to_string()),
         failure_category: Some("missing_credentials".to_string()),
         endpoint_explorations: 3,
         endpoint_explorations_success: 2,

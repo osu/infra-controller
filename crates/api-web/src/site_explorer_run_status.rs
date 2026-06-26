@@ -17,13 +17,16 @@
 
 use rpc::site_explorer::SiteExplorerLastRun;
 
+const GENERIC_RUN_FAILURE_MESSAGE: &str = "Site Explorer run failed";
+
 fn display_error(run: &SiteExplorerLastRun) -> String {
     match run.failure_category.as_deref() {
         Some("missing_credentials" | "set_credentials") => {
             "Site Explorer credentials are missing or invalid".to_string()
         }
         Some("secrets_engine") => "Site Explorer could not access credentials".to_string(),
-        _ => run.error.clone().unwrap_or_default(),
+        _ if run.success => String::new(),
+        _ => GENERIC_RUN_FAILURE_MESSAGE.to_string(),
     }
 }
 
@@ -67,5 +70,59 @@ impl From<&SiteExplorerLastRun> for SiteExplorerLastRunDisplay {
                 .unwrap_or_else(|| "Never".to_string()),
             error: display_error(run),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn last_run_with(
+        success: bool,
+        failure_category: Option<&str>,
+        error: Option<&str>,
+    ) -> SiteExplorerLastRun {
+        SiteExplorerLastRun {
+            started_at: "2026-01-01T00:00:00Z".to_string(),
+            finished_at: "2026-01-01T00:01:00Z".to_string(),
+            success,
+            error: error.map(str::to_string),
+            failure_category: failure_category.map(str::to_string),
+            endpoint_explorations: 0,
+            endpoint_explorations_success: 0,
+            endpoint_explorations_failed: 0,
+            last_successful_finished_at: None,
+            last_failed_finished_at: None,
+        }
+    }
+
+    #[test]
+    fn display_error_sanitizes_unknown_failure_categories() {
+        let display = SiteExplorerLastRunDisplay::from(&last_run_with(
+            false,
+            Some("internal"),
+            Some("machines/bmc/site/root"),
+        ));
+        assert_eq!(display.error, GENERIC_RUN_FAILURE_MESSAGE);
+    }
+
+    #[test]
+    fn display_error_maps_credential_categories() {
+        let display = SiteExplorerLastRunDisplay::from(&last_run_with(
+            false,
+            Some("missing_credentials"),
+            Some("machines/bmc/site/root"),
+        ));
+        assert_eq!(
+            display.error,
+            "Site Explorer credentials are missing or invalid"
+        );
+    }
+
+    #[test]
+    fn display_error_is_empty_for_successful_runs() {
+        let display =
+            SiteExplorerLastRunDisplay::from(&last_run_with(true, None, Some("ignored")));
+        assert!(display.error.is_empty());
     }
 }

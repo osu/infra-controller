@@ -217,11 +217,7 @@ pub async fn show_all_html(
         Ok(last_run) => last_run.as_ref().map(Into::into),
         Err(err) => {
             tracing::error!(%err, "get_site_explorer_last_run");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading site explorer last-run status from carbide-api",
-            )
-                .into_response();
+            None
         }
     };
 
