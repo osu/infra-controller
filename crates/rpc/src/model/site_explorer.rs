@@ -397,3 +397,33 @@ impl From<OperatorErrorSchema> for rpc::site_explorer::OperatorErrorSchema {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use model::site_explorer::EndpointExplorationError;
+
+    use super::*;
+
+    #[test]
+    fn endpoint_report_propagates_operator_error_schema_to_rpc() {
+        let error = EndpointExplorationError::MissingVendor;
+        let expected_schema = error.operator_error_schema();
+
+        let report =
+            rpc::site_explorer::EndpointExplorationReport::from(EndpointExplorationReport {
+                last_exploration_error: Some(error),
+                ..Default::default()
+            });
+
+        let actual_schema = report
+            .last_exploration_error_schema
+            .expect("report contains operator error schema");
+        assert_eq!(
+            actual_schema.error_code,
+            expected_schema.error_code.to_string()
+        );
+        assert_eq!(actual_schema.text, expected_schema.text);
+        assert_eq!(actual_schema.mitigation, expected_schema.mitigation);
+        assert!(report.last_exploration_error.is_some());
+    }
+}

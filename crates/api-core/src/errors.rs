@@ -458,25 +458,41 @@ fn log_carbide_error(error: &CarbideError, schema: &OperatorErrorSchema) {
 fn carbide_backtrace_location() -> Option<(String, String)> {
     // If env RUST_BACKTRACE is set extract handler and err location.
     // If it's not set, `Backtrace::capture()` is very cheap to call.
-    let b = Backtrace::capture();
-    if b.status() == BacktraceStatus::Captured {
-        let b_str = b.to_string();
-        let mut lines = b_str.lines().skip(1).skip_while(|l| !l.contains("carbide"));
+    let backtrace = Backtrace::capture();
+    if backtrace.status() != BacktraceStatus::Captured {
+        return None;
+    }
 
-        while let Some(handler) = lines.next() {
-            let Some(location) = lines.next() else {
-                break;
-            };
-            if handler.contains("carbide_backtrace_location")
-                || handler.contains("log_carbide_error")
-            {
-                continue;
-            }
+    let rendered = backtrace.to_string();
+    parse_carbide_backtrace_location(&rendered)
+        .map(|(handler, location)| (handler.to_owned(), location.to_owned()))
+}
 
-            let handler = handler.trim();
-            let location = location.trim().replace("at ", "");
-            return Some((handler.to_string(), location));
+fn parse_carbide_backtrace_location(backtrace: &str) -> Option<(&str, &str)> {
+    const ERROR_MODULE_PATH: &str = "crates/api-core/src/errors.rs:";
+    const ERROR_MODULE_SYMBOL: &str = "carbide_api_core::errors";
+
+    let mut lines = backtrace.lines().peekable();
+    while let Some(handler) = lines.next() {
+        let handler = handler.trim();
+        let Some(location) = lines
+            .peek()
+            .and_then(|line| line.trim().strip_prefix("at "))
+        else {
+            continue;
+        };
+        lines.next();
+
+        // Conversion frames can be sourced from this module or from core while
+        // still naming CarbideError in the symbol. Neither identifies the RPC handler.
+        if !handler.contains("carbide")
+            || handler.contains(ERROR_MODULE_SYMBOL)
+            || location.contains(ERROR_MODULE_PATH)
+        {
+            continue;
         }
+
+        return Some((handler, location));
     }
 
     None
@@ -590,6 +606,43 @@ fn unavailable_error_schema_describes_who_should_retry() {
     let mitigation = schema.mitigation.expect("has a mitigation");
     assert!(mitigation.contains("Admin CLI"));
     assert!(mitigation.contains("REST API"));
+}
+
+#[test]
+fn backtrace_location_skips_error_conversion_frames() {
+    use carbide_test_support::value_scenarios;
+
+    const WITH_OUTER_HANDLER: &str = r#"
+   3: carbide_api_core::errors::carbide_backtrace_location
+             at ./crates/api-core/src/errors.rs:461:13
+   4: carbide_api_core::errors::log_carbide_error
+             at /workspace/infra-controller/crates/api-core/src/errors.rs:437:9
+   5: <tonic::status::Status as core::convert::From<carbide_api_core::errors::CarbideError>>::from
+             at ./crates/api-core/src/errors.rs:425:9
+   6: <carbide_api_core::errors::CarbideError as core::convert::Into<tonic::status::Status>>::into
+             at /rustc/library/core/src/convert/mod.rs:761:9
+   7: carbide_api_core::handlers::machine::create_machine
+             at ./crates/api-core/src/handlers/machine.rs:412:24
+"#;
+    const ERROR_FRAMES_ONLY: &str = r#"
+   3: carbide_api_core::errors::carbide_backtrace_location
+             at ./crates/api-core/src/errors.rs:461:13
+   4: carbide_api_core::errors::log_carbide_error
+             at ./crates/api-core/src/errors.rs:437:9
+   5: <tonic::status::Status as core::convert::From<carbide_api_core::errors::CarbideError>>::from
+             at ./crates/api-core/src/errors.rs:425:9
+"#;
+
+    value_scenarios!(
+        run = parse_carbide_backtrace_location;
+        "frame selection" {
+            WITH_OUTER_HANDLER => Some((
+                "7: carbide_api_core::handlers::machine::create_machine",
+                "./crates/api-core/src/handlers/machine.rs:412:24",
+            )),
+            ERROR_FRAMES_ONLY => None,
+        }
+    );
 }
 
 #[test]

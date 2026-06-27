@@ -692,8 +692,8 @@ pub async fn refresh_endpoint(
             let has_error = ep
                 .report
                 .as_ref()
-                .and_then(|r| r.last_exploration_error.as_ref())
-                .is_some();
+                .map(has_last_exploration_error)
+                .unwrap_or_default();
             (
                 StatusCode::OK,
                 Json(serde_json::json!({ "has_exploration_error": has_error })),
@@ -1348,3 +1348,67 @@ fn lockdown_status_to_string(status: Option<&LockdownStatus>) -> String {
 impl super::Base for ExploredEndpointsShow {}
 impl super::Base for ExploredEndpointsShowPaired {}
 impl<'a> super::Base for ExploredEndpointDetail<'a> {}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use rpc::site_explorer::{EndpointExplorationReport, OperatorErrorSchema};
+
+    use super::{has_last_exploration_error, last_exploration_error_display};
+
+    fn operator_error_schema() -> OperatorErrorSchema {
+        OperatorErrorSchema {
+            error_code: "NICO-SITEEXPLORER-122".to_string(),
+            mitigation: Some("Check the HCL".to_string()),
+            text: "BMC vendor missing".to_string(),
+        }
+    }
+
+    fn report(
+        schema: Option<OperatorErrorSchema>,
+        legacy: Option<&str>,
+    ) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            last_exploration_error: legacy.map(str::to_string),
+            last_exploration_error_schema: schema,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn last_exploration_error_display_and_presence_are_schema_aware() {
+        let schema_display =
+            serde_json::to_string_pretty(&operator_error_schema()).expect("schema serializes");
+
+        check_values(
+            [
+                Check {
+                    scenario: "schema takes precedence over legacy error",
+                    input: report(Some(operator_error_schema()), Some("legacy error")),
+                    expect: (schema_display.clone(), true),
+                },
+                Check {
+                    scenario: "legacy error remains a fallback",
+                    input: report(None, Some("legacy error")),
+                    expect: ("legacy error".to_string(), true),
+                },
+                Check {
+                    scenario: "schema-only report is an error",
+                    input: report(Some(operator_error_schema()), None),
+                    expect: (schema_display, true),
+                },
+                Check {
+                    scenario: "report without either field has no error",
+                    input: report(None, None),
+                    expect: (String::new(), false),
+                },
+            ],
+            |report| {
+                (
+                    last_exploration_error_display(&report),
+                    has_last_exploration_error(&report),
+                )
+            },
+        );
+    }
+}

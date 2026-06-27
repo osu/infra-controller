@@ -1165,7 +1165,7 @@ pub enum EndpointExplorationError {
     /// DGX H100 BMCs ("Viking" is the internal code name). The variant name is
     /// kept for backward-compatible serialization of stored reports; new
     /// operator-facing text uses the real product name.
-    #[error("VikingFWInventoryForbiddenError: {details}")]
+    #[error("DGX H100 firmware inventory request was forbidden: {details}")]
     #[serde(rename_all = "PascalCase")]
     VikingFWInventoryForbiddenError {
         details: String,
@@ -1294,7 +1294,8 @@ impl OperatorError for EndpointExplorationError {
             EndpointExplorationError::UnsupportedVendor { .. }
             | EndpointExplorationError::MissingVendor => Some(
                 "Confirm the endpoint's BMC vendor and model are listed in the NICo Hardware \
-                 Compatibility List (https://docs.nvidia.com/infra-controller/documentation/hcl); \
+                 Compatibility List \
+                 (https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list); \
                  an unsupported or unidentified BMC cannot be explored.",
             ),
             EndpointExplorationError::Unauthorized { .. }
@@ -1316,11 +1317,11 @@ impl OperatorError for EndpointExplorationError {
                 Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
             }
             EndpointExplorationError::VikingFWInventoryForbiddenError { .. } => Some(
-                "No action needed: a known, intermittent DGX H100 firmware-inventory response \
-                 that clears on its own (documented in \
-                 https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html). Site \
-                 explorer retries on its next run (~2 min); force one with \
-                 `nico-admin-cli site-explorer refresh <bmc-ip>` if it persists.",
+                "No immediate action needed: site explorer treats this DGX H100 \
+                 firmware-inventory response as transient and retries on its next run (~2 min). \
+                 Force one now with `nico-admin-cli site-explorer refresh <bmc-ip>` if needed. \
+                 For general DGX H100/H200 Redfish API information, see \
+                 https://docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html.",
             ),
             _ => None,
         }
@@ -2292,16 +2293,20 @@ mod tests {
 
     #[test]
     fn unsupported_vendor_error_schema_points_at_hcl() {
-        let error = EndpointExplorationError::UnsupportedVendor {
-            vendor: "unknown".to_string(),
-        };
+        const HCL_URL: &str = "https://docs.nvidia.com/infra-controller/documentation/reference/hardware-compatibility-list";
 
-        let mitigation = error
-            .operator_error_schema()
-            .mitigation
-            .expect("has a mitigation");
-
-        assert!(mitigation.contains("docs.nvidia.com/infra-controller/documentation/hcl"));
+        value_scenarios!(
+            run = |error: EndpointExplorationError| error
+                .operator_error_schema()
+                .mitigation
+                .is_some_and(|mitigation| mitigation.contains(HCL_URL));
+            "vendor errors" {
+                EndpointExplorationError::UnsupportedVendor {
+                    vendor: "unknown".to_string(),
+                } => true,
+                EndpointExplorationError::MissingVendor => true,
+            }
+        );
     }
 
     #[test]
@@ -2312,13 +2317,15 @@ mod tests {
             response_code: Some(403),
         };
 
-        let mitigation = error
-            .operator_error_schema()
-            .mitigation
-            .expect("has a mitigation");
+        let serialized = serde_json::to_value(&error).expect("error serializes");
+        let schema = error.operator_error_schema();
+        let mitigation = schema.mitigation.expect("has a mitigation");
 
-        assert!(mitigation.contains("DGX H100"));
+        assert!(schema.text.contains("DGX H100"));
+        assert!(!schema.text.contains("Viking"));
+        assert_eq!(serialized["Type"], "VikingFWInventoryForbiddenError");
         assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
+        assert!(mitigation.contains("general DGX H100/H200 Redfish API information"));
         assert!(
             mitigation.contains("docs.nvidia.com/dgx/dgxh100-user-guide/redfish-api-supp.html")
         );
