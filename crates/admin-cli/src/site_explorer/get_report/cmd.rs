@@ -203,6 +203,7 @@ async fn get_exploration_report_for_bmc_address(
     Ok(::rpc::site_explorer::SiteExplorationReport {
         endpoints: endpoints.endpoints,
         managed_hosts: managed_host,
+        last_run: None,
     })
 }
 
