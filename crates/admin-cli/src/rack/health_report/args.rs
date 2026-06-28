@@ -37,13 +37,20 @@ Print an empty health report template:
     $ nico-admin-cli rack health-report print-empty-template
 
 ")]
+/// Health-report operations for racks.
 pub enum Args {
+    /// List the report sources that contribute to rack health.
     #[clap(about = "List health report sources for a rack")]
     Show(show::Args),
-    #[clap(about = "Insert a health report source for a rack")]
+    /// Insert one raw or predefined report source.
+    #[clap(
+        about = "Insert a health report source for a rack using exactly one of --health-report or --template"
+    )]
     Add(add::Args),
+    /// Print a JSON template for authoring a health report.
     #[clap(about = "Print an empty health report template")]
     PrintEmptyTemplate(print_empty_template::Args),
+    /// Remove one report source from a rack.
     #[clap(about = "Remove a health report source from a rack")]
     Remove(remove::Args),
 }

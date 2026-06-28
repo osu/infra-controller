@@ -38,12 +38,6 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-## Examples
-
-```sh
-nico-admin-cli rack health-report print-empty-template
-```
-
 ---
 
 **See also:** [Hardware commands](../../hardware.md) · [CLI reference index](../../README.md)

@@ -51,7 +51,7 @@ nico-admin-cli rack health-report print-empty-template
 | Subcommand | Description |
 |---|---|
 | [`show`](./rack-health-report-show.md) | List health report sources for a rack |
-| [`add`](./rack-health-report-add.md) | Insert a health report source for a rack |
+| [`add`](./rack-health-report-add.md) | Insert a health report source for a rack using exactly one of --health-report or --template |
 | [`print-empty-template`](./rack-health-report-print-empty-template.md) | Print an empty health report template |
 | [`remove`](./rack-health-report-remove.md) | Remove a health report source from a rack |
 

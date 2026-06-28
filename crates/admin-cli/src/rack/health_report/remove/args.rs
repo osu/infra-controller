@@ -26,7 +26,10 @@ Remove a health report source from a rack (source name from `health-report show`
     $ nico-admin-cli rack health-report remove rack-123 internal-maintenance
 
 ")]
+/// Arguments for removing a health report source from a rack.
 pub struct Args {
+    /// Rack whose health report source will be removed.
     pub rack_id: RackId,
+    /// Source name returned by `health-report show`.
     pub report_source: String,
 }

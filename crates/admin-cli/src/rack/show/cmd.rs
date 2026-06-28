@@ -172,10 +172,12 @@ fn show_list(outputs: &[RackOutput], format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
+/// Print one rack as an operator-facing detail table.
 fn show_detail(output: &RackOutput) {
     build_detail_table(output).printstd();
 }
 
+/// Build the rack detail table, including aggregate health information.
 fn build_detail_table(output: &RackOutput) -> Table {
     let mut table = Table::new();
     table.add_row(row!["ID", output.id]);
@@ -253,6 +255,7 @@ fn build_detail_table(output: &RackOutput) -> Table {
     table
 }
 
+/// Build the summary table shared by ASCII and CSV rack output.
 fn build_summary_table(outputs: &[RackOutput]) -> Table {
     let mut table = Table::new();
     table.set_titles(row![
@@ -271,19 +274,21 @@ fn build_summary_table(outputs: &[RackOutput]) -> Table {
             output.name,
             output.state,
             health_utils::aggregate_health_status(output.health.as_ref()),
-            format!("{}", output.current_compute_trays.len(),),
-            format!("{}", output.current_power_shelves.len(),),
-            format!("{}", output.current_nvlink_switches.len(),),
+            output.current_compute_trays.len(),
+            output.current_power_shelves.len(),
+            output.current_nvlink_switches.len(),
         ]);
     }
 
     table
 }
 
+/// Print the rack summary table.
 fn show_table(outputs: &[RackOutput]) {
     build_summary_table(outputs).printstd();
 }
 
+/// Print the rack summary table as CSV.
 fn show_table_csv(outputs: &[RackOutput]) {
     build_summary_table(outputs).to_csv(std::io::stdout()).ok();
 }

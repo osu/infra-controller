@@ -29,6 +29,7 @@ use crate::errors::CarbideCliResult;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
+/// Build power-shelf output with distinct hardware and aggregate health fields.
 fn build_table(shelves: &[PowerShelf]) -> Table {
     let mut table = Table::new();
     table.set_titles(row![
@@ -101,6 +102,7 @@ fn build_table(shelves: &[PowerShelf]) -> Table {
     table
 }
 
+/// Render power shelves in the requested output format.
 pub fn show_power_shelves(
     power_shelves: Vec<PowerShelf>,
     output_format: OutputFormat,

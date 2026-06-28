@@ -22,9 +22,10 @@ use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
+/// Remove one health report source from a rack.
 pub async fn remove(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     let context = format!(
-        "Failed to remove health report source {} from rack {}",
+        "while attempting to remove health report source {} from rack {}",
         args.report_source, args.rack_id
     );
     api_client

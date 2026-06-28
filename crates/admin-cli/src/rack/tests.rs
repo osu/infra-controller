@@ -125,8 +125,11 @@ fn parse_health_report_subcommands() {
                             _ => panic!("clap should require exactly one health report source"),
                         };
                         format!(
-                            "add:{}:{source}:replace={}:print-only={}",
-                            args.rack_id, args.replace, args.print_only
+                            "add:{}:{source}:message={}:replace={}:print-only={}",
+                            args.rack_id,
+                            args.message.as_deref().unwrap_or("none"),
+                            args.replace,
+                            args.print_only
                         )
                     }
                     Cmd::HealthReport(HealthReportCommand::Remove(args)) => {
@@ -155,10 +158,12 @@ fn parse_health_report_subcommands() {
                 TEST_RACK_ID,
                 "--template",
                 "internal-maintenance",
+                "--message",
+                "Firmware upgrade in progress",
                 "--replace",
                 "--print-only",
             ][..] => Yields(
-                "add:rack-123:template:InternalMaintenance:replace=true:print-only=true".to_string()
+                "add:rack-123:template:InternalMaintenance:message=Firmware upgrade in progress:replace=true:print-only=true".to_string()
             ),
         }
 
@@ -171,7 +176,7 @@ fn parse_health_report_subcommands() {
                 "--health-report",
                 r#"{"source":"smoke"}"#,
             ][..] => Yields(
-                r#"add:rack-123:json:{"source":"smoke"}:replace=false:print-only=false"#.to_string()
+                r#"add:rack-123:json:{"source":"smoke"}:message=none:replace=false:print-only=false"#.to_string()
             ),
         }
 
@@ -245,6 +250,19 @@ fn invalid_invocations_are_rejected() {
                 "degraded",
                 "--health-report",
                 r#"{"source":"smoke"}"#,
+            ][..] => Fails,
+        }
+
+        "health-report add rejects message with raw JSON" {
+            &[
+                "rack",
+                "health-report",
+                "add",
+                TEST_RACK_ID,
+                "--health-report",
+                r#"{"source":"smoke"}"#,
+                "--message",
+                "must not be ignored",
             ][..] => Fails,
         }
 

@@ -24,21 +24,25 @@ use crate::errors::CarbideCliResult;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
+/// Resolve and either preview or insert a rack health report source.
 pub async fn add(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     let report =
         health_utils::resolve_health_report(args.template, args.health_report, args.message)
-            .wrap_err("Failed to resolve the rack health report")?;
+            .wrap_err("while attempting to resolve the rack health report")?;
 
     if args.print_only {
         println!(
             "{}",
             serde_json::to_string_pretty(&report)
-                .wrap_err("Failed to serialize the rack health report preview")?
+                .wrap_err("while attempting to serialize the rack health report preview")?
         );
         return Ok(());
     }
 
-    let context = format!("Failed to insert a health report for rack {}", args.rack_id);
+    let context = format!(
+        "while attempting to insert a health report for rack {}",
+        args.rack_id
+    );
     api_client
         .0
         .insert_rack_health_report(build_insert_request(args.rack_id, report, args.replace))
@@ -48,6 +52,7 @@ pub async fn add(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
     Ok(())
 }
 
+/// Build the RPC request and map the replace flag to its apply mode.
 fn build_insert_request(
     rack_id: RackId,
     report: ::health_report::HealthReport,

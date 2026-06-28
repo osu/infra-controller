@@ -24,12 +24,16 @@ use crate::errors::CarbideCliResult;
 use crate::health_utils;
 use crate::rpc::ApiClient;
 
+/// List and render the health report sources for a rack.
 pub async fn show(
     api_client: &ApiClient,
     args: Args,
     format: OutputFormat,
 ) -> CarbideCliResult<()> {
-    let context = format!("Failed to list health reports for rack {}", args.rack_id);
+    let context = format!(
+        "while attempting to list health reports for rack {}",
+        args.rack_id
+    );
     let response = api_client
         .0
         .list_rack_health_reports(ListRackHealthReportsRequest {
@@ -38,6 +42,6 @@ pub async fn show(
         .await
         .wrap_err(context)?;
     health_utils::display_health_reports(response.health_report_entries, format)
-        .wrap_err("Failed to display rack health reports")?;
+        .wrap_err("while attempting to display rack health reports")?;
     Ok(())
 }

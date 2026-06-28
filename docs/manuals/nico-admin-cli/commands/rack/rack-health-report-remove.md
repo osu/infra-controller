@@ -40,7 +40,10 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*RACK_ID*\>  
-\<*REPORT_SOURCE*\>
+Rack whose health report source will be removed
+
+\<*REPORT_SOURCE*\>  
+Source name returned by \`health-report show\`
 
 ## Examples
 

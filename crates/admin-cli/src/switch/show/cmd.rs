@@ -352,7 +352,15 @@ fn switch_details_text(switch: &Switch) -> CarbideCliResult<String> {
             .iter()
             .fold(0, |acc, (k, _)| std::cmp::max(acc, k.len()));
         for (key, value) in status_data {
-            writeln!(&mut lines, "\t{key:<sw$}: {value}")?;
+            let mut value_lines = value.lines();
+            if let Some(first_line) = value_lines.next() {
+                writeln!(&mut lines, "\t{key:<sw$}: {first_line}")?;
+                for continuation in value_lines {
+                    writeln!(&mut lines, "\t{:<sw$}  {continuation}", "")?;
+                }
+            } else {
+                writeln!(&mut lines, "\t{key:<sw$}:")?;
+            }
         }
 
         // Lifecycle
@@ -498,19 +506,35 @@ mod tests {
                     triggered_by: None,
                     observed_at: None,
                     successes: vec![],
-                    alerts: vec![HealthProbeAlert {
-                        id: "FanFailure".to_string(),
-                        target: Some("fan-1".to_string()),
-                        in_alert_since: None,
-                        message: "Fan failed".to_string(),
-                        tenant_message: None,
-                        classifications: vec!["Hardware".to_string()],
-                    }],
+                    alerts: vec![
+                        HealthProbeAlert {
+                            id: "FanFailure".to_string(),
+                            target: Some("fan-1".to_string()),
+                            in_alert_since: None,
+                            message: "Fan failed".to_string(),
+                            tenant_message: None,
+                            classifications: vec!["Hardware".to_string()],
+                        },
+                        HealthProbeAlert {
+                            id: "TemperatureWarning".to_string(),
+                            target: Some("sensor-2".to_string()),
+                            in_alert_since: None,
+                            message: "Temperature high".to_string(),
+                            tenant_message: None,
+                            classifications: vec!["Thermal".to_string()],
+                        },
+                    ],
                 }),
-                health_sources: vec![HealthSourceOrigin {
-                    mode: HealthReportApplyMode::Merge as i32,
-                    source: "operator-override".to_string(),
-                }],
+                health_sources: vec![
+                    HealthSourceOrigin {
+                        mode: HealthReportApplyMode::Merge as i32,
+                        source: "operator-override".to_string(),
+                    },
+                    HealthSourceOrigin {
+                        mode: HealthReportApplyMode::Merge as i32,
+                        source: "monitoring-agent".to_string(),
+                    },
+                ],
                 controller_state: Some("ready".to_string()),
                 fabric_manager_status: Some("not_running".to_string()),
                 ..Default::default()
@@ -546,6 +570,30 @@ mod tests {
         assert!(output.contains("FanFailure"));
         assert!(output.contains("Classifications: Hardware"));
         assert!(output.contains("operator-override"));
+        let first_alert = output
+            .lines()
+            .find(|line| line.contains("FanFailure"))
+            .expect("first alert should render");
+        let second_alert = output
+            .lines()
+            .find(|line| line.contains("TemperatureWarning"))
+            .expect("second alert should render");
+        assert_eq!(
+            first_alert.find("FanFailure"),
+            second_alert.find("TemperatureWarning")
+        );
+        let first_source = output
+            .lines()
+            .find(|line| line.contains("operator-override"))
+            .expect("first source should render");
+        let second_source = output
+            .lines()
+            .find(|line| line.contains("monitoring-agent"))
+            .expect("second source should render");
+        assert_eq!(
+            first_source.find("operator-override"),
+            second_source.find("monitoring-agent")
+        );
 
         let table = to_table(&SwitchList {
             switches: vec![switch],

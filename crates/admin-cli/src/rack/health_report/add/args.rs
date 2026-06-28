@@ -38,16 +38,34 @@ Preview the report without sending it:
     $ nico-admin-cli rack health-report add rack-123 --template degraded --print-only
 
 ")]
+/// Arguments for adding a health report source to a rack.
 pub struct Args {
+    /// Rack whose health reports will be updated.
     pub rack_id: RackId,
-    #[clap(long, help = "New health report as JSON")]
+    /// Raw report payload; mutually exclusive with `--template`.
+    #[clap(
+        long,
+        help = "New health report as JSON; mutually exclusive with --template"
+    )]
     pub health_report: Option<String>,
-    #[clap(long, help = "Predefined template name")]
+    /// Predefined report template; mutually exclusive with `--health-report`.
+    #[clap(
+        long,
+        help = "Predefined template name; mutually exclusive with --health-report"
+    )]
     pub template: Option<HealthReportTemplates>,
-    #[clap(long, help = "Message to fill in the template")]
+    /// Optional message used only with a predefined template.
+    #[clap(
+        long,
+        requires = "template",
+        conflicts_with = "health_report",
+        help = "Message to fill in the template"
+    )]
     pub message: Option<String>,
+    /// Replace all existing sources instead of merging this report.
     #[clap(long, help = "Replace all other health reports with this source")]
     pub replace: bool,
+    /// Render the report without sending it to the API.
     #[clap(long, help = "Print the report without sending it to the API")]
     pub print_only: bool,
 }

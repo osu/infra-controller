@@ -17,6 +17,7 @@
 
 use crate::health_utils;
 
+/// Print the shared empty health report template as JSON.
 pub fn print_empty_template() {
     health_utils::print_empty_template();
 }

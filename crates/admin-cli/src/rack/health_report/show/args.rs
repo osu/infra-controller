@@ -26,7 +26,9 @@ List the health report sources for a rack:
     $ nico-admin-cli rack health-report show rack-123
 
 ")]
+/// Arguments for listing health report sources for a rack.
 pub struct Args {
+    /// Rack whose health report sources will be listed.
     #[clap(help = "Rack ID to show health reports for")]
     pub rack_id: RackId,
 }

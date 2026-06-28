@@ -5,7 +5,7 @@ _[Hardware commands](../../hardware.md) › [rack](./rack.md) › [health-report
 ## NAME
 
 nico-admin-cli-rack-health-report-add - Insert a health report source
-for a rack
+for a rack using exactly one of --health-report or --template
 
 ## SYNOPSIS
 
@@ -16,15 +16,16 @@ for a rack
 
 ## DESCRIPTION
 
-Insert a health report source for a rack
+Insert a health report source for a rack using exactly one of
+--health-report or --template
 
 ## OPTIONS
 
 **--health-report** *\<HEALTH_REPORT\>*  
-New health report as JSON
+New health report as JSON; mutually exclusive with --template
 
 **--template** *\<TEMPLATE\>*  
-Predefined template name\
+Predefined template name; mutually exclusive with --health-report\
 
 \
 *Possible values:*
@@ -80,7 +81,8 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*RACK_ID*\>
+\<*RACK_ID*\>  
+Rack whose health reports will be updated
 
 ## Examples
 
