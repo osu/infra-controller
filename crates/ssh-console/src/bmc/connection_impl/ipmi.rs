@@ -542,12 +542,11 @@ impl IpmitoolMessageProxy {
         metrics_attrs: &[KeyValue],
     ) -> Result<(), ProcessLoopError> {
         let data = &self.output_buf[0..n];
-        append_captured_output(&mut self.captured_output, data);
-        if !self.sol_session_operational
-            && captured_output_contains(&self.captured_output, SOL_SESSION_OPERATIONAL)
-        {
-            self.sol_session_operational = true;
-        }
+        capture_ipmitool_startup_output(
+            &mut self.captured_output,
+            &mut self.sol_session_operational,
+            data,
+        );
         // ipmitool always emits a message after either connecting or rejecting activation.
         if let Some(ready_tx) = self.ready_tx.take() {
             self.connected_since = Utc::now();
@@ -712,6 +711,22 @@ fn append_captured_output(output: &mut VecDeque<u8>, data: &[u8]) {
         .len()
         .saturating_sub(MAX_CAPTURED_IPMITOOL_OUTPUT_SIZE);
     output.drain(..excess);
+}
+
+fn capture_ipmitool_startup_output(
+    output: &mut VecDeque<u8>,
+    sol_session_operational: &mut bool,
+    data: &[u8],
+) {
+    if *sol_session_operational {
+        return;
+    }
+
+    append_captured_output(output, data);
+    if captured_output_contains(output, SOL_SESSION_OPERATIONAL) {
+        *sol_session_operational = true;
+        output.clear();
+    }
 }
 
 fn captured_output_contains(output: &VecDeque<u8>, needle: &[u8]) -> bool {
@@ -900,19 +915,39 @@ mod tests {
     }
 
     #[test]
-    fn captured_output_detects_fragmented_activation_banner_and_stays_bounded() {
+    fn startup_output_capture_is_bounded_and_stops_after_sol_becomes_operational() {
         let mut output = VecDeque::new();
-        append_captured_output(&mut output, b"prefix SOL Session oper");
-        append_captured_output(&mut output, b"ational. Use ~? for help\r\n");
-
-        assert!(captured_output_contains(&output, SOL_SESSION_OPERATIONAL));
-
-        append_captured_output(
+        let mut sol_session_operational = false;
+        capture_ipmitool_startup_output(
             &mut output,
+            &mut sol_session_operational,
             &vec![b'x'; MAX_CAPTURED_IPMITOOL_OUTPUT_SIZE + 1],
         );
         assert_eq!(output.len(), MAX_CAPTURED_IPMITOOL_OUTPUT_SIZE);
         assert!(output.iter().all(|byte| *byte == b'x'));
+
+        output.clear();
+        capture_ipmitool_startup_output(
+            &mut output,
+            &mut sol_session_operational,
+            b"prefix SOL Session oper",
+        );
+        assert!(!sol_session_operational);
+
+        capture_ipmitool_startup_output(
+            &mut output,
+            &mut sol_session_operational,
+            b"ational. Use ~? for help\r\n",
+        );
+        assert!(sol_session_operational);
+        assert!(output.is_empty());
+
+        capture_ipmitool_startup_output(
+            &mut output,
+            &mut sol_session_operational,
+            b"post-connect host console data",
+        );
+        assert!(output.is_empty());
     }
 
     #[tokio::test]
