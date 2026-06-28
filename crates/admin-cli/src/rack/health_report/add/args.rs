@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 
 use crate::machine::HealthReportTemplates;
@@ -26,32 +26,28 @@ use crate::machine::HealthReportTemplates;
 EXAMPLES:
 
 Add a health report source from a predefined template:
-    $ nico-admin-cli power-shelf health-report add \
-    ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 \
-    --template internal-maintenance --message \"Firmware upgrade in progress\"
+    $ nico-admin-cli rack health-report add rack-123 --template internal-maintenance \
+    --message \"Firmware upgrade in progress\"
 
-Add a health report source from raw JSON:
-    $ nico-admin-cli power-shelf health-report add \
-    ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 \
+Add a health report source from raw JSON and replace existing reports:
+    $ nico-admin-cli rack health-report add rack-123 \
     --health-report '{\"source\":\"admin-cli\",\"observed_at\":null,\
-    \"successes\":[],\"alerts\":[]}'
+    \"successes\":[],\"alerts\":[]}' --replace
 
 Preview the report without sending it:
-    $ nico-admin-cli power-shelf health-report add \
-    ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 \
-    --template degraded --print-only
+    $ nico-admin-cli rack health-report add rack-123 --template degraded --print-only
 
 ")]
 pub struct Args {
-    pub power_shelf_id: PowerShelfId,
-    #[clap(long, help = "New health report as json")]
+    pub rack_id: RackId,
+    #[clap(long, help = "New health report as JSON")]
     pub health_report: Option<String>,
-    #[clap(long, help = "Predefined Template name")]
+    #[clap(long, help = "Predefined template name")]
     pub template: Option<HealthReportTemplates>,
-    #[clap(long, help = "Message to be filled in template.")]
+    #[clap(long, help = "Message to fill in the template")]
     pub message: Option<String>,
     #[clap(long, help = "Replace all other health reports with this source")]
     pub replace: bool,
-    #[clap(long, help = "Print the template that is going to be send to carbide")]
+    #[clap(long, help = "Print the report without sending it to the API")]
     pub print_only: bool,
 }

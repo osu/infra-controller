@@ -26,7 +26,7 @@ use super::args::Args;
 use crate::cfg::cli_options::SortField;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
-use crate::{async_write, async_write_table_as_csv};
+use crate::{async_write, async_write_table_as_csv, health_utils};
 
 /// Converts a SwitchList to a Table object.
 fn to_table(switches: &SwitchList) -> Table {
@@ -40,7 +40,10 @@ fn to_table(switches: &SwitchList) -> Table {
         "Tray",
         "Primary",
         "Power State",
-        "Health",
+        "Hardware Health",
+        "Aggregate Health",
+        "Health Alerts",
+        "Health Reports",
         "FabricManager(nmxc)",
         "State"
     ]);
@@ -78,21 +81,17 @@ fn to_table(switches: &SwitchList) -> Table {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "N/A".to_string());
 
-        let power_state = switch
-            .status
-            .as_ref()
+        let status = switch.status.as_ref();
+        let power_state = status
             .and_then(|status| status.power_state.as_deref())
             .unwrap_or("N/A");
 
-        let health = switch
-            .status
-            .as_ref()
+        let hardware_health = status
             .and_then(|status| status.health_status.as_deref())
             .unwrap_or("N/A");
+        let aggregate_health = status.and_then(|status| status.health.as_ref());
         let is_primary = if switch.is_primary { "Yes" } else { "No" };
-        let fabric_manager_status = switch
-            .status
-            .as_ref()
+        let fabric_manager_status = status
             .and_then(|status| status.fabric_manager_status.as_deref())
             .unwrap_or("N/A");
 
@@ -104,7 +103,14 @@ fn to_table(switches: &SwitchList) -> Table {
             tray_index,
             is_primary,
             power_state,
-            health,
+            hardware_health,
+            health_utils::aggregate_health_status(aggregate_health),
+            health_utils::format_health_alerts(aggregate_health),
+            health_utils::format_health_sources(
+                status
+                    .map(|status| status.health_sources.as_slice())
+                    .unwrap_or_default(),
+            ),
             fabric_manager_status,
             switch.controller_state,
         ]);
@@ -316,6 +322,18 @@ fn switch_details_text(switch: &Switch) -> CarbideCliResult<String> {
                     .unwrap_or_else(|| "N/A".to_string()),
             ),
             (
+                "Aggregate Health",
+                health_utils::aggregate_health_status(status.health.as_ref()).to_string(),
+            ),
+            (
+                "Health Probe Alerts",
+                health_utils::format_health_alerts(status.health.as_ref()),
+            ),
+            (
+                "Health Reports",
+                health_utils::format_health_sources(&status.health_sources),
+            ),
+            (
                 "Controller State",
                 status
                     .controller_state
@@ -377,13 +395,6 @@ fn switch_details_text(switch: &Switch) -> CarbideCliResult<String> {
             }
             if let Some(err) = &fm_details.error_message {
                 writeln!(&mut lines, "\t\tError  : {err}")?;
-            }
-        }
-
-        if !status.health_sources.is_empty() {
-            writeln!(&mut lines, "\tHealth Sources:")?;
-            for hs in &status.health_sources {
-                writeln!(&mut lines, "\t\tmode={} source={}", hs.mode, hs.source)?;
             }
         }
     } else {
@@ -449,7 +460,11 @@ mod tests {
 
     use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::SwitchId;
-    use rpc::forge::{BmcInfo, Metadata, PlacementInRack, Switch, SwitchConfig, SwitchStatus};
+    use rpc::forge::{
+        BmcInfo, HealthReportApplyMode, HealthSourceOrigin, Metadata, PlacementInRack, Switch,
+        SwitchConfig, SwitchList, SwitchStatus,
+    };
+    use rpc::health::{HealthProbeAlert, HealthReport};
 
     use super::*;
 
@@ -478,6 +493,24 @@ mod tests {
                 ),
                 power_state: Some("on".to_string()),
                 health_status: Some("ok".to_string()),
+                health: Some(HealthReport {
+                    source: "switch-aggregate-health".to_string(),
+                    triggered_by: None,
+                    observed_at: None,
+                    successes: vec![],
+                    alerts: vec![HealthProbeAlert {
+                        id: "FanFailure".to_string(),
+                        target: Some("fan-1".to_string()),
+                        in_alert_since: None,
+                        message: "Fan failed".to_string(),
+                        tenant_message: None,
+                        classifications: vec!["Hardware".to_string()],
+                    }],
+                }),
+                health_sources: vec![HealthSourceOrigin {
+                    mode: HealthReportApplyMode::Merge as i32,
+                    source: "operator-override".to_string(),
+                }],
                 controller_state: Some("ready".to_string()),
                 fabric_manager_status: Some("not_running".to_string()),
                 ..Default::default()
@@ -506,6 +539,25 @@ mod tests {
         };
 
         let output = switch_details_text(&switch).expect("switch_details_text should succeed");
+        assert!(output.contains("Health Status"));
+        assert!(output.contains("ok"));
+        assert!(output.contains("Aggregate Health"));
+        assert!(output.contains("Unhealthy"));
+        assert!(output.contains("FanFailure"));
+        assert!(output.contains("Classifications: Hardware"));
+        assert!(output.contains("operator-override"));
+
+        let table = to_table(&SwitchList {
+            switches: vec![switch],
+        });
+        let mut bytes = Vec::new();
+        table.print(&mut bytes).expect("table should render");
+        let table = String::from_utf8(bytes).expect("table output should be UTF-8");
+        assert!(table.contains("Hardware Health"));
+        assert!(table.contains("Aggregate Health"));
+        assert!(table.contains("Unhealthy"));
+        assert!(table.contains("FanFailure"));
+        assert!(table.contains("operator-override"));
 
         let mut stdout: Box<dyn tokio::io::AsyncWrite + Unpin> = Box::new(tokio::io::stdout());
         crate::async_write!(stdout, "{}", output).expect("write to stdout should succeed");

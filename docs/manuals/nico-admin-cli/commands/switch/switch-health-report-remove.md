@@ -45,7 +45,7 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli switch health-report remove 12345678-1234-5678-90ab-cdef01234567 internal-maintenance
+nico-admin-cli switch health-report remove sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 internal-maintenance
 ```
 
 ---

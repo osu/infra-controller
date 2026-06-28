@@ -45,6 +45,7 @@ Print help (see a summary with -h)
 | [`list`](./rack-list.md) | List all racks |
 | [`delete`](./rack-delete.md) | Delete the rack |
 | [`force-delete`](./rack-force-delete.md) | Force delete a rack |
+| [`health-report`](./rack-health-report.md) | Manage health report sources |
 | [`metadata`](./rack-metadata.md) | Edit Metadata associated with a Rack |
 | [`profile`](./rack-profile.md) | Rack profile |
 | [`maintenance`](./rack-maintenance.md) | On-demand rack maintenance |

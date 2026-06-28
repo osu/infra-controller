@@ -44,7 +44,7 @@ Switch ID to show health reports for
 ## Examples
 
 ```sh
-nico-admin-cli switch health-report show 12345678-1234-5678-90ab-cdef01234567
+nico-admin-cli switch health-report show sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60
 ```
 
 ---

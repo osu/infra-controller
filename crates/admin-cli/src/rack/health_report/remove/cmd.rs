@@ -15,19 +15,26 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
-use clap::Parser;
+use ::rpc::forge::RemoveRackHealthReportRequest;
+use color_eyre::eyre::WrapErr;
 
-#[derive(Parser, Debug)]
-#[command(after_long_help = "\
-EXAMPLES:
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
 
-List the health report sources for a switch:
-    $ nico-admin-cli switch health-report show \
-    sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60
+pub async fn remove(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+    let context = format!(
+        "Failed to remove health report source {} from rack {}",
+        args.report_source, args.rack_id
+    );
+    api_client
+        .0
+        .remove_rack_health_report(RemoveRackHealthReportRequest {
+            rack_id: Some(args.rack_id),
+            source: args.report_source,
+        })
+        .await
+        .wrap_err(context)?;
 
-")]
-pub struct Args {
-    #[clap(help = "Switch ID to show health reports for")]
-    pub switch_id: SwitchId,
+    Ok(())
 }

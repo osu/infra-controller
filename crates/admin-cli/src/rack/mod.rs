@@ -17,6 +17,7 @@
 
 mod delete;
 mod force_delete;
+pub mod health_report;
 mod list;
 mod maintenance;
 pub mod metadata;
@@ -41,6 +42,13 @@ pub enum Cmd {
     Delete(delete::Args),
     #[clap(about = "Force delete a rack")]
     ForceDelete(force_delete::Args),
+    #[dispatch]
+    #[clap(
+        about = "Manage health report sources",
+        subcommand,
+        visible_alias = "hr"
+    )]
+    HealthReport(health_report::Args),
     #[clap(subcommand, about = "Edit Metadata associated with a Rack")]
     Metadata(metadata::Args),
     #[clap(subcommand, about = "Rack profile")]

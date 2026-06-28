@@ -15,19 +15,17 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
-use clap::Parser;
+pub mod args;
+pub mod cmd;
 
-#[derive(Parser, Debug)]
-#[command(after_long_help = "\
-EXAMPLES:
+pub use args::Args;
 
-List the health report sources for a switch:
-    $ nico-admin-cli switch health-report show \
-    sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
 
-")]
-pub struct Args {
-    #[clap(help = "Switch ID to show health reports for")]
-    pub switch_id: SwitchId,
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::show(&ctx.api_client, self, ctx.config.format).await
+    }
 }

@@ -23,7 +23,8 @@ use clap::Parser;
 EXAMPLES:
 
 Remove a health report source from a power shelf (source name from `health-report show`):
-    $ nico-admin-cli power-shelf health-report remove 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli power-shelf health-report remove \
+    ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 \
     internal-maintenance
 
 ")]

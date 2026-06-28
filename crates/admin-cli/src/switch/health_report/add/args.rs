@@ -26,15 +26,19 @@ use crate::machine::HealthReportTemplates;
 EXAMPLES:
 
 Add a health report source from a predefined template:
-    $ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch health-report add \
+    sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 \
     --template internal-maintenance --message \"Firmware upgrade in progress\"
 
 Add a health report source from raw JSON:
-    $ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
-    --health-report '{...}'
+    $ nico-admin-cli switch health-report add \
+    sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 \
+    --health-report '{\"source\":\"admin-cli\",\"observed_at\":null,\
+    \"successes\":[],\"alerts\":[]}'
 
 Preview the report without sending it:
-    $ nico-admin-cli switch health-report add 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli switch health-report add \
+    sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 \
     --template degraded --print-only
 
 ")]

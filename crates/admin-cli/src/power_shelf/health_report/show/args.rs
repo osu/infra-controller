@@ -23,7 +23,8 @@ use clap::Parser;
 EXAMPLES:
 
 List the health report sources for a power shelf:
-    $ nico-admin-cli power-shelf health-report show 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli power-shelf health-report show \
+    ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
 
 ")]
 pub struct Args {

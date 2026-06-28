@@ -1,20 +1,20 @@
-# `nico-admin-cli power-shelf health-report show`
+# `nico-admin-cli rack health-report print-empty-template`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **show**_
+_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [health-report](./rack-health-report.md) › **print-empty-template**_
 
 ## NAME
 
-nico-admin-cli-power-shelf-health-report-show - List health report
-sources for a power shelf
+nico-admin-cli-rack-health-report-print-empty-template - Print an empty
+health report template
 
 ## SYNOPSIS
 
-**nico-admin-cli power-shelf health-report show** \[**--extended**\]
-\[**--sort-by**\] \[**-h**\|**--help**\] \<*POWER_SHELF_ID*\>
+**nico-admin-cli rack health-report print-empty-template**
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
-List health report sources for a power shelf
+Print an empty health report template
 
 ## OPTIONS
 
@@ -38,13 +38,10 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*POWER_SHELF_ID*\>  
-Power Shelf ID to show health reports for
-
 ## Examples
 
 ```sh
-nico-admin-cli power-shelf health-report show ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
+nico-admin-cli rack health-report print-empty-template
 ```
 
 ---

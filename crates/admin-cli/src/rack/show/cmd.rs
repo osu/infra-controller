@@ -19,11 +19,14 @@ use carbide_uuid::rack::RackId;
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::{MachineSearchConfig, PowerShelfSearchFilter, Rack, SwitchSearchFilter};
+use rpc::forge::{
+    HealthSourceOrigin, MachineSearchConfig, PowerShelfSearchFilter, Rack, SwitchSearchFilter,
+};
 use serde::Serialize;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
+use crate::health_utils;
 use crate::rpc::ApiClient;
 
 #[derive(Serialize)]
@@ -32,6 +35,8 @@ struct RackOutput {
     name: String,
     state: String,
     version: String,
+    health: Option<rpc::health::HealthReport>,
+    health_sources: Vec<HealthSourceOrigin>,
     current_compute_trays: Vec<String>,
     current_power_shelves: Vec<String>,
     current_nvlink_switches: Vec<String>,
@@ -39,6 +44,7 @@ struct RackOutput {
 
 impl From<&Rack> for RackOutput {
     fn from(r: &Rack) -> Self {
+        let status = r.status.as_ref();
         Self {
             id: r.id.as_ref().map(|id| id.to_string()).unwrap_or_default(),
             name: r
@@ -48,6 +54,10 @@ impl From<&Rack> for RackOutput {
                 .unwrap_or_default(),
             state: r.rack_state.clone(),
             version: r.version.clone(),
+            health: status.and_then(|status| status.health.clone()),
+            health_sources: status
+                .map(|status| status.health_sources.clone())
+                .unwrap_or_default(),
             current_compute_trays: vec![],
             current_power_shelves: vec![],
             current_nvlink_switches: vec![],
@@ -163,11 +173,44 @@ fn show_list(outputs: &[RackOutput], format: OutputFormat) -> Result<()> {
 }
 
 fn show_detail(output: &RackOutput) {
+    build_detail_table(output).printstd();
+}
+
+fn build_detail_table(output: &RackOutput) -> Table {
     let mut table = Table::new();
     table.add_row(row!["ID", output.id]);
     table.add_row(row!["Name", output.name]);
     table.add_row(row!["State", output.state]);
     table.add_row(row!["Version", output.version]);
+    table.add_row(row![
+        "Health",
+        health_utils::aggregate_health_status(output.health.as_ref())
+    ]);
+    table.add_row(row![
+        "Health Report Source",
+        output
+            .health
+            .as_ref()
+            .map(|health| health.source.as_str())
+            .unwrap_or("N/A")
+    ]);
+    table.add_row(row![
+        "Health Observed At",
+        output
+            .health
+            .as_ref()
+            .and_then(|health| health.observed_at.as_ref())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "N/A".to_string())
+    ]);
+    table.add_row(row![
+        "Health Probe Alerts",
+        health_utils::format_health_alerts(output.health.as_ref())
+    ]);
+    table.add_row(row![
+        "Health Reports",
+        health_utils::format_health_sources(&output.health_sources)
+    ]);
     table.add_row(row![
         "Current Compute Trays",
         if output.current_compute_trays.is_empty() {
@@ -207,57 +250,42 @@ fn show_detail(output: &RackOutput) {
                 .join("\n")
         }
     ]);
-    table.printstd();
+    table
+}
+
+fn build_summary_table(outputs: &[RackOutput]) -> Table {
+    let mut table = Table::new();
+    table.set_titles(row![
+        "ID",
+        "Name",
+        "State",
+        "Health",
+        "Compute Trays",
+        "Power Shelves",
+        "Switches",
+    ]);
+
+    for output in outputs {
+        table.add_row(row![
+            output.id,
+            output.name,
+            output.state,
+            health_utils::aggregate_health_status(output.health.as_ref()),
+            format!("{}", output.current_compute_trays.len(),),
+            format!("{}", output.current_power_shelves.len(),),
+            format!("{}", output.current_nvlink_switches.len(),),
+        ]);
+    }
+
+    table
 }
 
 fn show_table(outputs: &[RackOutput]) {
-    let mut table = Table::new();
-    table.set_titles(row![
-        "ID",
-        "Name",
-        "State",
-        "Compute Trays",
-        "Power Shelves",
-        "Switches",
-    ]);
-
-    for output in outputs {
-        table.add_row(row![
-            output.id,
-            output.name,
-            output.state,
-            format!("{}", output.current_compute_trays.len(),),
-            format!("{}", output.current_power_shelves.len(),),
-            format!("{}", output.current_nvlink_switches.len(),),
-        ]);
-    }
-
-    table.printstd();
+    build_summary_table(outputs).printstd();
 }
 
 fn show_table_csv(outputs: &[RackOutput]) {
-    let mut table = Table::new();
-    table.set_titles(row![
-        "ID",
-        "Name",
-        "State",
-        "Compute Trays",
-        "Power Shelves",
-        "Switches",
-    ]);
-
-    for output in outputs {
-        table.add_row(row![
-            output.id,
-            output.name,
-            output.state,
-            format!("{}", output.current_compute_trays.len(),),
-            format!("{}", output.current_power_shelves.len(),),
-            format!("{}", output.current_nvlink_switches.len(),),
-        ]);
-    }
-
-    table.to_csv(std::io::stdout()).ok();
+    build_summary_table(outputs).to_csv(std::io::stdout()).ok();
 }
 
 #[cfg(test)]
@@ -266,9 +294,47 @@ mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases};
     use rpc::admin_cli::OutputFormat;
-    use rpc::forge::{Metadata, Rack};
+    use rpc::forge::{HealthReportApplyMode, HealthSourceOrigin, Metadata, Rack, RackStatus};
+    use rpc::health::{HealthProbeAlert, HealthReport};
 
     use super::*;
+
+    fn healthy_report() -> HealthReport {
+        HealthReport {
+            source: "rack-aggregate-health".to_string(),
+            triggered_by: None,
+            observed_at: None,
+            successes: vec![],
+            alerts: vec![],
+        }
+    }
+
+    fn unhealthy_report() -> HealthReport {
+        HealthReport {
+            alerts: vec![HealthProbeAlert {
+                id: "FanFailure".to_string(),
+                target: Some("fan-1".to_string()),
+                in_alert_since: None,
+                message: "Fan failed".to_string(),
+                tenant_message: None,
+                classifications: vec!["Hardware".to_string()],
+            }],
+            ..healthy_report()
+        }
+    }
+
+    fn health_source(source: &str) -> HealthSourceOrigin {
+        HealthSourceOrigin {
+            mode: HealthReportApplyMode::Merge as i32,
+            source: source.to_string(),
+        }
+    }
+
+    fn table_to_string(table: &Table) -> String {
+        let mut bytes = Vec::new();
+        table.print(&mut bytes).expect("table should render");
+        String::from_utf8(bytes).expect("table output should be UTF-8")
+    }
 
     fn make_rack(id: &str, state: &str, name: &str, version: &str) -> Rack {
         Rack {
@@ -277,6 +343,11 @@ mod tests {
             version: version.to_string(),
             metadata: Some(Metadata {
                 name: name.to_string(),
+                ..Default::default()
+            }),
+            status: Some(RackStatus {
+                health: Some(healthy_report()),
+                health_sources: vec![health_source("rack-controller")],
                 ..Default::default()
             }),
             ..Default::default()
@@ -297,6 +368,8 @@ mod tests {
             name: name.to_string(),
             state: state.to_string(),
             version: version.to_string(),
+            health: Some(healthy_report()),
+            health_sources: vec![health_source("rack-controller")],
             current_compute_trays: compute_trays.into_iter().map(str::to_string).collect(),
             current_power_shelves: power_shelves.into_iter().map(str::to_string).collect(),
             current_nvlink_switches: nvlink_switches.into_iter().map(str::to_string).collect(),
@@ -315,6 +388,12 @@ mod tests {
         assert_eq!(output.name, "NVL72");
         assert_eq!(output.state, "Created");
         assert_eq!(output.version, "V1-T1777407111818648");
+        assert_eq!(
+            output.health.as_ref().map(|health| health.source.as_str()),
+            Some("rack-aggregate-health")
+        );
+        assert_eq!(output.health_sources.len(), 1);
+        assert_eq!(output.health_sources[0].source, "rack-controller");
         assert!(output.current_compute_trays.is_empty());
         assert!(output.current_power_shelves.is_empty());
         assert!(output.current_nvlink_switches.is_empty());
@@ -382,6 +461,11 @@ mod tests {
         assert_eq!(json["name"], "NVL72");
         assert_eq!(json["state"], "Created");
         assert_eq!(json["version"], "V1-T1777407111818648");
+        assert_eq!(json["health"]["source"], "rack-aggregate-health");
+        assert_eq!(
+            json["health_sources"][0]["source"],
+            serde_json::json!("rack-controller")
+        );
         assert_eq!(json["current_compute_trays"], serde_json::json!([]));
         assert_eq!(json["current_power_shelves"], serde_json::json!([]));
         assert_eq!(json["current_nvlink_switches"], serde_json::json!([]));
@@ -431,6 +515,8 @@ mod tests {
         assert!(yaml.contains("name:"));
         assert!(yaml.contains("state:"));
         assert!(yaml.contains("version:"));
+        assert!(yaml.contains("health:"));
+        assert!(yaml.contains("health_sources:"));
         assert!(yaml.contains("current_compute_trays:"));
         assert!(yaml.contains("current_power_shelves:"));
         assert!(yaml.contains("current_nvlink_switches:"));
@@ -442,6 +528,25 @@ mod tests {
 
     /////////////////////////////////////////////////////////////////////////////
     // Rendering functions
+
+    /// Rack detail and summary tables expose aggregate health and its sources.
+    #[test]
+    fn rack_tables_render_aggregate_health() {
+        let mut output = make_output("Rack1", "NVL72", "Created", "V1", vec![], vec![], vec![]);
+        output.health = Some(unhealthy_report());
+        output.health_sources = vec![health_source("internal-maintenance")];
+
+        let detail = table_to_string(&build_detail_table(&output));
+        assert!(detail.contains("Health"));
+        assert!(detail.contains("Unhealthy"));
+        assert!(detail.contains("FanFailure"));
+        assert!(detail.contains("Classifications: Hardware"));
+        assert!(detail.contains("internal-maintenance"));
+
+        let summary = table_to_string(&build_summary_table(&[output]));
+        assert!(summary.contains("Health"));
+        assert!(summary.contains("Unhealthy"));
+    }
 
     // The structured renderers return Ok for both formats: show_single and
     // show_list each serialize cleanly as JSON and as YAML. Each row's input

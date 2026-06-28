@@ -15,19 +15,14 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(after_long_help = "\
 EXAMPLES:
 
-List the health report sources for a switch:
-    $ nico-admin-cli switch health-report show \
-    sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60
+Print an empty health report template:
+    $ nico-admin-cli rack health-report print-empty-template
 
 ")]
-pub struct Args {
-    #[clap(help = "Switch ID to show health reports for")]
-    pub switch_id: SwitchId,
-}
+pub struct Args;

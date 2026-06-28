@@ -45,7 +45,7 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli power-shelf health-report remove 12345678-1234-5678-90ab-cdef01234567 internal-maintenance
+nico-admin-cli power-shelf health-report remove ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 internal-maintenance
 ```
 
 ---

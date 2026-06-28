@@ -27,7 +27,10 @@ use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
+use super::health_report::args::Args as HealthReportCommand;
 use super::*;
+
+const TEST_RACK_ID: &str = "rack-123";
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -104,6 +107,90 @@ fn parse_state_history() {
     }
 }
 
+// parse_health_report_subcommands verifies all rack health-report leaves and
+// the `hr` alias route to the expected command with their operator inputs.
+#[test]
+fn parse_health_report_subcommands() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::HealthReport(HealthReportCommand::Show(args)) => {
+                        format!("show:{}", args.rack_id)
+                    }
+                    Cmd::HealthReport(HealthReportCommand::Add(args)) => {
+                        let source = match (args.template, args.health_report) {
+                            (Some(template), None) => format!("template:{template:?}"),
+                            (None, Some(report)) => format!("json:{report}"),
+                            _ => panic!("clap should require exactly one health report source"),
+                        };
+                        format!(
+                            "add:{}:{source}:replace={}:print-only={}",
+                            args.rack_id, args.replace, args.print_only
+                        )
+                    }
+                    Cmd::HealthReport(HealthReportCommand::Remove(args)) => {
+                        format!("remove:{}:{}", args.rack_id, args.report_source)
+                    }
+                    Cmd::HealthReport(HealthReportCommand::PrintEmptyTemplate(_)) => {
+                        "print-empty-template".to_string()
+                    }
+                    other => panic!("unexpected command: {other:?}"),
+                })
+                .map_err(drop)
+        };
+        "show lists rack health reports" {
+            &["rack", "health-report", "show", TEST_RACK_ID][..] => Yields("show:rack-123".to_string()),
+        }
+
+        "hr alias routes to show" {
+            &["rack", "hr", "show", TEST_RACK_ID][..] => Yields("show:rack-123".to_string()),
+        }
+
+        "add accepts a template and action flags" {
+            &[
+                "rack",
+                "health-report",
+                "add",
+                TEST_RACK_ID,
+                "--template",
+                "internal-maintenance",
+                "--replace",
+                "--print-only",
+            ][..] => Yields(
+                "add:rack-123:template:InternalMaintenance:replace=true:print-only=true".to_string()
+            ),
+        }
+
+        "add accepts a raw JSON report" {
+            &[
+                "rack",
+                "health-report",
+                "add",
+                TEST_RACK_ID,
+                "--health-report",
+                r#"{"source":"smoke"}"#,
+            ][..] => Yields(
+                r#"add:rack-123:json:{"source":"smoke"}:replace=false:print-only=false"#.to_string()
+            ),
+        }
+
+        "remove accepts a rack and report source" {
+            &[
+                "rack",
+                "health-report",
+                "remove",
+                TEST_RACK_ID,
+                "internal-maintenance",
+            ][..] => Yields("remove:rack-123:internal-maintenance".to_string()),
+        }
+
+        "print-empty-template needs no arguments" {
+            &["rack", "health-report", "print-empty-template"][..] => Yields("print-empty-template".to_string()),
+        }
+    );
+}
+
 // parse_profile_show ensures profile show parses with rack ID.
 #[test]
 fn parse_profile_show() {
@@ -138,6 +225,31 @@ fn invalid_invocations_are_rejected() {
 
         "state-history without a rack_id" {
             &["rack", "state-history"][..] => Fails,
+        }
+
+        "health-report show without a rack_id" {
+            &["rack", "health-report", "show"][..] => Fails,
+        }
+
+        "health-report add without a report source" {
+            &["rack", "health-report", "add", TEST_RACK_ID][..] => Fails,
+        }
+
+        "health-report add with both report sources" {
+            &[
+                "rack",
+                "health-report",
+                "add",
+                TEST_RACK_ID,
+                "--template",
+                "degraded",
+                "--health-report",
+                r#"{"source":"smoke"}"#,
+            ][..] => Fails,
+        }
+
+        "health-report remove without a report source" {
+            &["rack", "health-report", "remove", TEST_RACK_ID][..] => Fails,
         }
     );
 }

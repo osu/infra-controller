@@ -1,20 +1,21 @@
-# `nico-admin-cli power-shelf health-report show`
+# `nico-admin-cli rack health-report remove`
 
-_[Hardware commands](../../hardware.md) › [power-shelf](./power-shelf.md) › [health-report](./power-shelf-health-report.md) › **show**_
+_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [health-report](./rack-health-report.md) › **remove**_
 
 ## NAME
 
-nico-admin-cli-power-shelf-health-report-show - List health report
-sources for a power shelf
+nico-admin-cli-rack-health-report-remove - Remove a health report source
+from a rack
 
 ## SYNOPSIS
 
-**nico-admin-cli power-shelf health-report show** \[**--extended**\]
-\[**--sort-by**\] \[**-h**\|**--help**\] \<*POWER_SHELF_ID*\>
+**nico-admin-cli rack health-report remove** \[**--extended**\]
+\[**--sort-by**\] \[**-h**\|**--help**\] \<*RACK_ID*\>
+\<*REPORT_SOURCE*\>
 
 ## DESCRIPTION
 
-List health report sources for a power shelf
+Remove a health report source from a rack
 
 ## OPTIONS
 
@@ -38,13 +39,13 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*POWER_SHELF_ID*\>  
-Power Shelf ID to show health reports for
+\<*RACK_ID*\>  
+\<*REPORT_SOURCE*\>
 
 ## Examples
 
 ```sh
-nico-admin-cli power-shelf health-report show ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0
+nico-admin-cli rack health-report remove rack-123 internal-maintenance
 ```
 
 ---

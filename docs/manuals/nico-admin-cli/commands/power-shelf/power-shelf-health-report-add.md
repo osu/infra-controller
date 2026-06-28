@@ -85,9 +85,9 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli power-shelf health-report add 12345678-1234-5678-90ab-cdef01234567 --template internal-maintenance --message "Firmware upgrade in progress"
-nico-admin-cli power-shelf health-report add 12345678-1234-5678-90ab-cdef01234567 --health-report '{...}'
-nico-admin-cli power-shelf health-report add 12345678-1234-5678-90ab-cdef01234567 --template degraded --print-only
+nico-admin-cli power-shelf health-report add ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 --template internal-maintenance --message "Firmware upgrade in progress"
+nico-admin-cli power-shelf health-report add ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 --health-report '{"source":"admin-cli","observed_at":null,"successes":[],"alerts":[]}'
+nico-admin-cli power-shelf health-report add ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0 --template degraded --print-only
 ```
 
 ---

@@ -26,73 +26,85 @@ use rpc::forge::PowerShelf;
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
 use crate::errors::CarbideCliResult;
+use crate::health_utils;
 use crate::rpc::ApiClient;
+
+fn build_table(shelves: &[PowerShelf]) -> Table {
+    let mut table = Table::new();
+    table.set_titles(row![
+        "ID",
+        "Name",
+        "Metadata Name",
+        "Capacity(W)",
+        "Voltage(V)",
+        "Power State",
+        "Hardware Health",
+        "Aggregate Health",
+        "Health Alerts",
+        "Health Reports",
+        "State"
+    ]);
+
+    for shelf in shelves {
+        let metadata_name = shelf
+            .metadata
+            .as_ref()
+            .map(|m| m.name.as_str())
+            .unwrap_or("N/A");
+        let status = shelf.status.as_ref();
+
+        table.add_row(row![
+            shelf
+                .id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            shelf
+                .config
+                .as_ref()
+                .map(|c| c.name.as_str())
+                .unwrap_or("N/A"),
+            metadata_name,
+            shelf
+                .config
+                .as_ref()
+                .and_then(|c| c.capacity)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            shelf
+                .config
+                .as_ref()
+                .and_then(|c| c.voltage)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            status
+                .and_then(|status| status.power_state.as_deref())
+                .unwrap_or("N/A"),
+            status
+                .and_then(|status| status.health_status.as_deref())
+                .unwrap_or("N/A"),
+            health_utils::aggregate_health_status(
+                status.and_then(|status| status.health.as_ref()),
+            ),
+            health_utils::format_health_alerts(
+                status.and_then(|status| status.health.as_ref()),
+            ),
+            health_utils::format_health_sources(
+                status
+                    .map(|status| status.health_sources.as_slice())
+                    .unwrap_or_default(),
+            ),
+            shelf.controller_state,
+        ]);
+    }
+
+    table
+}
 
 pub fn show_power_shelves(
     power_shelves: Vec<PowerShelf>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let build_table = |shelves: &[PowerShelf]| -> Table {
-        let mut table = Table::new();
-        table.set_titles(row![
-            "ID",
-            "Name",
-            "Metadata Name",
-            "Capacity(W)",
-            "Voltage(V)",
-            "Power State",
-            "Health",
-            "State"
-        ]);
-
-        for shelf in shelves {
-            let metadata_name = shelf
-                .metadata
-                .as_ref()
-                .map(|m| m.name.as_str())
-                .unwrap_or("N/A");
-
-            table.add_row(row![
-                shelf
-                    .id
-                    .as_ref()
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "N/A".to_string()),
-                shelf
-                    .config
-                    .as_ref()
-                    .map(|c| c.name.as_str())
-                    .unwrap_or("N/A"),
-                metadata_name,
-                shelf
-                    .config
-                    .as_ref()
-                    .and_then(|c| c.capacity)
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "N/A".to_string()),
-                shelf
-                    .config
-                    .as_ref()
-                    .and_then(|c| c.voltage)
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "N/A".to_string()),
-                shelf
-                    .status
-                    .as_ref()
-                    .and_then(|s| s.power_state.as_deref())
-                    .unwrap_or("N/A"),
-                shelf
-                    .status
-                    .as_ref()
-                    .and_then(|s| s.health_status.as_deref())
-                    .unwrap_or("N/A"),
-                shelf.controller_state,
-            ]);
-        }
-
-        table
-    };
-
     match output_format {
         OutputFormat::AsciiTable => {
             build_table(&power_shelves).printstd();
@@ -146,4 +158,63 @@ pub async fn handle_show(
 
     show_power_shelves(power_shelves, config.format).ok();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rpc::forge::{HealthReportApplyMode, HealthSourceOrigin, PowerShelf, PowerShelfStatus};
+    use rpc::health::{HealthProbeAlert, HealthReport};
+
+    use super::*;
+
+    fn table_to_string(table: &Table) -> String {
+        let mut bytes = Vec::new();
+        table.print(&mut bytes).expect("table should render");
+        String::from_utf8(bytes).expect("table output should be UTF-8")
+    }
+
+    /// Power shelf output distinguishes legacy hardware health from aggregate
+    /// health and includes aggregate alert details and report sources.
+    #[test]
+    fn table_renders_aggregate_health() {
+        let shelf = PowerShelf {
+            id: Some(
+                "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .unwrap(),
+            ),
+            status: Some(PowerShelfStatus {
+                health_status: Some("ok".to_string()),
+                health: Some(HealthReport {
+                    source: "power-shelf-aggregate-health".to_string(),
+                    triggered_by: None,
+                    observed_at: None,
+                    successes: vec![],
+                    alerts: vec![HealthProbeAlert {
+                        id: "PowerSupplyFailure".to_string(),
+                        target: Some("psu-1".to_string()),
+                        in_alert_since: None,
+                        message: "Power supply failed".to_string(),
+                        tenant_message: None,
+                        classifications: vec!["Hardware".to_string()],
+                    }],
+                }),
+                health_sources: vec![HealthSourceOrigin {
+                    mode: HealthReportApplyMode::Merge as i32,
+                    source: "operator-override".to_string(),
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let rendered = table_to_string(&build_table(&[shelf]));
+        assert!(rendered.contains("Hardware Health"));
+        assert!(rendered.contains("Aggregate Health"));
+        assert!(rendered.contains("ok"));
+        assert!(rendered.contains("Unhealthy"));
+        assert!(rendered.contains("PowerSupplyFailure"));
+        assert!(rendered.contains("Classifications: Hardware"));
+        assert!(rendered.contains("operator-override"));
+    }
 }

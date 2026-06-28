@@ -1,30 +1,30 @@
-# `nico-admin-cli switch health-report add`
+# `nico-admin-cli rack health-report add`
 
-_[Hardware commands](../../hardware.md) › [switch](./switch.md) › [health-report](./switch-health-report.md) › **add**_
+_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [health-report](./rack-health-report.md) › **add**_
 
 ## NAME
 
-nico-admin-cli-switch-health-report-add - Insert a health report source
-for a switch
+nico-admin-cli-rack-health-report-add - Insert a health report source
+for a rack
 
 ## SYNOPSIS
 
-**nico-admin-cli switch health-report add** \[**--health-report**\]
+**nico-admin-cli rack health-report add** \[**--health-report**\]
 \[**--template**\] \[**--message**\] \[**--replace**\]
 \[**--print-only**\] \[**--extended**\] \[**--sort-by**\]
-\[**-h**\|**--help**\] \<*SWITCH_ID*\>
+\[**-h**\|**--help**\] \<*RACK_ID*\>
 
 ## DESCRIPTION
 
-Insert a health report source for a switch
+Insert a health report source for a rack
 
 ## OPTIONS
 
 **--health-report** *\<HEALTH_REPORT\>*  
-New health report as json
+New health report as JSON
 
 **--template** *\<TEMPLATE\>*  
-Predefined Template name\
+Predefined template name\
 
 \
 *Possible values:*
@@ -52,13 +52,13 @@ Predefined Template name\
 - request-repair
 
 **--message** *\<MESSAGE\>*  
-Message to be filled in template.
+Message to fill in the template
 
 **--replace**  
 Replace all other health reports with this source
 
 **--print-only**  
-Print the template that is going to be send to carbide
+Print the report without sending it to the API
 
 **--extended**  
 Extended result output.
@@ -80,14 +80,14 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-\<*SWITCH_ID*\>
+\<*RACK_ID*\>
 
 ## Examples
 
 ```sh
-nico-admin-cli switch health-report add sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 --template internal-maintenance --message "Firmware upgrade in progress"
-nico-admin-cli switch health-report add sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 --health-report '{"source":"admin-cli","observed_at":null,"successes":[],"alerts":[]}'
-nico-admin-cli switch health-report add sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60 --template degraded --print-only
+nico-admin-cli rack health-report add rack-123 --template internal-maintenance --message "Firmware upgrade in progress"
+nico-admin-cli rack health-report add rack-123 --health-report '{"source":"admin-cli","observed_at":null,"successes":[],"alerts":[]}' --replace
+nico-admin-cli rack health-report add rack-123 --template degraded --print-only
 ```
 
 ---
