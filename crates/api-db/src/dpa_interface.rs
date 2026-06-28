@@ -307,7 +307,7 @@ pub async fn find_by_ids(
                 (SELECT si.*, COALESCE(history_agg.json, '[]'::json) AS history FROM dpa_interfaces si
                 LEFT JOIN LATERAL (
                 SELECT h.object_id, json_agg(json_build_object('interface_id', h.object_id, 'state', h.state::text, 'state_version', h.state_version,
-                'timestamp', h.timestamp)) AS json FROM dpa_interface_state_history h WHERE h.object_id = si.id::text GROUP BY h.object_id ) AS history_agg ON true
+                'timestamp', h.timestamp) ORDER BY h.id ASC) AS json FROM dpa_interface_state_history h WHERE h.object_id = si.id::text GROUP BY h.object_id ) AS history_agg ON true
                 WHERE deleted is NULL")
     } else {
         sqlx::QueryBuilder::new(
@@ -616,14 +616,36 @@ mod test {
             config_version::ConfigVersion::initial(),
         )
         .await?;
+        crate::state_history::persist(
+            &mut txn,
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+            &DpaInterfaceControllerState::Ready,
+            config_version::ConfigVersion::new(2),
+        )
+        .await?;
+
+        let expected_history = crate::state_history::for_object(
+            txn.as_mut(),
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+        )
+        .await?;
 
         let interfaces_with_history =
             crate::dpa_interface::find_by_ids(txn.as_mut(), &[interface.id], true).await?;
         assert_eq!(interfaces_with_history.len(), 1);
         assert_eq!(
-            interfaces_with_history[0].history.len(),
-            1,
-            "DPA include-history query should use the shared object_id column",
+            interfaces_with_history[0]
+                .history
+                .iter()
+                .map(|record| record.state.as_str())
+                .collect::<Vec<_>>(),
+            expected_history
+                .iter()
+                .map(|record| record.state.as_str())
+                .collect::<Vec<_>>(),
+            "DPA include-history query should use the shared object_id column and ordering",
         );
 
         crate::dpa_interface::delete(interface.clone(), &mut txn).await?;
@@ -640,7 +662,7 @@ mod test {
             &interface.id,
         )
         .await?;
-        assert_eq!(history.len(), 1, "DPA state history should be retained");
+        assert_eq!(history.len(), 2, "DPA state history should be retained");
 
         Ok(())
     }

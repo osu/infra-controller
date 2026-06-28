@@ -207,6 +207,110 @@ mod tests {
         StateHistoryTableId::Switch,
     ];
 
+    async fn assert_concurrent_retention(
+        pool: &PgPool,
+        table_id: StateHistoryTableId,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let table_name = table_id.sql_table();
+        let object_id = format!("concurrent-{table_name}");
+
+        let mut seed = sqlx::QueryBuilder::new("INSERT INTO ");
+        seed.push(table_name);
+        seed.push(" (object_id, state, state_version) SELECT ");
+        seed.push_bind(&object_id);
+        seed.push(", to_jsonb(sequence), ");
+        seed.push_bind(config_version::ConfigVersion::new(1));
+        seed.push(" FROM generate_series(1, 249) AS sequence");
+        seed.build().execute(pool).await?;
+
+        let mut first_txn = pool.begin().await?;
+        persist(
+            &mut first_txn,
+            table_id,
+            &object_id,
+            &250_u32,
+            config_version::ConfigVersion::new(250),
+        )
+        .await?;
+
+        let (pid_sender, pid_receiver) = tokio::sync::oneshot::channel();
+        let second_pool = pool.clone();
+        let second_object_id = object_id.clone();
+        let second_insert = tokio::spawn(async move {
+            let mut txn = second_pool.begin().await.map_err(|err| err.to_string())?;
+            let pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+                .fetch_one(&mut *txn)
+                .await
+                .map_err(|err| err.to_string())?;
+            pid_sender
+                .send(pid)
+                .map_err(|_| "could not report second writer PID".to_string())?;
+            persist(
+                &mut txn,
+                table_id,
+                &second_object_id,
+                &251_u32,
+                config_version::ConfigVersion::new(251),
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            txn.commit().await.map_err(|err| err.to_string())
+        });
+
+        let second_pid = pid_receiver.await?;
+        let mut observer = pool.acquire().await?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (\
+                         SELECT 1 FROM pg_locks \
+                         WHERE pid = $1 AND locktype = 'advisory' AND NOT granted\
+                     )",
+                )
+                .bind(second_pid)
+                .fetch_one(&mut *observer)
+                .await?;
+                if waiting {
+                    return Ok::<(), sqlx::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .map_err(|_| {
+            std::io::Error::other(format!(
+                "second writer did not wait for {table_name} retention lock",
+            ))
+        })??;
+        drop(observer);
+
+        first_txn.commit().await?;
+        second_insert.await?.map_err(std::io::Error::other)?;
+
+        let mut retained_query = sqlx::QueryBuilder::new("SELECT state::TEXT FROM ");
+        retained_query.push(table_name);
+        retained_query.push(" WHERE object_id = ");
+        retained_query.push_bind(&object_id);
+        retained_query.push(" ORDER BY id ASC");
+        let retained: Vec<String> = retained_query.build_query_scalar().fetch_all(pool).await?;
+        assert_eq!(retained.len(), 250, "retention failed for {table_name}");
+        assert_eq!(retained.first().unwrap(), "2");
+        assert_eq!(retained.last().unwrap(), "251");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn concurrent_inserts_are_serialized_per_object(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for table_id in TABLES {
+            assert_concurrent_retention(&pool, table_id).await?;
+        }
+
+        Ok(())
+    }
+
     #[crate::sqlx_test]
     async fn state_history_tables_share_schema_and_retention_behavior(
         pool: PgPool,

@@ -77,10 +77,12 @@ ALTER INDEX idx_switch_state_history_switch_id
     RENAME TO switch_state_history_object_id_idx;
 
 -- Recreate the retention functions against the common object_id column.
+-- Serialize cleanup per table/object so concurrent inserts cannot exceed the limit.
 CREATE OR REPLACE FUNCTION machine_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM machine_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM machine_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -91,6 +93,7 @@ CREATE OR REPLACE FUNCTION network_segment_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM network_segment_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM network_segment_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -101,6 +104,7 @@ CREATE OR REPLACE FUNCTION vpc_prefix_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM vpc_prefix_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM vpc_prefix_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -111,6 +115,7 @@ CREATE OR REPLACE FUNCTION dpa_interface_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM dpa_interface_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM dpa_interface_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -121,6 +126,7 @@ CREATE OR REPLACE FUNCTION ib_partition_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM ib_partition_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM ib_partition_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -131,6 +137,7 @@ CREATE OR REPLACE FUNCTION power_shelf_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM power_shelf_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM power_shelf_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -141,6 +148,7 @@ CREATE OR REPLACE FUNCTION rack_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM rack_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM rack_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
@@ -151,6 +159,7 @@ CREATE OR REPLACE FUNCTION switch_state_history_keep_limit()
 RETURNS TRIGGER AS
 $body$
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.object_id, TG_RELID::bigint));
     DELETE FROM switch_state_history WHERE object_id=NEW.object_id AND id NOT IN (SELECT id FROM switch_state_history WHERE object_id=NEW.object_id ORDER BY id DESC LIMIT 250);
     RETURN NULL;
 END;
