@@ -454,7 +454,7 @@ func (f *NICoServerImpl) FindInstancesByIds(ctx context.Context, req *cwssaws.In
 
 // InvokeInstancePower implements interface NICoServer
 func (f *NICoServerImpl) InvokeInstancePower(c context.Context, req *cwssaws.InstancePowerRequest) (*cwssaws.InstancePowerResult, error) {
-	if req == nil {
+	if req == nil || req.GetInstanceId().GetValue() == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid request argument")
 	}
 

@@ -66,7 +66,10 @@ grpcurl -d "{\"dpu_id\": { \"id\": \"$DPU_MACHINE_ID\" }, \"mode\": 0, \"initiat
 # In case of Instance, reprovision will be triggered after user approval.
 if [[ -n "$INSTANCE_ID" && "$INSTANCE_ID" != "null" ]]; then
 	echo "Sending reboot message with apply_updates_on_reboot true".
-	grpcurl -d "{\"operation\": 0, \"instance_id\": { \"value\": \"$INSTANCE_ID\" }, \"apply_updates_on_reboot\": true}" -insecure "${API_SERVER}" forge.Forge/InvokeInstancePower
+	if ! grpcurl -d "{\"operation\": 0, \"instance_id\": { \"value\": \"$INSTANCE_ID\" }, \"apply_updates_on_reboot\": true}" -insecure "${API_SERVER}" forge.Forge/InvokeInstancePower; then
+		echo "Failed to send reboot approval for instance $INSTANCE_ID." >&2
+		exit 1
+	fi
 else
 	echo "No instance found; skipping tenant reboot approval."
 fi
