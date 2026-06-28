@@ -18,5 +18,15 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
+#[command(after_long_help = "\
+EXAMPLES:
+
+Print an empty rack health report template to stdout:
+    $ nico-admin-cli rack health-report print-empty-template
+
+Write a starter template to a file for editing:
+    $ nico-admin-cli rack health-report print-empty-template > ./rack-health-report.json
+
+")]
 /// Arguments for printing an empty rack health report template.
 pub struct Args;
