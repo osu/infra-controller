@@ -458,7 +458,7 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Success() {
 
 	// Mock RebootInstanceOnSiteActivity activity
 	s.env.RegisterActivity(machineManager.RebootInstanceOnSite)
-	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, request).Return(nil)
 
 	// execute workflow
 	s.env.ExecuteWorkflow(RebootInstance, request)
@@ -478,7 +478,7 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Failure() {
 
 	// Mock RebootInstanceOnSiteActivity activity
 	s.env.RegisterActivity(machineManager.RebootInstanceOnSite)
-	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
+	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, request).Return(errors.New(errMsg))
 
 	// execute RebootMachineInventory workflow
 	s.env.ExecuteWorkflow(RebootInstance, request)

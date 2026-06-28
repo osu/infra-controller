@@ -50,7 +50,7 @@ echo "Found machine with host: $HOST_MACHINE_ID and DPU: $DPU_MACHINE_ID."
 # Check Instance state
 INSTANCE_ID=$(grpcurl -d '{}' -insecure "${API_SERVER}" forge.Forge/FindInstances | jq ".instances[0].id.value" | tr -d '"')
 
-if [[ "$INSTANCE_ID" != "null" ]]; then
+if [[ -n "$INSTANCE_ID" && "$INSTANCE_ID" != "null" ]]; then
 	INSTANCE_STATE=$(grpcurl -d "{\"id\": {\"value\": \"$INSTANCE_ID\"}}" -insecure "${API_SERVER}" forge.Forge/FindInstances | jq ".instances[0].status.tenant.state" | tr -d '"')
 	echo "Instance found with ID $INSTANCE_ID in state $INSTANCE_STATE"
 fi
@@ -140,7 +140,7 @@ export PREV_PATH=$PATH
 export PATH=${REPO_ROOT}/dev/bin:$PATH
 cargo run -p agent -- --config-path "$DPU_CONFIG_FILE" run --override-machine-id ${DPU_MACHINE_ID} &
 
-if [[ "$INSTANCE_ID" == "null" ]]; then # No instance is configured
+if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "null" ]]; then # No instance is configured
 	# Next state is Discovered.
 	i=0
 	while [[ $i -lt $MAX_RETRY ]]; do
