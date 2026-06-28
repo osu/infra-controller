@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/gogo/status"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
@@ -83,15 +85,11 @@ func TestInvokeInstancePower(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := server.InvokeInstancePower(context.Background(), test.request)
-			if gotCode := status.Code(err); gotCode != test.wantCode {
-				t.Fatalf("InvokeInstancePower() code = %v, want %v; error = %v", gotCode, test.wantCode, err)
+			require.Equal(t, test.wantCode, status.Code(err))
+			if test.wantMessage != "" {
+				assert.Equal(t, test.wantMessage, status.Convert(err).Message())
 			}
-			if test.wantMessage != "" && status.Convert(err).Message() != test.wantMessage {
-				t.Errorf("InvokeInstancePower() message = %q, want %q", status.Convert(err).Message(), test.wantMessage)
-			}
-			if gotResultNil := result == nil; gotResultNil != test.wantResultNil {
-				t.Errorf("InvokeInstancePower() result nil = %t, want %t", gotResultNil, test.wantResultNil)
-			}
+			assert.Equal(t, test.wantResultNil, result == nil)
 		})
 	}
 }
