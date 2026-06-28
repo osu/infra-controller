@@ -33,7 +33,7 @@ use ::ssh_console::shutdown_handle::ShutdownHandle;
 use api_test_helper::utils::REPO_ROOT;
 use util::ssh_console_test_helper;
 
-use crate::util::ssh_client::PermissiveSshClient;
+use crate::util::ssh_client::{ConnectionConfig, PermissiveSshClient};
 use crate::util::{BaselineTestAssertion, MockBmcType, run_baseline_test_environment};
 
 static TENANT_SSH_PUBKEY: &str = include_str!("fixtures/tenant_ssh_key.pub");
@@ -157,6 +157,61 @@ async fn test_ssh_console() -> eyre::Result<()> {
         );
     }
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ipmi_sol_conflict_recovery() -> eyre::Result<()> {
+    if std::env::var("REPO_ROOT").is_err() {
+        tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
+        return Ok(());
+    }
+    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ipmi]).await? else {
+        return Ok(());
+    };
+    let mock_host = &env.mock_hosts[0];
+    let active_sol_session = util::ipmi_sim::activate_sol(
+        mock_host
+            .ipmi_port
+            .expect("IPMI mock should provide an IPMI port"),
+    )
+    .await?;
+
+    let handle = ssh_console_test_helper::spawn(
+        env.mock_api_server.addr.port(),
+        Some(ssh_console_test_helper::ConfigOverrides {
+            reconnect_interval_base: Some(Duration::from_secs(30)),
+            reconnect_interval_max: Some(Duration::from_secs(30)),
+            successful_connection_minimum_duration: Some(Duration::from_secs(60)),
+        }),
+    )
+    .await?;
+
+    let user = mock_host.machine_id.to_string();
+    let expected_prompt = format!("root@{} # ", mock_host.machine_id).into_bytes();
+    // Connecting within twenty seconds proves the stale holder was evicted and retried immediately,
+    // rather than waiting for the configured 30-second normal reconnect delay. Keep the holder
+    // process alive until then so dropping its local PTY cannot make the conflict disappear.
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        util::ssh_client::assert_connection_works_with_retries_and_timeout(
+            &ConnectionConfig {
+                connection_name: "ssh-console after conflicting IPMI SOL session recovery",
+                user: &user,
+                private_key_path: &ADMIN_SSH_KEY_PATH,
+                addr: handle.addr,
+                expected_prompt: &expected_prompt,
+            },
+            5,
+            Duration::from_secs(10),
+        ),
+    )
+    .await
+    .context("ssh-console did not recover the conflicting SOL session before normal backoff")??;
+
+    drop(active_sol_session);
+
+    handle.spawn_handle.shutdown_and_wait().await;
     Ok(())
 }
 
