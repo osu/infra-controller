@@ -207,6 +207,9 @@ mod tests {
         StateHistoryTableId::Switch,
     ];
 
+    // This test helper intentionally keeps the first transaction open while it verifies that the
+    // per-object advisory lock blocks a concurrent writer.
+    #[allow(txn_held_across_await)]
     async fn assert_concurrent_retention(
         pool: &PgPool,
         table_id: StateHistoryTableId,
@@ -258,8 +261,7 @@ mod tests {
         });
 
         let second_pid = pid_receiver.await?;
-        let mut observer = pool.acquire().await?;
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let wait_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 let waiting: bool = sqlx::query_scalar(
                     "SELECT EXISTS (\
@@ -268,7 +270,7 @@ mod tests {
                      )",
                 )
                 .bind(second_pid)
-                .fetch_one(&mut *observer)
+                .fetch_one(pool)
                 .await?;
                 if waiting {
                     return Ok::<(), sqlx::Error>(());
@@ -281,11 +283,12 @@ mod tests {
             std::io::Error::other(format!(
                 "second writer did not wait for {table_name} retention lock",
             ))
-        })??;
-        drop(observer);
+        });
 
         first_txn.commit().await?;
-        second_insert.await?.map_err(std::io::Error::other)?;
+        let second_result = second_insert.await?.map_err(std::io::Error::other);
+        wait_result??;
+        second_result?;
 
         let mut retained_query = sqlx::QueryBuilder::new("SELECT state::TEXT FROM ");
         retained_query.push(table_name);
