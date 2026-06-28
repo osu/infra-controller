@@ -341,11 +341,32 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.InstancePowerRequest{
-					MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-					Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+					InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
+					Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "test reboot Instance missing request",
+			fields: fields{
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+			},
+			args: args{
+				ctx: context.Background(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "test reboot Instance missing Instance ID",
+			fields: fields{
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+			},
+			args: args{
+				ctx:     context.Background(),
+				request: &cwssaws.InstancePowerRequest{},
+			},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {

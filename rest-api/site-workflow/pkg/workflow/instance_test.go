@@ -452,8 +452,8 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Success() {
 	var machineManager iActivity.ManageInstance
 
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-		Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
+		Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
 	}
 
 	// Mock RebootInstanceOnSiteActivity activity
@@ -470,8 +470,8 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Failure() {
 	var machineManager iActivity.ManageInstance
 
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-		Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
+		Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
 	}
 
 	errMsg := "Site Controller communication error"
