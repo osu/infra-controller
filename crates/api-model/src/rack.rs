@@ -16,6 +16,7 @@
  */
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::net::IpAddr;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
@@ -23,6 +24,7 @@ use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use health_report::HealthReport;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -32,6 +34,7 @@ use crate::component_manager::PowerAction;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
+use crate::power_manager::PowerState;
 
 // Well-known label keys!
 //
@@ -405,13 +408,16 @@ pub enum RackState {
 /// Sub-states of rack maintenance.
 ///
 /// The rack enters maintenance after discovery (all devices found, all machines
-/// ready) and exits into `Validation(Pending)` once maintenance is complete,
-/// at which point the validation flow takes over.
+/// ready) and normally exits into `Validating(Pending)` once maintenance is
+/// complete, at which point the validation flow takes over. A power-control-only
+/// request returns directly to `Ready` after finalization.
 ///
 /// ## Sub-state Flow
 ///
 /// ```text
-/// FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed -> Validation(Pending)
+/// FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> PowerSequence
+///     -> PowerControl -> Completed -> Validating(Pending)
+///                      \-> Ready (power-control-only request)
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackMaintenanceState {
@@ -426,6 +432,17 @@ pub enum RackMaintenanceState {
     },
     PowerSequence {
         rack_power: RackPowerState,
+    },
+    /// Power control for the compute trays explicitly selected by the
+    /// maintenance scope. Unlike `PowerSequence`, this state is never entered
+    /// by an empty "all activities" scope.
+    PowerControl {
+        action: PowerAction,
+        /// Persisted preparation data makes cleanup and rollback safe across
+        /// controller restarts. The default keeps states serialized before
+        /// this field was introduced backward compatible.
+        #[serde(default)]
+        power_control_state: RackPowerControlState,
     },
     Completed,
 }
@@ -449,9 +466,110 @@ impl Display for RackMaintenanceState {
             RackMaintenanceState::PowerSequence { rack_power } => {
                 write!(f, "PowerSequence({})", rack_power)
             }
+            RackMaintenanceState::PowerControl {
+                action,
+                power_control_state,
+            } => {
+                write!(f, "PowerControl({action:?}, {power_control_state})")
+            }
             RackMaintenanceState::Completed => write!(f, "Completed"),
         }
     }
+}
+
+/// Persisted phases for scoped compute-tray power control.
+///
+/// Preparation and the transition to `Prepared` commit in the same database
+/// transaction. The external backend call is made only from `Prepared`, so no
+/// database transaction is held while waiting on hardware.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackPowerControlState {
+    #[default]
+    Preparing,
+    Prepared {
+        targets: Vec<RackPowerControlPreparedTarget>,
+    },
+    /// The external operation has returned. Database finalization runs in a
+    /// separate controller tick so a retry cannot redispatch restart or power
+    /// cycle operations merely because cleanup failed.
+    Finalizing {
+        targets: Vec<RackPowerControlPreparedTarget>,
+        result: RackPowerControlResult,
+    },
+}
+
+impl Display for RackPowerControlState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Preparing => f.write_str("Preparing"),
+            Self::Prepared { targets } => write!(f, "Prepared({} targets)", targets.len()),
+            Self::Finalizing { targets, result } => {
+                write!(
+                    f,
+                    "Finalizing({} targets, {} failures)",
+                    targets.len(),
+                    result.failed_target_count()
+                )
+            }
+        }
+    }
+}
+
+/// Persisted result of one external power-control dispatch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackPowerControlResult {
+    pub target_outcomes: Vec<RackPowerControlTargetOutcome>,
+    /// BMC endpoints actually handed to the backend. Finalization uses this
+    /// persisted set for re-exploration rather than preparation-time addresses
+    /// that may have become stale.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dispatched_bmc_ips: Vec<IpAddr>,
+    /// Operation-level failure details, including transport and backend result
+    /// contract errors. Per-target failures are also summarized here for the
+    /// eventual rack error cause.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl RackPowerControlResult {
+    pub fn failed_target_count(&self) -> usize {
+        self.target_outcomes
+            .iter()
+            .filter(|target| matches!(&target.outcome, RackPowerControlTargetResult::Failed { .. }))
+            .count()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackPowerControlTargetOutcome {
+    pub machine_id: MachineId,
+    pub outcome: RackPowerControlTargetResult,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RackPowerControlTargetResult {
+    Succeeded,
+    Failed { cause: String },
+}
+
+/// State required to clean up a prepared compute-tray power target safely.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackPowerControlPreparedTarget {
+    pub machine_id: MachineId,
+    pub bmc_ip: IpAddr,
+    pub previous_desired_power_state: PowerState,
+    /// Version written by preparation. Rollback restores the previous state
+    /// only while the row still has this version and the prepared desired
+    /// value, so a concurrent operator update is never overwritten.
+    pub prepared_desired_power_state_version: ConfigVersion,
+    /// Exact temporary report written by preparation. Its unique source is an
+    /// operation ownership token; cleanup proceeds only while this complete
+    /// report is still the active replacement.
+    pub power_control_health_report: HealthReport,
+    /// A replacement health report displaced by the temporary power-control
+    /// override. It is restored only if our override is still current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_replacement_health_report: Option<HealthReport>,
 }
 
 /// Sub-states of `RackMaintenanceState::ConfigureNmxCluster`.
@@ -649,7 +767,9 @@ impl MachineRvLabels {
 
 /// Individual maintenance activities that can be performed during on-demand
 /// rack maintenance. When the activities list on [`MaintenanceScope`] is
-/// empty, all activities are performed.
+/// empty, all standard rack-maintenance activities are performed. Per-device
+/// [`MaintenanceActivity::PowerControl`] is always opt-in and must be listed
+/// explicitly.
 ///
 /// Activity-specific configuration is carried inline on the variant
 /// (e.g. `FirmwareUpgrade` holds the optional target firmware version).
@@ -675,8 +795,7 @@ pub enum MaintenanceActivity {
     ConfigureNmxCluster,
     PowerSequence,
     /// Per-device power control, dispatched by the rack state controller to
-    /// the listed devices on its next tick. Framed out here for the component
-    /// manager routing path; the rack state handler side is a follow-up.
+    /// the listed devices on its next tick.
     PowerControl {
         action: PowerAction,
     },
@@ -713,7 +832,8 @@ pub struct MaintenanceScope {
     pub switch_ids: Vec<SwitchId>,
     #[serde(default)]
     pub power_shelf_ids: Vec<PowerShelfId>,
-    /// Which maintenance activities to perform. Empty means all activities.
+    /// Which maintenance activities to perform. Empty means all standard
+    /// rack-maintenance activities; per-device power control must be explicit.
     #[serde(default)]
     pub activities: Vec<MaintenanceActivity>,
 }
@@ -725,8 +845,15 @@ impl MaintenanceScope {
         self.machine_ids.is_empty() && self.switch_ids.is_empty() && self.power_shelf_ids.is_empty()
     }
 
+    /// Returns whether this scope requests an activity. An empty activity list
+    /// includes every standard maintenance activity, but never opts into
+    /// per-device power control.
     pub fn should_run(&self, activity: &MaintenanceActivity) -> bool {
-        self.activities.is_empty() || self.activities.iter().any(|a| a.same_kind(activity))
+        if self.activities.is_empty() {
+            return !matches!(activity, MaintenanceActivity::PowerControl { .. });
+        }
+
+        self.activities.iter().any(|a| a.same_kind(activity))
     }
 }
 
@@ -747,6 +874,13 @@ pub struct RackConfig {
     /// selects full-rack vs partial-rack and which activities to run.
     #[serde(default)]
     pub maintenance_requested: Option<MaintenanceScope>,
+
+    /// Durable marker written immediately before scoped compute-tray power is
+    /// dispatched. If a controller restarts while this marker is present and
+    /// the persisted power-control state is still `Prepared`, the result of
+    /// the external operation is ambiguous and must not be replayed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_control_dispatch_started_at: Option<DateTime<Utc>>,
 }
 
 /// Reason a rack will not accept a new on-demand maintenance request.
@@ -822,7 +956,7 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{scenarios, value_scenarios};
     use carbide_uuid::machine::{MachineIdSource, MachineType};
     use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
@@ -877,18 +1011,61 @@ mod tests {
     }
 
     #[test]
-    fn should_run_all_when_activities_empty() {
-        let scope = MaintenanceScope::default();
-        assert!(scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
-            firmware_version: None,
-            components: vec![],
-            force_update: false,
-        }));
-        assert!(scope.should_run(&MaintenanceActivity::NvosUpdate {
-            config_json: String::new(),
-        }));
-        assert!(scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
-        assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
+    fn should_run_defaults_standard_activities_but_requires_explicit_power_control() {
+        value_scenarios!(
+            run = |(activities, requested)| MaintenanceScope {
+                activities,
+                ..Default::default()
+            }
+            .should_run(&requested);
+            "empty defaults firmware upgrade" {
+                (
+                    vec![],
+                    MaintenanceActivity::FirmwareUpgrade {
+                        firmware_version: None,
+                        components: vec![],
+                        force_update: false,
+                    },
+                ) => true,
+            }
+
+            "empty defaults NVOS update" {
+                (
+                    vec![],
+                    MaintenanceActivity::NvosUpdate {
+                        config_json: String::new(),
+                    },
+                ) => true,
+            }
+
+            "empty defaults NMX configuration" {
+                (vec![], MaintenanceActivity::ConfigureNmxCluster) => true,
+            }
+
+            "empty defaults power sequence" {
+                (vec![], MaintenanceActivity::PowerSequence) => true,
+            }
+
+            "empty does not opt into per-device power control" {
+                (
+                    vec![],
+                    MaintenanceActivity::PowerControl {
+                        action: PowerAction::ForceOff,
+                    },
+                ) => false,
+            }
+
+            "explicit power control matches regardless of action" {
+                (
+                    vec![MaintenanceActivity::PowerControl {
+                        action: PowerAction::ForceOff,
+                    }],
+                    MaintenanceActivity::PowerControl {
+                        action: PowerAction::On,
+                    },
+                ) => true,
+            }
+        );
     }
 
     #[test]
@@ -1002,6 +1179,24 @@ mod tests {
         assert_eq!(
             MaintenanceActivity::PowerSequence.to_string(),
             "PowerSequence"
+        );
+    }
+
+    #[test]
+    fn legacy_power_control_state_defaults_to_preparing() {
+        let state: RackMaintenanceState = serde_json::from_value(serde_json::json!({
+            "PowerControl": {
+                "action": "ForceOff"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            state,
+            RackMaintenanceState::PowerControl {
+                action: PowerAction::ForceOff,
+                power_control_state: RackPowerControlState::Preparing,
+            }
         );
     }
 

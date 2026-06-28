@@ -146,6 +146,7 @@ impl StateControllerIO for RackStateControllerIO {
                     ("maintenance", "configure_nmx_cluster")
                 }
                 RackMaintenanceState::PowerSequence { .. } => ("maintenance", "power_sequence"),
+                RackMaintenanceState::PowerControl { .. } => ("maintenance", "power_control"),
                 RackMaintenanceState::Completed => ("maintenance", "completed"),
             },
             RackState::Error { .. } => ("error", ""),

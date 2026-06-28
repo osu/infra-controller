@@ -53531,8 +53531,9 @@ type ComponentPowerControlRequest struct {
 	//	*ComponentPowerControlRequest_PowerShelfIds
 	Target isComponentPowerControlRequest_Target `protobuf_oneof:"target"`
 	Action SystemPowerControl                    `protobuf:"varint,4,opt,name=action,proto3,enum=common.SystemPowerControl" json:"action,omitempty"`
-	// When true, bypass the state controller and dispatch directly to the
-	// configured HAL backend (NSM, PSM, Redfish, etc.).
+	// When true, bypass a target's state controller and dispatch directly.
+	// Rack-associated RMS compute targets use the configured RMS backend;
+	// standalone compute targets always retain the Core Redfish path.
 	BypassStateController bool `protobuf:"varint,5,opt,name=bypass_state_controller,json=bypassStateController,proto3" json:"bypass_state_controller,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache

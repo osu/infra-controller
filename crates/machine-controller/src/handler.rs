@@ -56,6 +56,7 @@ use libredfish::{Boot, EnabledDisabled, Redfish, RedfishError, SystemPowerContro
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
 use measured_boot::records::MeasurementMachineState;
 use model::DpuModel;
+use model::component_manager::PowerAction;
 use model::dpa_interface::DpaInterfaceControllerState;
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::instance::InstanceNetworkSyncStatus;
@@ -109,9 +110,7 @@ use crate::dpf::DpfOperations;
 use crate::health_report::{
     create_host_update_health_report_dpufw, create_host_update_health_report_hostfw,
 };
-use crate::redfish::{
-    did_dpu_finish_booting, host_power_control, host_power_control_with_location,
-};
+use crate::redfish::did_dpu_finish_booting;
 use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state};
 
 pub mod attestation;
@@ -1220,10 +1219,12 @@ impl MachineStateHandler {
                                 .await
                             }
                             CreateBossVolumeState::RebootHost => {
-                                redfish_client
-                                    .power(SystemPowerControl::ForceRestart)
-                                    .await
-                                    .map_err(|e| redfish_error("ForceRestart", e))?;
+                                handler_host_power_control(
+                                    mh_snapshot,
+                                    ctx,
+                                    SystemPowerControl::ForceRestart,
+                                )
+                                .await?;
 
                                 let next_state = waiting_for_cleanup_state(
                                     CleanupState::CreateBossVolume {
@@ -2049,10 +2050,7 @@ async fn handle_restart_verification(
         }
 
         if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
-            host_redfish_client
-                .power(SystemPowerControl::ForceRestart)
-                .await
-                .map_err(|e| redfish_error("restart host", e))?;
+            handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
 
             ctx.pending_db_writes
                 .push(MachineWriteOp::UpdateRestartVerificationStatus {
@@ -3097,19 +3095,14 @@ async fn handle_dpu_reprovision(
                     }
                 }
                 UnlockHostState::RebootHost => {
-                    host_power_control(
-                        redfish_client.as_ref(),
-                        &state.host_snapshot,
-                        SystemPowerControl::ForceRestart,
-                        ctx,
-                    )
-                    .await
-                    .map_err(|e| {
-                        StateHandlerError::GenericError(eyre!(
-                            "failed to ForceRestart host after disabling BMC lockdown: {}",
-                            e
-                        ))
-                    })?;
+                    handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart)
+                        .await
+                        .map_err(|e| {
+                            StateHandlerError::GenericError(eyre!(
+                                "failed to ForceRestart host after disabling BMC lockdown: {}",
+                                e
+                            ))
+                        })?;
 
                     ReprovisionState::UnlockHostForBootRepair {
                         unlock_host_state: UnlockHostState::WaitForUefiBoot,
@@ -8675,20 +8668,44 @@ impl HostUpgradeState {
         phase: Option<InitialResetPhase>,
         last_time: &Option<DateTime<Utc>>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-        let redfish_client = services
-            .create_redfish_client_from_machine(&state.host_snapshot)
-            .await?;
+        let initial_reset_timed_out = || {
+            last_time.as_ref().is_some_and(|started_at| {
+                Utc::now().signed_duration_since(*started_at)
+                    >= services
+                        .site_config
+                        .machine_state_controller
+                        .failure_retry_time
+            })
+        };
 
         match phase.unwrap_or(InitialResetPhase::Start) {
             InitialResetPhase::Start => {
-                redfish_client
-                    .power(SystemPowerControl::ForceOff)
-                    .await
-                    .map_err(|e| redfish_error("power off", e))?;
+                services
+                    .power_control(&state.host_snapshot, PowerAction::ForceOff)
+                    .await?;
+
+                Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                    HostReprovisionState::InitialReset {
+                        phase: InitialResetPhase::WaitingForHostOff,
+                        last_time: Utc::now(),
+                    },
+                    state.managed_state.get_host_repro_retry_count(),
+                )))
+            }
+            InitialResetPhase::WaitingForHostOff => {
+                let redfish_client = services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::Off {
-                    return Err(StateHandlerError::GenericError(eyre!(
-                        "Host {} did not turn off when requested",
+                    if initial_reset_timed_out() {
+                        return Err(StateHandlerError::GenericError(eyre!(
+                            "Host {} did not turn off before the initial-reset timeout",
+                            state.host_snapshot.id
+                        )));
+                    }
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "waiting for host {} to turn off before resetting its BMC",
                         state.host_snapshot.id
                     )));
                 }
@@ -8706,18 +8723,62 @@ impl HostUpgradeState {
                 )))
             }
             InitialResetPhase::BMCWasReset => {
-                if let Err(_e) = redfish_client.get_tasks().await {
-                    // BMC not fully up yet
-                    return Ok(StateHandlerOutcome::do_nothing());
-                }
-                redfish_client
-                    .power(SystemPowerControl::On)
+                let redfish_client = match services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
                     .await
-                    .map_err(|e| redfish_error("power on", e))?;
+                {
+                    Ok(client) => client,
+                    Err(error) if !initial_reset_timed_out() => {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "waiting for host {} BMC after reset: {error}",
+                            state.host_snapshot.id
+                        )));
+                    }
+                    Err(error) => {
+                        return Err(StateHandlerError::GenericError(eyre!(
+                            "Host {} BMC did not return before the initial-reset timeout: {error}",
+                            state.host_snapshot.id
+                        )));
+                    }
+                };
+                if let Err(error) = redfish_client.get_tasks().await {
+                    if initial_reset_timed_out() {
+                        return Err(StateHandlerError::GenericError(eyre!(
+                            "Host {} BMC did not become ready before the initial-reset timeout: {error}",
+                            state.host_snapshot.id
+                        )));
+                    }
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "waiting for host {} BMC task service after reset: {error}",
+                        state.host_snapshot.id
+                    )));
+                }
+                services
+                    .power_control(&state.host_snapshot, PowerAction::On)
+                    .await?;
+
+                Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
+                    HostReprovisionState::InitialReset {
+                        phase: InitialResetPhase::WaitingForHostOn,
+                        last_time: Utc::now(),
+                    },
+                    state.managed_state.get_host_repro_retry_count(),
+                )))
+            }
+            InitialResetPhase::WaitingForHostOn => {
+                let redfish_client = services
+                    .create_redfish_client_from_machine(&state.host_snapshot)
+                    .await?;
                 let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::On {
-                    return Err(StateHandlerError::GenericError(eyre!(
-                        "Host {} did not turn on when requested",
+                    if initial_reset_timed_out() {
+                        return Err(StateHandlerError::GenericError(eyre!(
+                            "Host {} did not turn on before the initial-reset timeout",
+                            state.host_snapshot.id
+                        )));
+                    }
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "waiting for host {} to turn on after resetting its BMC",
                         state.host_snapshot.id
                     )));
                 }
@@ -9352,19 +9413,16 @@ impl HostUpgradeState {
             && !power_drains_needed.is_some()
         {
             // Needs a host power reset.  We might also have used the power drains to do an AC powercycle.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
             // We previously possibly tried to use ACPowerycle here, however that requires enough time for the BMC to come back.  We use
             // the power_drains_needed setting instead for that which is already aware of how to keep track of that sort of thing.
-            if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+            if let Err(e) =
+                handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await
+            {
                 tracing::error!("Failed to power off {}: {e}", &endpoint.address);
                 return Ok(StateHandlerOutcome::do_nothing());
             }
             tokio::time::sleep(self.hgx_bmc_gpu_reboot_delay).await;
-            if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+            if let Err(e) = handler_host_power_control(state, ctx, SystemPowerControl::On).await {
                 tracing::error!("Failed to power on {}: {e}", &endpoint.address);
                 return Ok(StateHandlerOutcome::do_nothing());
             }
@@ -10190,6 +10248,77 @@ pub fn handler_host_power_control(
     handler_host_power_control_with_location(managedhost_snapshot, ctx, action, trigger_location)
 }
 
+fn component_manager_power_action(
+    action: SystemPowerControl,
+) -> Result<PowerAction, StateHandlerError> {
+    match action {
+        SystemPowerControl::On => Ok(PowerAction::On),
+        SystemPowerControl::GracefulShutdown => Ok(PowerAction::GracefulShutdown),
+        SystemPowerControl::ForceOff => Ok(PowerAction::ForceOff),
+        SystemPowerControl::GracefulRestart => Ok(PowerAction::GracefulRestart),
+        SystemPowerControl::ForceRestart => Ok(PowerAction::ForceRestart),
+        SystemPowerControl::ACPowercycle => Ok(PowerAction::AcPowercycle),
+        SystemPowerControl::PowerCycle => Err(StateHandlerError::GenericError(eyre!(
+            "PowerCycle has no compute-tray component manager equivalent"
+        ))),
+    }
+}
+
+async fn dispatch_component_manager_power_control(
+    machine: &Machine,
+    backend: &dyn component_manager::compute_tray_manager::ComputeTrayManager,
+    action: SystemPowerControl,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    trigger_location: &std::panic::Location<'_>,
+) -> Result<(), StateHandlerError> {
+    tracing::info!(
+        machine_id = %machine.id,
+        action = %action,
+        backend = backend.name(),
+        trigger_location = %trigger_location,
+        "Host Power Control"
+    );
+    ctx.pending_db_writes
+        .push(MachineWriteOp::UpdateRebootRequestedTime {
+            machine_id: machine.id,
+            mode: machine_last_reboot_requested_mode(action),
+            time: Utc::now(),
+        });
+
+    ctx.services
+        .power_control_with_manager(machine, backend, component_manager_power_action(action)?)
+        .await
+}
+
+async fn dispatch_core_host_power_control(
+    machine: &Machine,
+    backend: &dyn component_manager::compute_tray_manager::ComputeTrayManager,
+    redfish_client: &dyn Redfish,
+    power_state: libredfish::PowerState,
+    mut action: SystemPowerControl,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    trigger_location: &std::panic::Location<'_>,
+) -> Result<(), StateHandlerError> {
+    if action == SystemPowerControl::ACPowercycle
+        && !redfish_client.ac_powercycle_supported_by_power()
+    {
+        action = SystemPowerControl::ForceOff;
+    }
+
+    if action == SystemPowerControl::ACPowercycle && power_state != libredfish::PowerState::Off {
+        tracing::warn!(
+            machine_id = %machine.id,
+            %power_state,
+            "ACPowercycle requires chassis to be Off, forcing off first"
+        );
+        ctx.services
+            .power_control_with_manager(machine, backend, PowerAction::ForceOff)
+            .await?;
+    }
+
+    dispatch_component_manager_power_control(machine, backend, action, ctx, trigger_location).await
+}
+
 pub async fn handler_host_power_control_with_location(
     managedhost_snapshot: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -10197,50 +10326,56 @@ pub async fn handler_host_power_control_with_location(
     location: &std::panic::Location<'_>,
 ) -> Result<(), StateHandlerError> {
     let mut action = action;
-    let redfish_client = ctx
-        .services
-        .create_redfish_client_from_machine(&managedhost_snapshot.host_snapshot)
-        .await?;
+    let machine = &managedhost_snapshot.host_snapshot;
+    let backend = ctx.services.compute_tray_manager_for(machine);
 
-    let power_state = host_power_state(redfish_client.as_ref()).await?;
-
-    let target_power_state_reached = (power_state == libredfish::PowerState::Off
-        && (action == SystemPowerControl::ForceOff
-            || action == SystemPowerControl::GracefulShutdown))
-        || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On);
-
-    if target_power_state_reached {
-        let machine_id = &managedhost_snapshot.host_snapshot.id;
-        tracing::warn!(%machine_id, %power_state, %action, "Target power state is already reached. Skipping power control action");
+    if backend.backend() != component_manager::compute_tray_manager::Backend::Core {
+        // Non-Core backends own power-state/idempotency semantics. In particular, do not make
+        // direct BMC reads before an RMS operation: rack deployments may intentionally expose
+        // the BMC only through RMS.
+        dispatch_component_manager_power_control(machine, backend.as_ref(), action, ctx, location)
+            .await?;
     } else {
-        if power_state == libredfish::PowerState::Off
-            && (action == SystemPowerControl::ForceRestart
-                || action == SystemPowerControl::GracefulRestart)
-        {
-            // A host can't be restarted if it is in power-off state.
-            // In this call, power on the system. State machine restart the system in next iteration.
-            tracing::warn!(%power_state, %action, "Power state is Off and requested action is restart. Trying to power on the host.");
-            action = SystemPowerControl::On;
-        }
+        let redfish_client = ctx
+            .services
+            .create_redfish_client_from_machine(machine)
+            .await?;
+        let power_state = host_power_state(redfish_client.as_ref()).await?;
+        let target_power_state_reached = (power_state == libredfish::PowerState::Off
+            && (action == SystemPowerControl::ForceOff
+                || action == SystemPowerControl::GracefulShutdown))
+            || (power_state == libredfish::PowerState::On && action == SystemPowerControl::On);
 
-        let machine = &managedhost_snapshot.host_snapshot;
-        let is_restart = action == SystemPowerControl::ForceRestart
-            || action == SystemPowerControl::GracefulRestart;
-
-        if is_restart && needs_ipmi_restart(machine, ctx).await? {
-            do_ipmi_restart(machine, ctx, action, location).await?;
+        if target_power_state_reached {
+            let machine_id = &machine.id;
+            tracing::warn!(%machine_id, %power_state, %action, "Target power state is already reached. Skipping power control action");
         } else {
-            host_power_control_with_location(
-                redfish_client.as_ref(),
-                machine,
-                action,
-                ctx,
-                location,
-            )
-            .await
-            .map_err(|e| {
-                StateHandlerError::GenericError(eyre!("handler_host_power_control failed: {}", e))
-            })?;
+            if power_state == libredfish::PowerState::Off
+                && (action == SystemPowerControl::ForceRestart
+                    || action == SystemPowerControl::GracefulRestart)
+            {
+                // A host can't be restarted if it is in power-off state.
+                // In this call, power on the system. State machine restart the system in next iteration.
+                tracing::warn!(%power_state, %action, "Power state is Off and requested action is restart. Trying to power on the host.");
+                action = SystemPowerControl::On;
+            }
+
+            let is_restart = action == SystemPowerControl::ForceRestart
+                || action == SystemPowerControl::GracefulRestart;
+            if is_restart && needs_ipmi_restart(machine, ctx).await? {
+                do_ipmi_restart(machine, ctx, action, location).await?;
+            } else {
+                dispatch_core_host_power_control(
+                    machine,
+                    backend.as_ref(),
+                    redfish_client.as_ref(),
+                    power_state,
+                    action,
+                    ctx,
+                    location,
+                )
+                .await?;
+            }
         }
     }
 
@@ -10646,16 +10781,11 @@ async fn handle_instance_host_platform_config(
                 }
 
                 // Host is still on, issue power off command
-                host_power_control(
-                    redfish_client.as_ref(),
-                    &mh_snapshot.host_snapshot,
-                    SystemPowerControl::ForceOff,
-                    ctx,
-                )
-                .await
-                .map_err(|e| {
-                    StateHandlerError::GenericError(eyre!("failed to power off host: {}", e))
-                })?;
+                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceOff)
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!("failed to power off host: {}", e))
+                    })?;
 
                 return Ok(StateHandlerOutcome::wait(format!(
                     "waiting for {} to power OFF; current power state: {}",
@@ -10696,13 +10826,8 @@ async fn handle_instance_host_platform_config(
             // Host is still off. Every 5th retry use AC power cycle instead of On.
             let next_retry = power_on_retry_count + 1;
             if next_retry % 5 == 0 {
-                match host_power_control(
-                    redfish_client.as_ref(),
-                    &mh_snapshot.host_snapshot,
-                    SystemPowerControl::ACPowercycle,
-                    ctx,
-                )
-                .await
+                match handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ACPowercycle)
+                    .await
                 {
                     Ok(()) => {
                         return Ok(StateHandlerOutcome::transition(
@@ -10717,10 +10842,6 @@ async fn handle_instance_host_platform_config(
                             },
                         ));
                     }
-                    Err(RedfishError::NotSupported(_)) => {
-                        // if not supported, just power on
-                        tracing::info!("AC Powercycle not supported, skipping to power on");
-                    }
                     Err(e) => {
                         // TODO: Dell's return a generic error if in lockdown which needs to be changed in Redfish SDK
                         tracing::warn!("Failed to AC Powercycle host, skipping to power on: {e}");
@@ -10728,14 +10849,11 @@ async fn handle_instance_host_platform_config(
                 };
             }
 
-            host_power_control(
-                redfish_client.as_ref(),
-                &mh_snapshot.host_snapshot,
-                SystemPowerControl::On,
-                ctx,
-            )
-            .await
-            .map_err(|e| StateHandlerError::GenericError(eyre!("failed to power on host: {e}")))?;
+            handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::On)
+                .await
+                .map_err(|e| {
+                    StateHandlerError::GenericError(eyre!("failed to power on host: {e}"))
+                })?;
 
             tracing::info!(
                 host_id = %mh_snapshot.host_snapshot.id,
@@ -10791,19 +10909,14 @@ async fn handle_instance_host_platform_config(
                     }
                 }
                 UnlockHostState::RebootHost => {
-                    host_power_control(
-                        redfish_client.as_ref(),
-                        &mh_snapshot.host_snapshot,
-                        SystemPowerControl::ForceRestart,
-                        ctx,
-                    )
-                    .await
-                    .map_err(|e| {
-                        StateHandlerError::GenericError(eyre!(
-                            "failed to ForceRestart host after disabling BMC lockdown: {}",
-                            e
-                        ))
-                    })?;
+                    handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
+                        .await
+                        .map_err(|e| {
+                            StateHandlerError::GenericError(eyre!(
+                                "failed to ForceRestart host after disabling BMC lockdown: {}",
+                                e
+                            ))
+                        })?;
 
                     InstanceState::HostPlatformConfiguration {
                         platform_config_state: HostPlatformConfigurationState::UnlockHost {
@@ -11490,6 +11603,39 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn component_manager_power_action_maps_supported_host_actions() {
+        let cases = [
+            (SystemPowerControl::On, Some(PowerAction::On)),
+            (
+                SystemPowerControl::GracefulShutdown,
+                Some(PowerAction::GracefulShutdown),
+            ),
+            (SystemPowerControl::ForceOff, Some(PowerAction::ForceOff)),
+            (
+                SystemPowerControl::GracefulRestart,
+                Some(PowerAction::GracefulRestart),
+            ),
+            (
+                SystemPowerControl::ForceRestart,
+                Some(PowerAction::ForceRestart),
+            ),
+            (
+                SystemPowerControl::ACPowercycle,
+                Some(PowerAction::AcPowercycle),
+            ),
+            (SystemPowerControl::PowerCycle, None),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                component_manager_power_action(input).ok(),
+                expected,
+                "input: {input:?}"
+            );
+        }
+    }
 
     #[test]
     fn scout_firmware_upgrade_deadline_accounts_for_each_artifact() {

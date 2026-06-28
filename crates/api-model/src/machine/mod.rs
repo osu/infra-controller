@@ -1583,7 +1583,9 @@ pub struct ScoutUpgradeResult {
 #[serde(rename_all = "lowercase")]
 pub enum InitialResetPhase {
     Start,
+    WaitingForHostOff,
     BMCWasReset,
+    WaitingForHostOn,
     WaitHostBoot,
 }
 

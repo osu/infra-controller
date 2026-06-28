@@ -8,8 +8,8 @@ use carbide_secrets::credentials::Credentials;
 use model::component_manager::{ComputeTrayComponent, PowerAction};
 
 use crate::compute_tray_manager::{
-    Backend, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus, ComputeTrayResult,
-    ComputeTrayVendor,
+    Backend, ComputeTrayAuthentication, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus,
+    ComputeTrayResult, ComputeTrayVendor,
 };
 use crate::error::ComponentManagerError;
 
@@ -37,6 +37,9 @@ fn map_vendor(vendor: ComputeTrayVendor) -> Option<libredfish::model::service_ro
         ComputeTrayVendor::Dell => Some(RedfishVendor::Dell),
         ComputeTrayVendor::Hpe => Some(RedfishVendor::Hpe),
         ComputeTrayVendor::Lenovo => Some(RedfishVendor::Lenovo),
+        // BMCVendor::LenovoAMI represents both LenovoAMI and LenovoGB300 in Core's
+        // inventory model. Let libredfish distinguish the concrete implementation.
+        ComputeTrayVendor::LenovoAmi => None,
         ComputeTrayVendor::Supermicro => Some(RedfishVendor::Supermicro),
         ComputeTrayVendor::Nvidia | ComputeTrayVendor::Unknown => None,
     }
@@ -72,21 +75,29 @@ impl crate::compute_tray_manager::ComputeTrayManager for CoreComputeTrayManager 
         let mut results = Vec::with_capacity(endpoints.len());
 
         for ep in endpoints {
-            let Credentials::UsernamePassword {
-                ref username,
-                ref password,
-            } = ep.bmc_credentials;
-
-            let auth = carbide_redfish::libredfish::RedfishAuth::Direct(
-                username.clone(),
-                password.clone(),
-            );
+            let auth = match &ep.authentication {
+                ComputeTrayAuthentication::Credentials(Credentials::UsernamePassword {
+                    username,
+                    password,
+                }) => carbide_redfish::libredfish::RedfishAuth::Direct(
+                    username.clone(),
+                    password.clone(),
+                ),
+                ComputeTrayAuthentication::CredentialKey(key) => {
+                    carbide_redfish::libredfish::RedfishAuth::Key(key.clone())
+                }
+            };
             let vendor = map_vendor(ep.vendor);
 
             let outcome = async {
                 let client = self
                     .redfish_pool
-                    .create_client(&ep.bmc_ip.to_string(), Some(443), auth, vendor)
+                    .create_client(
+                        &ep.bmc_ip.to_string(),
+                        Some(ep.bmc_port.unwrap_or(443)),
+                        auth,
+                        vendor,
+                    )
                     .await
                     .map_err(|e| format!("failed to create Redfish client: {e}"))?;
 
@@ -132,5 +143,40 @@ impl crate::compute_tray_manager::ComputeTrayManager for CoreComputeTrayManager 
         Err(ComponentManagerError::Internal(
             "firmware bundles listing is not supported by the core compute tray backend".into(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+    use libredfish::model::service_root::RedfishVendor;
+
+    use super::*;
+
+    #[test]
+    fn compute_tray_vendor_maps_to_matching_redfish_implementation() {
+        value_scenarios!(map_vendor:
+            "Dell" {
+                ComputeTrayVendor::Dell => Some(RedfishVendor::Dell),
+            }
+            "HPE" {
+                ComputeTrayVendor::Hpe => Some(RedfishVendor::Hpe),
+            }
+            "Lenovo" {
+                ComputeTrayVendor::Lenovo => Some(RedfishVendor::Lenovo),
+            }
+            "Lenovo AMI stays distinct from Lenovo" {
+                ComputeTrayVendor::LenovoAmi => None,
+            }
+            "Supermicro" {
+                ComputeTrayVendor::Supermicro => Some(RedfishVendor::Supermicro),
+            }
+            "NVIDIA auto-detects its concrete implementation" {
+                ComputeTrayVendor::Nvidia => None,
+            }
+            "unknown auto-detects" {
+                ComputeTrayVendor::Unknown => None,
+            }
+        );
     }
 }

@@ -22,6 +22,7 @@ use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::metrics::RackMetrics;
 use carbide_secrets::credentials::CredentialManager;
+use component_manager::component_manager::ComponentManager;
 use librms::RmsApi;
 use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;
@@ -32,6 +33,8 @@ pub struct RackStateHandlerContextObjects {}
 #[derive(Clone)]
 pub struct RackStateHandlerServices {
     pub db_pool: PgPool,
+    /// Component-manager backends used for scoped device operations.
+    pub component_manager: Option<Arc<ComponentManager>>,
     /// Rack Manager Service client
     pub rms_client: Option<Arc<dyn RmsApi>>,
     // TODO: probably this is not the best place for config. But this

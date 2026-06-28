@@ -62,6 +62,7 @@ pub async fn handle_ready(
         );
         state.config.reprovision_requested = false;
         state.config.maintenance_requested = None;
+        state.config.power_control_dispatch_started_at = None;
         let mut txn = ctx.services.db_pool.begin().await?;
         db_rack::update(txn.as_mut(), id, &state.config).await?;
         return Ok(StateHandlerOutcome::transition(RackState::Maintenance {

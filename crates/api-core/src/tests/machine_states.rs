@@ -16,8 +16,8 @@
  */
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 use ::rpc::measured_boot::FromGrpc;
 use base64::prelude::*;
@@ -25,6 +25,8 @@ use carbide_machine_controller::context::MachineStateHandlerContextObjects;
 use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
 use carbide_machine_controller::metrics::MachineMetrics;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
+use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
+use carbide_secrets::credentials::CredentialReader;
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_utils::arch::CpuArchitecture;
@@ -44,6 +46,14 @@ use common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host, create_managed_host_with_config,
     create_test_env, create_test_env_with_overrides, get_config,
 };
+use component_manager::component_manager::ComponentManager;
+use component_manager::compute_tray_manager::{
+    Backend as ComputeBackend, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus,
+    ComputeTrayManager, ComputeTrayResult, ComputeTrayVendor,
+};
+use component_manager::error::ComponentManagerError;
+use component_manager::mock::{MockNvSwitchManager, MockPowerShelfManager};
+use component_manager::types::FirmwareUpdateOptions;
 use health_report::HealthReport;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
@@ -51,6 +61,7 @@ use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
+use model::component_manager::{ComputeTrayComponent, PowerAction};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::firmware::FirmwareComponentType;
@@ -60,9 +71,9 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, HostReprovisionState, InstallDpuOsState, InstanceState,
-    LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    PowerState, RetryInfo, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceState, LockdownMode, MachineState, MachineValidatingState, ManagedHostState,
+    MeasuringState, PowerState, RetryInfo, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
     SpdmMeasuringState, StateMachineArea, ValidationState,
 };
 use model::network_segment::NetworkSegmentType;
@@ -74,10 +85,113 @@ use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
 use state_controller::db_write_batch::DbWriteBatch;
-use state_controller::state_handler::StateHandlerContext;
+use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 use tonic::{Code, Request};
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecordedComputePowerCall {
+    bmc_ip: IpAddr,
+    bmc_port: Option<u16>,
+    vendor: ComputeTrayVendor,
+    action: PowerAction,
+}
+
+#[derive(Debug, Default)]
+struct RecordingRmsComputeManager {
+    calls: Mutex<Vec<RecordedComputePowerCall>>,
+}
+
+impl RecordingRmsComputeManager {
+    fn calls(&self) -> Vec<RecordedComputePowerCall> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl ComputeTrayManager for RecordingRmsComputeManager {
+    fn name(&self) -> &str {
+        "recording-rms"
+    }
+
+    fn backend(&self) -> ComputeBackend {
+        ComputeBackend::Rms
+    }
+
+    async fn power_control(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+        action: PowerAction,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .extend(endpoints.iter().map(|endpoint| RecordedComputePowerCall {
+                bmc_ip: endpoint.bmc_ip,
+                bmc_port: endpoint.bmc_port,
+                vendor: endpoint.vendor,
+                action,
+            }));
+        Ok(endpoints
+            .iter()
+            .map(|endpoint| ComputeTrayResult {
+                bmc_ip: endpoint.bmc_ip,
+                success: true,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn update_firmware(
+        &self,
+        _endpoints: &[ComputeTrayEndpoint],
+        _target_version: &str,
+        _components: &[ComputeTrayComponent],
+        _options: &FirmwareUpdateOptions,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        Err(ComponentManagerError::Internal(
+            "firmware update is outside this test".into(),
+        ))
+    }
+
+    async fn get_firmware_status(
+        &self,
+        _endpoints: &[ComputeTrayEndpoint],
+    ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError> {
+        Err(ComponentManagerError::Internal(
+            "firmware status is outside this test".into(),
+        ))
+    }
+
+    async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
+        Err(ComponentManagerError::Internal(
+            "firmware bundles are outside this test".into(),
+        ))
+    }
+}
+
+struct PanicRedfishClientPool {
+    credential_reader: Arc<dyn CredentialReader>,
+}
+
+#[async_trait::async_trait]
+impl RedfishClientPool for PanicRedfishClientPool {
+    async fn create_client(
+        &self,
+        _host: &str,
+        _port: Option<u16>,
+        _auth: RedfishAuth,
+        _vendor: Option<libredfish::model::service_root::RedfishVendor>,
+    ) -> Result<Box<dyn libredfish::Redfish>, carbide_redfish::libredfish::RedfishClientCreationError>
+    {
+        panic!("RMS power routing must not create a direct Redfish client")
+    }
+
+    fn credential_reader(&self) -> &dyn CredentialReader {
+        self.credential_reader.as_ref()
+    }
+}
 use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::measured_boot::convert_vec;
 use crate::test_support::fixture_config::{
@@ -2651,6 +2765,316 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
                 .time
         );
     }
+}
+
+#[crate::sqlx_test]
+async fn test_rack_rms_host_power_bypasses_core_redfish_preflight(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let rack_id = carbide_uuid::rack::RackId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut txn = env.db_txn().await;
+    db::rack::create(
+        &mut txn,
+        &rack_id,
+        None,
+        &model::rack::RackConfig::default(),
+        None,
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(&rack_id)
+        .bind(mh.host().id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    txn.commit().await.unwrap();
+    let host = &snapshot.host_snapshot;
+    let expected_bmc_ip = host.bmc_info.ip.expect("test host BMC IP");
+    let expected_bmc_port = host.bmc_info.port;
+
+    let compute_manager = Arc::new(RecordingRmsComputeManager::default());
+    let component_manager = ComponentManager::new(
+        Arc::new(MockNvSwitchManager),
+        Arc::new(MockPowerShelfManager),
+        compute_manager.clone(),
+        false,
+        false,
+        false,
+    );
+    let mut services = env.machine_state_handler_services();
+    services.component_manager = Some(Arc::new(component_manager));
+    services.redfish_client_pool = Arc::new(PanicRedfishClientPool {
+        credential_reader: env.test_credential_manager.clone(),
+    });
+
+    let mut write_batch = DbWriteBatch::new();
+    let mut metrics = MachineMetrics::default();
+    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut write_batch,
+    };
+
+    handler_host_power_control(
+        &snapshot,
+        &mut ctx,
+        libredfish::SystemPowerControl::GracefulRestart,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        compute_manager.calls(),
+        vec![RecordedComputePowerCall {
+            bmc_ip: expected_bmc_ip,
+            bmc_port: expected_bmc_port,
+            vendor: ComputeTrayVendor::Dell,
+            action: PowerAction::GracefulRestart,
+        }]
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sqlx::PgPool) {
+    async fn run_tick(
+        handler: &carbide_machine_controller::handler::MachineStateHandler,
+        snapshot: &mut model::machine::ManagedHostStateSnapshot,
+        services: &mut carbide_machine_controller::context::MachineStateHandlerServices,
+    ) -> StateHandlerOutcome<ManagedHostState> {
+        let machine_id = snapshot.host_snapshot.id;
+        let current_state = snapshot.managed_state.clone();
+        let mut write_batch = DbWriteBatch::new();
+        let mut metrics = MachineMetrics::default();
+        let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
+            services,
+            metrics: &mut metrics,
+            pending_db_writes: &mut write_batch,
+        };
+
+        handler
+            .handle_object_state(&machine_id, snapshot, &current_state, &mut ctx)
+            .await
+            .unwrap()
+    }
+
+    fn set_state(snapshot: &mut model::machine::ManagedHostStateSnapshot, state: ManagedHostState) {
+        snapshot.host_snapshot.state.value = state.clone();
+        snapshot.managed_state = state;
+    }
+
+    fn transitioned_to(
+        outcome: StateHandlerOutcome<ManagedHostState>,
+        expected_phase: InitialResetPhase,
+    ) -> ManagedHostState {
+        let StateHandlerOutcome::Transition { next_state, .. } = outcome else {
+            panic!("expected an initial-reset phase transition");
+        };
+        assert!(matches!(
+            &next_state,
+            ManagedHostState::HostReprovision {
+                reprovision_state: HostReprovisionState::InitialReset { phase, .. },
+                retry_count: 0,
+            } if phase == &expected_phase
+        ));
+        next_state
+    }
+
+    fn assert_waiting(outcome: StateHandlerOutcome<ManagedHostState>, expected_reason: &str) {
+        let StateHandlerOutcome::Wait { reason, .. } = outcome else {
+            panic!("expected the initial-reset phase to keep polling");
+        };
+        assert!(
+            reason.contains(expected_reason),
+            "unexpected wait reason: {reason}"
+        );
+    }
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let rack_id = carbide_uuid::rack::RackId::new(uuid::Uuid::new_v4().to_string());
+
+    let mut txn = env.db_txn().await;
+    db::rack::create(
+        &mut txn,
+        &rack_id,
+        None,
+        &model::rack::RackConfig::default(),
+        None,
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE machines SET rack_id = $1 WHERE id = $2")
+        .bind(&rack_id)
+        .bind(mh.host().id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let mut snapshot = mh.snapshot(&mut txn).await;
+    let bmc_access = mh.host().bmc_access(&mut txn).await;
+    txn.commit().await.unwrap();
+    let host = &snapshot.host_snapshot;
+    let expected_bmc_ip = host.bmc_info.ip.expect("test host BMC IP");
+    let expected_bmc_port = host.bmc_info.port;
+    let redfish_client = env.redfish_sim.client_by_info(&bmc_access).await.unwrap();
+    redfish_client
+        .power(libredfish::SystemPowerControl::On)
+        .await
+        .unwrap();
+    let initial_redfish_timepoint = env.redfish_sim.timepoint();
+
+    let compute_manager = Arc::new(RecordingRmsComputeManager::default());
+    let component_manager = ComponentManager::new(
+        Arc::new(MockNvSwitchManager),
+        Arc::new(MockPowerShelfManager),
+        compute_manager.clone(),
+        false,
+        false,
+        false,
+    );
+    let mut services = env.machine_state_handler_services();
+    services.component_manager = Some(Arc::new(component_manager));
+    services.redfish_client_pool = Arc::new(PanicRedfishClientPool {
+        credential_reader: env.test_credential_manager.clone(),
+    });
+    let handler = MachineStateHandlerBuilder::builder().build();
+
+    set_state(
+        &mut snapshot,
+        ManagedHostState::HostReprovision {
+            reprovision_state: HostReprovisionState::InitialReset {
+                phase: InitialResetPhase::Start,
+                last_time: chrono::Utc::now(),
+            },
+            retry_count: 0,
+        },
+    );
+    let next_state = transitioned_to(
+        run_tick(&handler, &mut snapshot, &mut services).await,
+        InitialResetPhase::WaitingForHostOff,
+    );
+    set_state(&mut snapshot, next_state);
+    assert_eq!(
+        compute_manager.calls(),
+        vec![RecordedComputePowerCall {
+            bmc_ip: expected_bmc_ip,
+            bmc_port: expected_bmc_port,
+            vendor: ComputeTrayVendor::Dell,
+            action: PowerAction::ForceOff,
+        }]
+    );
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&initial_redfish_timepoint)
+            .all_hosts(),
+        Vec::<RedfishSimAction>::new(),
+        "the Start phase must dispatch through RMS without reading Core Redfish"
+    );
+
+    services.redfish_client_pool = env.redfish_sim.clone();
+    assert_waiting(
+        run_tick(&handler, &mut snapshot, &mut services).await,
+        "turn off",
+    );
+    assert_eq!(compute_manager.calls().len(), 1);
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&initial_redfish_timepoint)
+            .all_hosts(),
+        Vec::<RedfishSimAction>::new(),
+        "polling an On host must not redispatch ForceOff or reset the BMC"
+    );
+
+    redfish_client
+        .power(libredfish::SystemPowerControl::ForceOff)
+        .await
+        .unwrap();
+    let bmc_reset_timepoint = env.redfish_sim.timepoint();
+    let next_state = transitioned_to(
+        run_tick(&handler, &mut snapshot, &mut services).await,
+        InitialResetPhase::BMCWasReset,
+    );
+    set_state(&mut snapshot, next_state);
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&bmc_reset_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::BmcReset]
+    );
+    assert_eq!(compute_manager.calls().len(), 1);
+
+    let next_state = transitioned_to(
+        run_tick(&handler, &mut snapshot, &mut services).await,
+        InitialResetPhase::WaitingForHostOn,
+    );
+    set_state(&mut snapshot, next_state);
+    assert_eq!(
+        compute_manager.calls(),
+        vec![
+            RecordedComputePowerCall {
+                bmc_ip: expected_bmc_ip,
+                bmc_port: expected_bmc_port,
+                vendor: ComputeTrayVendor::Dell,
+                action: PowerAction::ForceOff,
+            },
+            RecordedComputePowerCall {
+                bmc_ip: expected_bmc_ip,
+                bmc_port: expected_bmc_port,
+                vendor: ComputeTrayVendor::Dell,
+                action: PowerAction::On,
+            },
+        ]
+    );
+
+    let waiting_for_on_timepoint = env.redfish_sim.timepoint();
+    assert_waiting(
+        run_tick(&handler, &mut snapshot, &mut services).await,
+        "turn on",
+    );
+    assert_eq!(compute_manager.calls().len(), 2);
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&waiting_for_on_timepoint)
+            .all_hosts(),
+        Vec::<RedfishSimAction>::new(),
+        "polling an Off host must not redispatch On"
+    );
+
+    redfish_client
+        .power(libredfish::SystemPowerControl::On)
+        .await
+        .unwrap();
+    let host_on_timepoint = env.redfish_sim.timepoint();
+    let next_state = transitioned_to(
+        run_tick(&handler, &mut snapshot, &mut services).await,
+        InitialResetPhase::WaitHostBoot,
+    );
+    set_state(&mut snapshot, next_state);
+    assert_eq!(compute_manager.calls().len(), 2);
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&host_on_timepoint)
+            .all_hosts(),
+        Vec::<RedfishSimAction>::new()
+    );
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&bmc_reset_timepoint)
+            .all_hosts()
+            .iter()
+            .filter(|action| matches!(action, RedfishSimAction::BmcReset))
+            .count(),
+        1,
+        "the BMC must be reset exactly once across polling iterations"
+    );
 }
 
 /// Exercises WaitingForBiosJob state by configuring mock BMC to return a job ID from machine_setup.

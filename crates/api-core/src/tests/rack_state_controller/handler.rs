@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::maintenance::apply_nvos_job_status_response;
@@ -25,18 +28,28 @@ use carbide_secrets::credentials::{
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
+use component_manager::component_manager::ComponentManager;
+use component_manager::compute_tray_manager::{
+    Backend as ComputeBackend, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus,
+    ComputeTrayManager, ComputeTrayResult,
+};
+use component_manager::error::ComponentManagerError;
+use component_manager::types::FirmwareUpdateOptions;
 use db::db_read::DbReader;
 use db::{
     ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack, switch as db_switch,
 };
 use librms::protos::rack_manager as rms;
+use model::component_manager::{ComputeTrayComponent, PowerAction};
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;
+use model::power_manager::PowerState;
 use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob,
     FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope, NvosUpdateState,
     NvosUpdateSwitchStatus, Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState,
-    RackPowerState, RackState, RackValidationState,
+    RackPowerControlState, RackPowerControlTargetResult, RackPowerState, RackState,
+    RackValidationState,
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
@@ -54,6 +67,84 @@ use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
+
+#[derive(Debug, Default)]
+struct CountingComputeTrayManager {
+    power_control_calls: AtomicUsize,
+    fail_power_control: bool,
+}
+
+impl CountingComputeTrayManager {
+    fn failing() -> Self {
+        Self {
+            fail_power_control: true,
+            ..Default::default()
+        }
+    }
+
+    fn power_control_call_count(&self) -> usize {
+        self.power_control_calls.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl ComputeTrayManager for CountingComputeTrayManager {
+    fn name(&self) -> &str {
+        "counting-compute"
+    }
+
+    fn backend(&self) -> ComputeBackend {
+        ComputeBackend::Rms
+    }
+
+    async fn power_control(
+        &self,
+        endpoints: &[ComputeTrayEndpoint],
+        _action: PowerAction,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        self.power_control_calls.fetch_add(1, Ordering::SeqCst);
+        if self.fail_power_control {
+            return Err(ComponentManagerError::Internal(
+                "synthetic compute-tray power failure".into(),
+            ));
+        }
+        Ok(endpoints
+            .iter()
+            .map(|endpoint| ComputeTrayResult {
+                bmc_ip: endpoint.bmc_ip,
+                success: true,
+                error: None,
+            })
+            .collect())
+    }
+
+    async fn update_firmware(
+        &self,
+        _endpoints: &[ComputeTrayEndpoint],
+        _target_version: &str,
+        _components: &[ComputeTrayComponent],
+        _options: &FirmwareUpdateOptions,
+    ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
+        Err(ComponentManagerError::Internal(
+            "firmware update is outside this test".into(),
+        ))
+    }
+
+    async fn get_firmware_status(
+        &self,
+        _endpoints: &[ComputeTrayEndpoint],
+    ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError> {
+        Err(ComponentManagerError::Internal(
+            "firmware status is outside this test".into(),
+        ))
+    }
+
+    async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
+        Err(ComponentManagerError::Internal(
+            "firmware bundles are outside this test".into(),
+        ))
+    }
+}
 
 fn test_capabilities() -> RackCapabilitiesSet {
     RackCapabilitiesSet {
@@ -205,6 +296,431 @@ async fn create_single_compute_rack(
     .await?;
 
     Ok((rack_id, host))
+}
+
+#[crate::sqlx_test]
+async fn test_compute_power_dispatch_marker_prevents_prepared_replay(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config_with_rack_profiles()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let (rack_id, host) = create_single_compute_rack(&env, &pool).await?;
+    let machine_id = host.host_snapshot.id;
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    rack.config.maintenance_requested = Some(MaintenanceScope {
+        machine_ids: vec![machine_id],
+        activities: vec![MaintenanceActivity::PowerControl {
+            action: PowerAction::ForceRestart,
+        }],
+        ..Default::default()
+    });
+    let mut txn = pool.begin().await?;
+    db_rack::update(txn.as_mut(), &rack_id, &rack.config).await?;
+    txn.commit().await?;
+
+    let recording_manager = Arc::new(CountingComputeTrayManager::default());
+    let base_component_manager = env
+        .test_component_manager
+        .as_ref()
+        .expect("test component manager should be configured");
+    let component_manager = ComponentManager::new(
+        base_component_manager.nv_switch.clone(),
+        base_component_manager.power_shelf.clone(),
+        recording_manager.clone(),
+        base_component_manager.nv_switch_use_state_controller,
+        base_component_manager.power_shelf_use_state_controller,
+        base_component_manager.compute_tray_use_state_controller,
+    );
+
+    let handler = RackStateHandler::default();
+    let mut services = env.rack_state_handler_services();
+    services.component_manager = Some(Arc::new(component_manager));
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let preparing_state = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::PowerControl {
+            action: PowerAction::ForceRestart,
+            power_control_state: RackPowerControlState::Preparing,
+        },
+    };
+    let mut preparing_outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &preparing_state, &mut ctx)
+        .await?;
+    assert_eq!(recording_manager.power_control_call_count(), 0);
+    if let Some(txn) = preparing_outcome.take_transaction() {
+        txn.commit().await?;
+    }
+    let prepared_state = match preparing_outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => {
+            assert!(matches!(
+                &next_state,
+                RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::PowerControl {
+                        power_control_state: RackPowerControlState::Prepared { .. },
+                        ..
+                    }
+                }
+            ));
+            next_state
+        }
+        other => panic!(
+            "Preparing should transition to Prepared, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    };
+    let rack_after_preparation = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        rack_after_preparation
+            .config
+            .power_control_dispatch_started_at
+            .is_none(),
+        "Preparing must not claim external dispatch"
+    );
+
+    let mut dispatch_outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &prepared_state, &mut ctx)
+        .await?;
+    if let Some(txn) = dispatch_outcome.take_transaction() {
+        txn.commit().await?;
+    }
+    assert_eq!(recording_manager.power_control_call_count(), 1);
+    let successful_finalizing_state = match dispatch_outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => {
+            match &next_state {
+                RackState::Maintenance {
+                    maintenance_state:
+                        RackMaintenanceState::PowerControl {
+                            power_control_state: RackPowerControlState::Finalizing { result, .. },
+                            ..
+                        },
+                } => {
+                    assert!(result.error.is_none());
+                    assert_eq!(result.target_outcomes.len(), 1);
+                    assert!(matches!(
+                        &result.target_outcomes[0].outcome,
+                        RackPowerControlTargetResult::Succeeded
+                    ));
+                    assert_eq!(result.dispatched_bmc_ips.len(), 1);
+                }
+                other => panic!("Prepared should transition to Finalizing, got {other:?}"),
+            }
+            next_state
+        }
+        other => panic!(
+            "Prepared should transition to Finalizing, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    };
+    let rack_after_dispatch = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        rack_after_dispatch
+            .config
+            .power_control_dispatch_started_at
+            .is_some(),
+        "Prepared must durably claim dispatch before calling the backend"
+    );
+
+    // Simulate recovery from an ambiguous post-dispatch crash by loading the
+    // rack configuration from the database while the controller state remains
+    // Prepared. The durable marker must prevent a second external operation.
+    let mut recovered_rack = rack_after_dispatch;
+    let recovery_outcome = handler
+        .handle_object_state(&rack_id, &mut recovered_rack, &prepared_state, &mut ctx)
+        .await?;
+    assert_eq!(recording_manager.power_control_call_count(), 1);
+    match recovery_outcome {
+        StateHandlerOutcome::Transition {
+            next_state:
+                RackState::Maintenance {
+                    maintenance_state:
+                        RackMaintenanceState::PowerControl {
+                            power_control_state: RackPowerControlState::Finalizing { result, .. },
+                            ..
+                        },
+                },
+            ..
+        } => {
+            assert!(
+                result
+                    .error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("refusing to replay"))
+            );
+            assert!(matches!(
+                &result.target_outcomes[0].outcome,
+                RackPowerControlTargetResult::Failed { .. }
+            ));
+            assert!(result.dispatched_bmc_ips.is_empty());
+        }
+        other => panic!(
+            "Recovered Prepared should fail into Finalizing, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+
+    let mut finalizing_outcome = handler
+        .handle_object_state(
+            &rack_id,
+            &mut recovered_rack,
+            &successful_finalizing_state,
+            &mut ctx,
+        )
+        .await?;
+    if let Some(txn) = finalizing_outcome.take_transaction() {
+        txn.commit().await?;
+    }
+    assert!(matches!(
+        finalizing_outcome,
+        StateHandlerOutcome::Transition {
+            next_state: RackState::Ready,
+            ..
+        }
+    ));
+
+    let finalized_rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(finalized_rack.config.maintenance_requested.is_none());
+    assert!(
+        finalized_rack
+            .config
+            .power_control_dispatch_started_at
+            .is_none()
+    );
+    let mut connection = pool.acquire().await?;
+    let finalized_power_options = db::power_options::get_by_ids(&[machine_id], connection.as_mut())
+        .await?
+        .pop()
+        .expect("machine should have power options");
+    assert_eq!(finalized_power_options.desired_power_state, PowerState::On);
+    let finalized_machine = db::machine::find_one(
+        &pool,
+        &machine_id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should still exist");
+    assert!(finalized_machine.health_reports.replace.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_compute_power_backend_failure_restores_previous_power_and_health_state(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides {
+            config: Some(config_with_rack_profiles()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let (rack_id, host) = create_single_compute_rack(&env, &pool).await?;
+    let machine_id = host.host_snapshot.id;
+
+    let previous_health_report =
+        health_report::HealthReport::empty("pre-existing-power-control-test".into());
+    let mut txn = pool.begin().await?;
+    db::machine::insert_health_report(
+        txn.as_mut(),
+        &machine_id,
+        health_report::HealthReportApplyMode::Replace,
+        &previous_health_report,
+        false,
+    )
+    .await?;
+    let previous_power_options = db::power_options::get_by_ids(&[machine_id], txn.as_mut())
+        .await?
+        .pop()
+        .expect("machine should have power options");
+    assert_eq!(previous_power_options.desired_power_state, PowerState::On);
+    txn.commit().await?;
+
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    rack.config.maintenance_requested = Some(MaintenanceScope {
+        machine_ids: vec![machine_id],
+        activities: vec![MaintenanceActivity::PowerControl {
+            action: PowerAction::ForceRestart,
+        }],
+        ..Default::default()
+    });
+    let mut txn = pool.begin().await?;
+    db_rack::update(txn.as_mut(), &rack_id, &rack.config).await?;
+    txn.commit().await?;
+
+    let failing_manager = Arc::new(CountingComputeTrayManager::failing());
+    let base_component_manager = env
+        .test_component_manager
+        .as_ref()
+        .expect("test component manager should be configured");
+    let component_manager = ComponentManager::new(
+        base_component_manager.nv_switch.clone(),
+        base_component_manager.power_shelf.clone(),
+        failing_manager.clone(),
+        base_component_manager.nv_switch_use_state_controller,
+        base_component_manager.power_shelf_use_state_controller,
+        base_component_manager.compute_tray_use_state_controller,
+    );
+
+    let handler = RackStateHandler::default();
+    let mut services = env.rack_state_handler_services();
+    services.component_manager = Some(Arc::new(component_manager));
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let preparing_state = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::PowerControl {
+            action: PowerAction::ForceRestart,
+            power_control_state: RackPowerControlState::Preparing,
+        },
+    };
+    let mut preparing_outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &preparing_state, &mut ctx)
+        .await?;
+    if let Some(txn) = preparing_outcome.take_transaction() {
+        txn.commit().await?;
+    }
+    let prepared_state = match preparing_outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => next_state,
+        other => panic!(
+            "Preparing should transition to Prepared, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    };
+    let mut connection = pool.acquire().await?;
+    let prepared_power_options = db::power_options::get_by_ids(&[machine_id], connection.as_mut())
+        .await?
+        .pop()
+        .expect("machine should have power options");
+    assert_eq!(prepared_power_options.desired_power_state, PowerState::Off);
+    let prepared_machine = db::machine::find_one(
+        &pool,
+        &machine_id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should still exist");
+    let prepared_health_report = prepared_machine
+        .health_reports
+        .replace
+        .as_ref()
+        .expect("preparation should install a temporary health override");
+    assert_ne!(prepared_health_report, &previous_health_report);
+    assert!(
+        prepared_health_report
+            .source
+            .starts_with("component_power_control/")
+    );
+    drop(connection);
+
+    let mut dispatch_outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &prepared_state, &mut ctx)
+        .await?;
+    if let Some(txn) = dispatch_outcome.take_transaction() {
+        txn.commit().await?;
+    }
+    assert_eq!(failing_manager.power_control_call_count(), 1);
+    let finalizing_state = match dispatch_outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => {
+            match &next_state {
+                RackState::Maintenance {
+                    maintenance_state:
+                        RackMaintenanceState::PowerControl {
+                            power_control_state: RackPowerControlState::Finalizing { result, .. },
+                            ..
+                        },
+                } => {
+                    assert!(result.error.as_deref().is_some_and(|error| {
+                        error.contains("synthetic compute-tray power failure")
+                    }));
+                    assert!(matches!(
+                        &result.target_outcomes[0].outcome,
+                        RackPowerControlTargetResult::Failed { .. }
+                    ));
+                }
+                other => panic!("Prepared should transition to Finalizing, got {other:?}"),
+            }
+            next_state
+        }
+        other => panic!(
+            "Prepared should transition to Finalizing, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    };
+    let rack_after_dispatch = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(
+        rack_after_dispatch
+            .config
+            .power_control_dispatch_started_at
+            .is_some()
+    );
+    assert!(rack_after_dispatch.config.maintenance_requested.is_some());
+
+    let mut finalizing_outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &finalizing_state, &mut ctx)
+        .await?;
+    if let Some(txn) = finalizing_outcome.take_transaction() {
+        txn.commit().await?;
+    }
+    match finalizing_outcome {
+        StateHandlerOutcome::Transition {
+            next_state: RackState::Error { cause },
+            ..
+        } => assert!(cause.contains("synthetic compute-tray power failure")),
+        other => panic!(
+            "Failed Finalizing should transition to Error, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    }
+
+    let finalized_rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    assert!(finalized_rack.config.maintenance_requested.is_none());
+    assert!(
+        finalized_rack
+            .config
+            .power_control_dispatch_started_at
+            .is_none()
+    );
+    let mut connection = pool.acquire().await?;
+    let finalized_power_options = db::power_options::get_by_ids(&[machine_id], connection.as_mut())
+        .await?
+        .pop()
+        .expect("machine should have power options");
+    assert_eq!(
+        finalized_power_options.desired_power_state,
+        previous_power_options.desired_power_state
+    );
+    let finalized_machine = db::machine::find_one(
+        &pool,
+        &machine_id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should still exist");
+    assert_eq!(
+        finalized_machine.health_reports.replace.as_ref(),
+        Some(&previous_health_report)
+    );
+
+    Ok(())
 }
 
 async fn create_two_compute_rack(

@@ -35,7 +35,7 @@ use futures_util::FutureExt;
 use health_report::HealthReportApplyMode;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::metadata::Metadata;
-use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
+use model::rack::{MaintenanceActivity, MaintenanceScope, Rack, RackState};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -774,27 +774,45 @@ pub(crate) async fn on_demand_rack_maintenance(
         }
     }
 
-    let access_token_stored = maintenance_access_token.is_some();
-    if let Some(token) = maintenance_access_token {
-        api.credential_manager
-            .set_credentials(
-                &rack_maintenance_access_token_key(&rack_id),
-                &Credentials::UsernamePassword {
-                    username: "access_token".into(),
-                    password: token,
-                },
-            )
-            .await
-            .map_err(|error| CarbideError::Internal {
-                message: format!("failed to store rack maintenance access token: {error}"),
-            })?;
-    }
-
-    let mut updated_config = rack.config.clone();
-    updated_config.maintenance_requested = Some(scope);
-
     let db_result: Result<(), Status> = async {
         let mut txn = api.txn_begin().await?;
+        // Re-read and lock the live rack before scheduling. The validation
+        // above can race another maintenance request while device scope and
+        // credentials are checked; deriving the write from this locked row
+        // prevents overwriting a newly queued request or an in-flight power
+        // dispatch marker.
+        let live_rack = sqlx::query_as::<_, Rack>("SELECT * FROM racks WHERE id = $1 FOR UPDATE")
+            .bind(&rack_id)
+            .fetch_optional(&mut txn)
+            .await
+            .map_err(|error| {
+                Status::internal(format!("failed to lock rack {rack_id}: {error}"))
+            })?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "rack",
+                id: rack_id.to_string(),
+            })?;
+        if !matches!(
+            *live_rack.controller_state,
+            RackState::Ready | RackState::Error { .. }
+        ) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "Rack {} is not in Ready or Error state (current: {:?}). Maintenance can only be requested when the rack is Ready or in Error.",
+                rack_id, *live_rack.controller_state
+            ))
+            .into());
+        }
+        if live_rack.config.maintenance_requested.is_some() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "On-demand maintenance for rack {} is already scheduled.",
+                rack_id,
+            ))
+            .into());
+        }
+
+        let mut updated_config = live_rack.config;
+        updated_config.power_control_dispatch_started_at = None;
+        updated_config.maintenance_requested = Some(scope);
         db_rack::update(&mut txn, &rack_id, &updated_config).await?;
         if updated_config
             .maintenance_requested
@@ -809,25 +827,50 @@ pub(crate) async fn on_demand_rack_maintenance(
         {
             db_rack::update_firmware_upgrade_job(txn.as_mut(), &rack_id, None).await?;
         }
-        txn.commit().await?;
-        Ok(())
-    }
-    .await;
-    if let Err(status) = db_result {
-        if access_token_stored
+
+        // Keep the rack row locked while installing the shared rack token so
+        // a losing concurrent request can never delete or replace the token
+        // owned by the request that actually schedules maintenance.
+        if let Some(token) = maintenance_access_token.as_ref()
             && let Err(error) = api
+                .credential_manager
+                .set_credentials(
+                    &rack_maintenance_access_token_key(&rack_id),
+                    &Credentials::UsernamePassword {
+                        username: "access_token".into(),
+                        password: token.clone(),
+                    },
+                )
+                .await
+        {
+            if let Err(cleanup_error) = api
                 .credential_manager
                 .delete_credentials(&rack_maintenance_access_token_key(&rack_id))
                 .await
-        {
-            tracing::warn!(
-                rack_id = %rack_id,
-                error = %error,
-                "failed to delete rack maintenance access token after DB error",
-            );
+            {
+                tracing::warn!(
+                    rack_id = %rack_id,
+                    error = %cleanup_error,
+                    "failed to clean up rack maintenance access token after store error",
+                );
+            }
+            return Err(CarbideError::Internal {
+                message: format!("failed to store rack maintenance access token: {error}"),
+            }
+            .into());
         }
-        return Err(status);
+
+        if let Err(error) = txn.commit().await {
+            // Commit errors are outcome-ambiguous. Keep a token installed by
+            // this request: deleting it could break a commit that actually
+            // succeeded, or race a later lock holder. A later accepted request
+            // safely replaces a stale token while holding the same rack lock.
+            return Err(error.into());
+        }
+        Ok(())
     }
+    .await;
+    db_result?;
 
     tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);
 

@@ -4,19 +4,32 @@
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-use carbide_secrets::credentials::Credentials;
+use carbide_secrets::credentials::{CredentialKey, Credentials};
 use model::component_manager::{ComputeTrayComponent, FirmwareState, PowerAction};
 
 use crate::error::ComponentManagerError;
 use crate::types::FirmwareUpdateOptions;
 
-/// Physical network identifiers for a compute tray, used to register with and
-/// operate against the backend service (CTM).
+/// BMC connection details for a compute tray, used to register with and
+/// operate against the selected backend service.
 #[derive(Debug, Clone)]
 pub struct ComputeTrayEndpoint {
     pub vendor: ComputeTrayVendor,
     pub bmc_ip: IpAddr,
-    pub bmc_credentials: Credentials,
+    pub bmc_port: Option<u16>,
+    pub authentication: ComputeTrayAuthentication,
+}
+
+/// Authentication material for a compute tray.
+///
+/// Core can defer a credential-key lookup to the shared Redfish client pool,
+/// preserving its existing credential/session behavior. External backends
+/// receive resolved credentials because they cannot access Core's secret
+/// store directly.
+#[derive(Debug, Clone)]
+pub enum ComputeTrayAuthentication {
+    Credentials(Credentials),
+    CredentialKey(CredentialKey),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +38,7 @@ pub enum ComputeTrayVendor {
     Dell,
     Hpe,
     Lenovo,
+    LenovoAmi,
     Supermicro,
     Nvidia,
 }

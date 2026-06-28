@@ -40,9 +40,12 @@ pub struct ComponentManagerConfig {
     #[serde(default)]
     pub power_shelf_use_state_controller: bool,
 
-    /// When `true`, compute power control and firmware update calls
-    /// go through the state controller instead of being dispatched
-    /// directly.
+    /// When `true`, rack compute-tray firmware updates go through the rack
+    /// state controller instead of being dispatched directly.
+    ///
+    /// Rack-associated RMS power requests always use the rack state controller
+    /// unless the caller sets `bypass_state_controller`; standalone and
+    /// non-RMS power requests dispatch directly.
     ///
     /// Defaults to `false`.
     #[serde(default)]

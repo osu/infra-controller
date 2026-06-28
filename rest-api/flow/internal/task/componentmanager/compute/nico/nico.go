@@ -24,9 +24,11 @@
 //
 // During the migration the embedded service config keeps compute pointed
 // at compute/nicolegacy by default. Operators flip the
-// COMPONENT_MANAGER_COMPUTE environment variable to "nico" once the
-// matching Core configuration (compute_tray_use_state_controller / SoT
-// firmware objects) is in place.
+// COMPONENT_MANAGER_COMPUTE environment variable to "nico" once matching
+// Core backend and SoT firmware-object configuration is in place.
+// compute_tray_use_state_controller controls rack compute-tray firmware
+// routing; rack-associated RMS power uses the rack state controller unless
+// explicitly bypassed, while standalone power retains Core's Redfish path.
 package nico
 
 import (

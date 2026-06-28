@@ -29,7 +29,11 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use component_manager::component_manager::ComponentManager;
-use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayVendor};
+use component_manager::compute_tray_manager::{
+    Backend as ComputeBackend, ComputeTrayAuthentication, ComputeTrayEndpoint, ComputeTrayManager,
+    ComputeTrayVendor,
+};
+use component_manager::core_compute_manager::CoreComputeTrayManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
@@ -43,7 +47,7 @@ use model::component_manager::{
 };
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
+use model::rack::{FirmwareUpgradeJob, MaintenanceActivity, MaintenanceScope};
 use model::switch::SwitchMaintenanceOperation;
 use tonic::{Code, Request, Response, Status};
 
@@ -350,6 +354,212 @@ async fn queue_switch_power_control_via_state_controller(
 
     txn.commit().await?;
     Ok(results)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComputePowerRoute {
+    CoreDirect,
+    ConfiguredDirect,
+    RackStateController,
+}
+
+fn compute_power_route(
+    rack_associated: bool,
+    configured_backend: ComputeBackend,
+    bypass_state_controller: bool,
+) -> ComputePowerRoute {
+    if !rack_associated {
+        return ComputePowerRoute::CoreDirect;
+    }
+
+    if configured_backend == ComputeBackend::Rms && !bypass_state_controller {
+        ComputePowerRoute::RackStateController
+    } else {
+        ComputePowerRoute::ConfiguredDirect
+    }
+}
+
+struct RackPowerMaintenanceTarget {
+    rack_id: RackId,
+    machine_ids: Vec<MachineId>,
+}
+
+#[derive(Default)]
+struct ComputePowerTargets {
+    core_direct: Vec<MachineId>,
+    configured_direct: Vec<MachineId>,
+    rack_state_controller: Vec<RackPowerMaintenanceTarget>,
+    errors: Vec<rpc::ComponentResult>,
+}
+
+fn push_rack_power_target(
+    targets: &mut Vec<RackPowerMaintenanceTarget>,
+    rack_id: RackId,
+    machine_id: MachineId,
+) {
+    if let Some(target) = targets.iter_mut().find(|target| target.rack_id == rack_id) {
+        target.machine_ids.push(machine_id);
+        return;
+    }
+
+    targets.push(RackPowerMaintenanceTarget {
+        rack_id,
+        machine_ids: vec![machine_id],
+    });
+}
+
+fn deduplicate_compute_machine_ids(
+    machine_ids: &[MachineId],
+) -> (Vec<MachineId>, Vec<rpc::ComponentResult>) {
+    let mut unique_machine_ids = Vec::with_capacity(machine_ids.len());
+    let mut seen_machine_ids = HashSet::with_capacity(machine_ids.len());
+    let mut duplicate_errors = Vec::new();
+    for &machine_id in machine_ids {
+        if seen_machine_ids.insert(machine_id) {
+            unique_machine_ids.push(machine_id);
+        } else {
+            duplicate_errors.push(status_result(
+                &machine_id.to_string(),
+                Status::invalid_argument(format!(
+                    "duplicate machine id {machine_id} in power-control request"
+                )),
+            ));
+        }
+    }
+    (unique_machine_ids, duplicate_errors)
+}
+
+async fn classify_compute_power_targets(
+    api: &Api,
+    machine_ids: &[MachineId],
+    configured_backend: ComputeBackend,
+    bypass_state_controller: bool,
+) -> Result<ComputePowerTargets, Status> {
+    let (unique_machine_ids, duplicate_errors) = deduplicate_compute_machine_ids(machine_ids);
+
+    let machines = db::machine::find(
+        api.db_reader().as_mut(),
+        db::ObjectFilter::List(&unique_machine_ids),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .map_err(|error| Status::internal(format!("failed to look up machines: {error}")))?;
+    let machines_by_id: HashMap<_, _> = machines
+        .into_iter()
+        .map(|machine| (machine.id, machine))
+        .collect();
+
+    let mut targets = ComputePowerTargets {
+        errors: duplicate_errors,
+        ..Default::default()
+    };
+    for machine_id in &unique_machine_ids {
+        let Some(machine) = machines_by_id.get(machine_id) else {
+            targets.errors.push(not_found_component_result(
+                &machine_id.to_string(),
+                format!("machine {machine_id} not found"),
+            ));
+            continue;
+        };
+
+        match compute_power_route(
+            machine.rack_id.is_some(),
+            configured_backend,
+            bypass_state_controller,
+        ) {
+            ComputePowerRoute::CoreDirect => targets.core_direct.push(*machine_id),
+            ComputePowerRoute::ConfiguredDirect => targets.configured_direct.push(*machine_id),
+            ComputePowerRoute::RackStateController => {
+                if let Some(rack_id) = machine.rack_id.clone() {
+                    push_rack_power_target(
+                        &mut targets.rack_state_controller,
+                        rack_id,
+                        *machine_id,
+                    );
+                } else {
+                    targets.core_direct.push(*machine_id);
+                }
+            }
+        }
+    }
+
+    Ok(targets)
+}
+
+fn rack_power_maintenance_scope(
+    machine_ids: Vec<MachineId>,
+    action: PowerAction,
+) -> MaintenanceScope {
+    MaintenanceScope {
+        machine_ids,
+        switch_ids: Vec::new(),
+        power_shelf_ids: Vec::new(),
+        activities: vec![MaintenanceActivity::PowerControl { action }],
+    }
+}
+
+async fn queue_one_rack_power_control(
+    api: &Api,
+    target: &RackPowerMaintenanceTarget,
+    action: PowerAction,
+) -> Result<(), Status> {
+    let mut txn = api.txn_begin().await?;
+    let rack =
+        sqlx::query_as::<_, model::rack::Rack>("SELECT * FROM racks WHERE id = $1 FOR UPDATE")
+            .bind(&target.rack_id)
+            .fetch_optional(&mut txn)
+            .await
+            .map_err(|error| {
+                Status::internal(format!("failed to lock rack {}: {error}", target.rack_id))
+            })?
+            .ok_or_else(|| Status::not_found(format!("rack {} not found", target.rack_id)))?;
+
+    rack.check_accepts_maintenance().map_err(|reason| {
+        Status::failed_precondition(format!(
+            "rack {} cannot accept compute power control: {reason}",
+            target.rack_id
+        ))
+    })?;
+
+    let mut config = rack.config.clone();
+    config.power_control_dispatch_started_at = None;
+    config.maintenance_requested = Some(rack_power_maintenance_scope(
+        target.machine_ids.clone(),
+        action,
+    ));
+    db::rack::update(&mut txn, &target.rack_id, &config)
+        .await
+        .map_err(CarbideError::from)?;
+    txn.commit().await?;
+    Ok(())
+}
+
+async fn queue_compute_power_control_via_rack_state_controller(
+    api: &Api,
+    targets: &[RackPowerMaintenanceTarget],
+    action: PowerAction,
+) -> Vec<rpc::ComponentResult> {
+    let result_count = targets.iter().map(|target| target.machine_ids.len()).sum();
+    let mut results = Vec::with_capacity(result_count);
+
+    for target in targets {
+        match queue_one_rack_power_control(api, target, action).await {
+            Ok(()) => results.extend(
+                target
+                    .machine_ids
+                    .iter()
+                    .map(|machine_id| success_result(&machine_id.to_string())),
+            ),
+            Err(status) => results.extend(
+                target
+                    .machine_ids
+                    .iter()
+                    .map(|machine_id| status_result(&machine_id.to_string(), status.clone())),
+            ),
+        }
+    }
+
+    results
 }
 
 /// Maps raw proto `ComputeTrayComponent` values to display-name strings.
@@ -1083,6 +1293,7 @@ fn map_bmc_vendor_to_compute_tray(vendor: bmc_vendor::BMCVendor) -> ComputeTrayV
         bmc_vendor::BMCVendor::Dell => ComputeTrayVendor::Dell,
         bmc_vendor::BMCVendor::Hpe => ComputeTrayVendor::Hpe,
         bmc_vendor::BMCVendor::Lenovo => ComputeTrayVendor::Lenovo,
+        bmc_vendor::BMCVendor::LenovoAMI => ComputeTrayVendor::LenovoAmi,
         bmc_vendor::BMCVendor::Supermicro => ComputeTrayVendor::Supermicro,
         bmc_vendor::BMCVendor::Nvidia => ComputeTrayVendor::Nvidia,
         _ => ComputeTrayVendor::Unknown,
@@ -1164,7 +1375,8 @@ async fn resolve_compute_tray_endpoints(
         endpoints.push(ComputeTrayEndpoint {
             vendor,
             bmc_ip,
-            bmc_credentials,
+            bmc_port: machine.bmc_info.port,
+            authentication: ComputeTrayAuthentication::Credentials(bmc_credentials),
         });
     }
 
@@ -1209,6 +1421,156 @@ fn map_fw_state(state: model::component_manager::FirmwareState) -> i32 {
         FirmwareState::Failed => rpc::FirmwareUpdateState::FwStateFailed as i32,
         FirmwareState::Cancelled => rpc::FirmwareUpdateState::FwStateCancelled as i32,
     }
+}
+
+async fn dispatch_compute_power_direct(
+    api: &Api,
+    manager: &dyn ComputeTrayManager,
+    machine_ids: &[MachineId],
+    action: PowerAction,
+) -> Result<(Vec<rpc::ComponentResult>, Vec<IpAddr>), Status> {
+    if machine_ids.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    let resolved = resolve_compute_tray_endpoints(api, machine_ids).await?;
+    let mut results: Vec<_> = resolved
+        .unresolved
+        .iter()
+        .map(|unresolved| error_result(&unresolved.id.to_string(), unresolved.reason.clone()))
+        .collect();
+    // Direct dispatch retains the legacy request-time bookkeeping. Rack state-controller
+    // targets intentionally skip this helper because the queued scope carries its desired
+    // action and may execute later; execution-time alert suppression belongs with that
+    // controller path.
+    let desired_state = desired_power_state(action) as i32;
+    let mut overrides_inserted = Vec::new();
+    let mut dispatch_endpoints = Vec::with_capacity(resolved.resolved.endpoints.len());
+    for endpoint in &resolved.resolved.endpoints {
+        let Some(&machine_id) = resolved.resolved.ip_to_machine_id.get(&endpoint.bmc_ip) else {
+            results.push(error_result(
+                &endpoint.bmc_ip.to_string(),
+                "resolved compute tray has no machine mapping".into(),
+            ));
+            continue;
+        };
+
+        if power_control_health_override(api, machine_id, true).await {
+            overrides_inserted.push(machine_id);
+        }
+
+        let power_req = rpc::PowerOptionUpdateRequest {
+            machine_id: Some(machine_id),
+            power_state: desired_state,
+        };
+        match crate::handlers::power_options::update_power_option(api, Request::new(power_req))
+            .await
+        {
+            Ok(_) => dispatch_endpoints.push(endpoint.clone()),
+            Err(error)
+                if error.code() == Code::InvalidArgument
+                    && error.message().contains("already set as") =>
+            {
+                tracing::debug!(
+                    %machine_id,
+                    desired_state,
+                    "power option already in desired state, skipping"
+                );
+                dispatch_endpoints.push(endpoint.clone());
+            }
+            Err(error) => results.push(error_result(
+                &machine_id.to_string(),
+                format!("failed to update power option: {error}"),
+            )),
+        }
+    }
+
+    tracing::info!(
+        backend = manager.name(),
+        count = dispatch_endpoints.len(),
+        ?action,
+        "power control for compute trays"
+    );
+    let backend_result = if dispatch_endpoints.is_empty() {
+        Ok(Vec::new())
+    } else {
+        manager.power_control(&dispatch_endpoints, action).await
+    };
+
+    // Do not leak an override if the backend returns an operation-level error.
+    for machine_id in overrides_inserted {
+        power_control_health_override(api, machine_id, false).await;
+    }
+
+    let ips = dispatch_endpoints
+        .iter()
+        .map(|endpoint| endpoint.bmc_ip)
+        .collect();
+    let backend_results = match backend_result {
+        Ok(results) => results,
+        Err(error) => {
+            let status = component_manager_error_to_status(error);
+            results.extend(dispatch_endpoints.iter().map(|endpoint| {
+                let id = resolved
+                    .resolved
+                    .ip_to_machine_id
+                    .get(&endpoint.bmc_ip)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| endpoint.bmc_ip.to_string());
+                status_result(&id, status.clone())
+            }));
+            return Ok((results, ips));
+        }
+    };
+
+    let expected_ips: HashSet<_> = dispatch_endpoints
+        .iter()
+        .map(|endpoint| endpoint.bmc_ip)
+        .collect();
+    let mut seen_ips = HashSet::with_capacity(backend_results.len());
+    for result in backend_results {
+        let id = resolved
+            .resolved
+            .ip_to_machine_id
+            .get(&result.bmc_ip)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| result.bmc_ip.to_string());
+
+        if !expected_ips.contains(&result.bmc_ip) {
+            results.push(error_result(
+                &id,
+                "backend returned an unexpected compute-tray result".into(),
+            ));
+            continue;
+        }
+        if !seen_ips.insert(result.bmc_ip) {
+            results.push(error_result(
+                &id,
+                "backend returned duplicate compute-tray results".into(),
+            ));
+            continue;
+        }
+
+        if result.success {
+            results.push(success_result(&id));
+        } else {
+            results.push(error_result(&id, result.error.unwrap_or_default()));
+        }
+    }
+
+    let mut missing_ips: Vec<_> = expected_ips.difference(&seen_ips).copied().collect();
+    missing_ips.sort_unstable();
+    results.extend(missing_ips.into_iter().map(|bmc_ip| {
+        let id = resolved
+            .resolved
+            .ip_to_machine_id
+            .get(&bmc_ip)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| bmc_ip.to_string());
+        error_result(&id, "backend returned no compute-tray result".into())
+    }));
+
+    Ok((results, ips))
 }
 
 // ---- Power Control ----
@@ -1318,107 +1680,50 @@ pub(crate) async fn component_power_control(
             (results, ips)
         }
         rpc::component_power_control_request::Target::MachineIds(list) => {
-            if cm.compute_tray_use_state_controller && !bypass_state_controller {
-                // TODO: implement state controller path for compute tray power control
-                return Err(Status::unimplemented(
-                    "compute tray power control through the state controller is not yet supported",
-                ));
-            } else {
-                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+            let ComputePowerTargets {
+                core_direct,
+                configured_direct,
+                rack_state_controller,
+                errors: mut results,
+            } = classify_compute_power_targets(
+                api,
+                &list.machine_ids,
+                cm.compute_tray.backend(),
+                bypass_state_controller,
+            )
+            .await?;
+            let mut exploration_ips = Vec::new();
 
-                let mut results: Vec<_> = resolved
-                    .unresolved
-                    .iter()
-                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                    .collect();
-
-                let resolved_machine_ids: Vec<_> = resolved
-                    .resolved
-                    .endpoints
-                    .iter()
-                    .filter_map(|ep| resolved.resolved.ip_to_machine_id.get(&ep.bmc_ip).copied())
-                    .collect();
-
-                // Insert health overrides and update power-manager desired state
-                // before issuing Redfish commands.
-                let desired_state = desired_power_state(action) as i32;
-                let mut overrides_inserted = Vec::new();
-                for &machine_id in &resolved_machine_ids {
-                    let inserted = power_control_health_override(api, machine_id, true).await;
-                    if inserted {
-                        overrides_inserted.push(machine_id);
-                    }
-
-                    let power_req = rpc::PowerOptionUpdateRequest {
-                        machine_id: Some(machine_id),
-                        power_state: desired_state,
-                    };
-                    match crate::handlers::power_options::update_power_option(
-                        api,
-                        Request::new(power_req),
-                    )
-                    .await
-                    {
-                        Ok(_) => {}
-                        Err(e)
-                            if e.code() == Code::InvalidArgument
-                                && e.message().contains("already set as") =>
-                        {
-                            tracing::debug!(
-                                %machine_id,
-                                desired_state,
-                                "power option already in desired state, skipping"
-                            );
-                        }
-                        Err(e) => {
-                            results.push(error_result(
-                                &machine_id.to_string(),
-                                format!("failed to update power option: {e}"),
-                            ));
-                        }
-                    }
-                }
-
-                tracing::info!(
-                    backend = cm.compute_tray.name(),
-                    count = resolved.resolved.endpoints.len(),
-                    ?action,
-                    "power control for compute trays"
-                );
-                let backend_results = cm
-                    .compute_tray
-                    .power_control(&resolved.resolved.endpoints, action)
-                    .await
-                    .map_err(component_manager_error_to_status)?;
-
-                // Clear health overrides after Redfish dispatch.
-                for machine_id in &overrides_inserted {
-                    power_control_health_override(api, *machine_id, false).await;
-                }
-
-                let ips: Vec<IpAddr> = resolved
-                    .resolved
-                    .endpoints
-                    .iter()
-                    .map(|ep| ep.bmc_ip)
-                    .collect();
-
-                results.extend(backend_results.into_iter().map(|r| {
-                    let id = resolved
-                        .resolved
-                        .ip_to_machine_id
-                        .get(&r.bmc_ip)
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| r.bmc_ip.to_string());
-                    if r.success {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, r.error.unwrap_or_default())
-                    }
-                }));
-
-                (results, ips)
+            if !core_direct.is_empty() {
+                let core_manager = CoreComputeTrayManager::new(api.redfish_pool.clone());
+                let (direct_results, direct_ips) =
+                    dispatch_compute_power_direct(api, &core_manager, &core_direct, action).await?;
+                results.extend(direct_results);
+                exploration_ips.extend(direct_ips);
             }
+
+            if !configured_direct.is_empty() {
+                let (direct_results, direct_ips) = dispatch_compute_power_direct(
+                    api,
+                    cm.compute_tray.as_ref(),
+                    &configured_direct,
+                    action,
+                )
+                .await?;
+                results.extend(direct_results);
+                exploration_ips.extend(direct_ips);
+            }
+
+            results.extend(
+                queue_compute_power_control_via_rack_state_controller(
+                    api,
+                    &rack_state_controller,
+                    action,
+                )
+                .await,
+            );
+
+            (results, exploration_ips)
         }
     };
 
@@ -2544,6 +2849,78 @@ mod tests {
     fn power_action_invalid_value() {
         let err = map_power_action(9999).unwrap_err();
         assert_eq!(err.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn compute_power_route_selects_backend_per_machine() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |(rack_associated, backend, bypass_state_controller)| {
+                compute_power_route(rack_associated, backend, bypass_state_controller)
+            };
+            "standalone machines always use the direct Core wrapper" {
+                (false, ComputeBackend::Rms, false) => ComputePowerRoute::CoreDirect,
+                (false, ComputeBackend::Mock, false) => ComputePowerRoute::CoreDirect,
+                (false, ComputeBackend::Core, true) => ComputePowerRoute::CoreDirect,
+            }
+
+            "rack RMS machines always use the state controller unless bypassed" {
+                (true, ComputeBackend::Rms, false) => ComputePowerRoute::RackStateController,
+                (true, ComputeBackend::Rms, true) => ComputePowerRoute::ConfiguredDirect,
+            }
+
+            "rack machines on other configured backends dispatch directly" {
+                (true, ComputeBackend::Core, false) => ComputePowerRoute::ConfiguredDirect,
+                (true, ComputeBackend::Mock, false) => ComputePowerRoute::ConfiguredDirect,
+            }
+        );
+    }
+
+    #[test]
+    fn compute_power_duplicate_machine_ids_are_not_dispatched_twice() {
+        let machine_id_a = MachineId::new(
+            carbide_uuid::machine::MachineIdSource::ProductBoardChassisSerial,
+            [0; 32],
+            carbide_uuid::machine::MachineType::Host,
+        );
+        let machine_id_b = MachineId::new(
+            carbide_uuid::machine::MachineIdSource::ProductBoardChassisSerial,
+            [1; 32],
+            carbide_uuid::machine::MachineType::Host,
+        );
+
+        let (unique, errors) =
+            deduplicate_compute_machine_ids(&[machine_id_a, machine_id_b, machine_id_a]);
+
+        assert_eq!(unique, vec![machine_id_a, machine_id_b]);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].component_id, machine_id_a.to_string());
+        assert_eq!(
+            errors[0].status,
+            rpc::ComponentManagerStatusCode::InvalidArgument as i32
+        );
+        assert!(errors[0].error.contains("duplicate machine id"));
+    }
+
+    #[test]
+    fn compute_power_rack_maintenance_scope_targets_only_requested_machines() {
+        let machine_id = MachineId::new(
+            carbide_uuid::machine::MachineIdSource::ProductBoardChassisSerial,
+            [0; 32],
+            carbide_uuid::machine::MachineType::Host,
+        );
+        let scope = rack_power_maintenance_scope(vec![machine_id], PowerAction::ForceOff);
+
+        assert_eq!(scope.machine_ids, vec![machine_id]);
+        assert!(scope.switch_ids.is_empty());
+        assert!(scope.power_shelf_ids.is_empty());
+        assert_eq!(
+            scope.activities,
+            vec![MaintenanceActivity::PowerControl {
+                action: PowerAction::ForceOff,
+            }]
+        );
     }
 
     #[test]

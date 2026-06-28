@@ -22,13 +22,16 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-health-metrics = { path = "../health-metrics", default-features = false }
+carbide-health-report = { path = "../health-report", default-features = false }
 carbide-rack = { path = "../rack", default-features = false }
 carbide-secrets = { path = "../secrets", default-features = false }
 carbide-utils = { path = "../utils", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
+component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", default-features = false }
 state-controller = { path = "../state-controller", default-features = false }
 
@@ -44,9 +47,11 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 tonic = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

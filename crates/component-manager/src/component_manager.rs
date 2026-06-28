@@ -32,9 +32,9 @@ pub struct ComponentManager {
     // the expectation is that the state controller will then call the configured HAL for powershelves (RMS or PSM)
     // if false, the component management interface will directly dispatch to the configured HAL for powershelves, bypassing the state controller
     pub power_shelf_use_state_controller: bool,
-    // if true, the component management interface will route through the state controller for compute tray power and f/w control.
-    // the expectation is that the state controller will then call the configured HAL for compute tray
-    // if false, the component management interface will directly dispatch to the configured HAL for compute trays, bypassing the state controller
+    // If true, rack compute-tray firmware requests route through the rack state controller.
+    // Rack-associated RMS power requests always use the rack state controller unless the RPC
+    // explicitly requests a bypass; standalone and non-RMS power requests dispatch directly.
     pub compute_tray_use_state_controller: bool,
 }
 

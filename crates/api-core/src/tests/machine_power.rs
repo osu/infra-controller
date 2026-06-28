@@ -72,6 +72,46 @@ async fn test_power_manager_create_entry_on_host_creation(
 }
 
 #[crate::sqlx_test]
+async fn test_power_manager_desired_state_rejects_stale_version(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
+            .await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let mut txn = env.pool.begin().await?;
+    let original = db::power_options::get_by_ids(&[host_machine_id], &mut txn)
+        .await?
+        .pop()
+        .expect("host power options");
+    db::power_options::update_desired_state(
+        &host_machine_id,
+        PowerState::Off,
+        &original.desired_power_state_version,
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let error = db::power_options::update_desired_state(
+        &host_machine_id,
+        PowerState::On,
+        &original.desired_power_state_version,
+        &mut txn,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(error, db::DatabaseError::ConcurrentModificationError(..)),
+        "expected stale desired-state update to fail, got {error:?}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_power_manager_update_fail_since_no_maintenance_set(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

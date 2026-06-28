@@ -18,6 +18,7 @@
 mod boot_interface_resolution;
 mod client_resolution;
 pub mod common;
+mod component_manager_compute_power;
 mod compute_allocation;
 mod connected_device;
 mod credential;

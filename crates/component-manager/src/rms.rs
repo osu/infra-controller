@@ -36,8 +36,8 @@ use sqlx::PgPool;
 use tracing::instrument;
 
 use crate::compute_tray_manager::{
-    Backend as ComputeTrayBackend, ComputeTrayEndpoint, ComputeTrayFirmwareUpdateStatus,
-    ComputeTrayManager, ComputeTrayResult,
+    Backend as ComputeTrayBackend, ComputeTrayAuthentication, ComputeTrayEndpoint,
+    ComputeTrayFirmwareUpdateStatus, ComputeTrayManager, ComputeTrayResult,
 };
 use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
@@ -406,6 +406,19 @@ fn to_rms_power_operation(action: PowerAction) -> i32 {
         PowerAction::GracefulRestart | PowerAction::ForceRestart | PowerAction::AcPowercycle => {
             rms::PowerOperation::Reset as i32
         }
+    }
+}
+
+/// Compute trays preserve the caller's exact Redfish reset semantics. Switch
+/// and power-shelf callers retain the older Off/Reset mapping above.
+fn to_rms_compute_power_operation(action: PowerAction) -> i32 {
+    match action {
+        PowerAction::On => rms::PowerOperation::On as i32,
+        PowerAction::GracefulShutdown => rms::PowerOperation::GracefulShutdown as i32,
+        PowerAction::ForceOff => rms::PowerOperation::ForceOff as i32,
+        PowerAction::GracefulRestart => rms::PowerOperation::GracefulRestart as i32,
+        PowerAction::ForceRestart => rms::PowerOperation::ForceRestart as i32,
+        PowerAction::AcPowercycle => rms::PowerOperation::Reset as i32,
     }
 }
 
@@ -878,10 +891,6 @@ async fn list_firmware_object_ids(
 /// switches. Mirrors the value used by `crate::rack::firmware_update`.
 const SWITCH_BMC_PORT: u32 = 443;
 
-/// Default BMC HTTPS port used when populating `rms::Endpoint` for compute
-/// trays.
-const COMPUTE_TRAY_BMC_PORT: u32 = 443;
-
 fn credentials_to_rms(creds: &Credentials) -> rms::Credentials {
     let Credentials::UsernamePassword { username, password } = creds;
     rms::Credentials {
@@ -1146,8 +1155,18 @@ fn build_compute_tray_node_info(
     identity: &RmsIdentity,
     bmc_mac: MacAddress,
     node_type: rms::NodeType,
-) -> rms::NodeInfo {
-    rms::NodeInfo {
+) -> Result<rms::NodeInfo, String> {
+    let credentials = match &ep.authentication {
+        ComputeTrayAuthentication::Credentials(credentials) => credentials_to_rms(credentials),
+        ComputeTrayAuthentication::CredentialKey(key) => {
+            return Err(format!(
+                "RMS compute-tray operations require resolved credentials, not key {}",
+                key.to_key_str()
+            ));
+        }
+    };
+
+    Ok(rms::NodeInfo {
         node_id: identity.node_id.clone(),
         rack_id: identity.rack_id.clone(),
         r#type: Some(node_type as i32),
@@ -1156,12 +1175,12 @@ fn build_compute_tray_node_info(
                 ip_address: ep.bmc_ip.to_string(),
                 mac_address: bmc_mac.to_string(),
             }),
-            port: COMPUTE_TRAY_BMC_PORT,
-            credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
+            port: u32::from(ep.bmc_port.unwrap_or(443)),
+            credentials: Some(credentials),
             dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: None,
-    }
+    })
 }
 
 fn summarize_firmware_object_apply_response(
@@ -1774,7 +1793,7 @@ impl ComputeTrayManager for RmsBackend {
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
         let bmc_ips: Vec<IpAddr> = endpoints.iter().map(|ep| ep.bmc_ip).collect();
         let ids = resolve_compute_tray_identities(&self.db, &bmc_ips).await?;
-        let operation = to_rms_power_operation(action);
+        let operation = to_rms_compute_power_operation(action);
         let mut results = Vec::with_capacity(endpoints.len());
 
         for ep in endpoints {
@@ -1799,12 +1818,22 @@ impl ComputeTrayManager for RmsBackend {
                 }
             };
 
-            let device = build_compute_tray_node_info(
+            let device = match build_compute_tray_node_info(
                 ep,
                 resolved.identity,
                 identity.bmc_mac,
                 resolved.node_type,
-            );
+            ) {
+                Ok(device) => device,
+                Err(error) => {
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success: false,
+                        error: Some(error),
+                    });
+                    continue;
+                }
+            };
             let request = rms::BatchSetPowerStateRequest {
                 nodes: Some(rms::NodeSet {
                     nodes: vec![device],
@@ -1875,12 +1904,22 @@ impl ComputeTrayManager for RmsBackend {
                 }
             };
 
-            let device = build_compute_tray_node_info(
+            let device = match build_compute_tray_node_info(
                 ep,
                 resolved.identity,
                 identity.bmc_mac,
                 resolved.node_type,
-            );
+            ) {
+                Ok(device) => device,
+                Err(error) => {
+                    results.push(ComputeTrayResult {
+                        bmc_ip: ep.bmc_ip,
+                        success: false,
+                        error: Some(error),
+                    });
+                    continue;
+                }
+            };
             let request = match apply_firmware_object_request(
                 device,
                 resolved.identity,
@@ -2051,7 +2090,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::compute_tray_manager::{ComputeTrayManager, ComputeTrayVendor};
+    use crate::compute_tray_manager::{
+        ComputeTrayAuthentication, ComputeTrayManager, ComputeTrayVendor,
+    };
     use crate::power_shelf_manager::PowerShelfVendor;
 
     #[async_trait::async_trait]
@@ -2085,6 +2126,30 @@ mod tests {
             "reset" {
                 PowerAction::GracefulRestart => rms::PowerOperation::Reset as i32,
                 PowerAction::ForceRestart => rms::PowerOperation::Reset as i32,
+                PowerAction::AcPowercycle => rms::PowerOperation::Reset as i32,
+            }
+        );
+    }
+
+    #[test]
+    fn compute_power_action_preserves_rms_reset_semantics() {
+        value_scenarios!(to_rms_compute_power_operation:
+            "power on" {
+                PowerAction::On => rms::PowerOperation::On as i32,
+            }
+            "graceful shutdown" {
+                PowerAction::GracefulShutdown => rms::PowerOperation::GracefulShutdown as i32,
+            }
+            "force off" {
+                PowerAction::ForceOff => rms::PowerOperation::ForceOff as i32,
+            }
+            "graceful restart" {
+                PowerAction::GracefulRestart => rms::PowerOperation::GracefulRestart as i32,
+            }
+            "force restart" {
+                PowerAction::ForceRestart => rms::PowerOperation::ForceRestart as i32,
+            }
+            "AC power cycle" {
                 PowerAction::AcPowercycle => rms::PowerOperation::Reset as i32,
             }
         );
@@ -2355,10 +2420,11 @@ mod tests {
         ComputeTrayEndpoint {
             vendor: ComputeTrayVendor::Nvidia,
             bmc_ip: bmc_ip.parse().unwrap(),
-            bmc_credentials: Credentials::UsernamePassword {
+            bmc_port: None,
+            authentication: ComputeTrayAuthentication::Credentials(Credentials::UsernamePassword {
                 username: "admin".into(),
                 password: "pass".into(),
-            },
+            }),
         }
     }
 
@@ -2424,6 +2490,37 @@ mod tests {
         let node = build_switch_node_info(&endpoint, &identity, rms::NodeType::SwitchGb300Nvidia);
 
         assert_eq!(node.r#type, Some(rms::NodeType::SwitchGb300Nvidia as i32));
+    }
+
+    #[test]
+    fn direct_rms_compute_tray_node_info_preserves_bmc_port() {
+        value_scenarios!(
+            run = |port| {
+                let mut endpoint = make_ct_endpoint(CT_IP_1);
+                endpoint.bmc_port = port;
+                let identity = RmsIdentity {
+                    node_id: "node-1".to_string(),
+                    rack_id: "rack-1".to_string(),
+                    rack_profile_id: None,
+                };
+                build_compute_tray_node_info(
+                    &endpoint,
+                    &identity,
+                    CT_MAC_1.parse().unwrap(),
+                    rms::NodeType::ComputeGb200Nvidia,
+                )
+                .expect("direct credentials should build an RMS node")
+                .bmc_endpoint
+                .expect("compute tray BMC endpoint")
+                .port
+            };
+            "missing port uses the Redfish HTTPS default" {
+                None => 443,
+            }
+            "configured non-standard port is preserved" {
+                Some(8443) => 8443,
+            }
+        );
     }
 
     #[test]

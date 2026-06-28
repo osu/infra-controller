@@ -1151,6 +1151,13 @@ async fn initialize_and_start_controllers<'a>(
                 db_pool: db_pool.clone(),
                 db_reader: db_pool.clone().into(),
                 redfish_client_pool: shared_redfish_pool.clone(),
+                core_compute_tray_manager: Arc::new(
+                    component_manager::core_compute_manager::CoreComputeTrayManager::new(
+                        shared_redfish_pool.clone(),
+                    ),
+                ),
+                component_manager: component_manager.clone().map(Arc::new),
+                credential_reader: credential_manager.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
@@ -1334,6 +1341,7 @@ async fn initialize_and_start_controllers<'a>(
         .services(
             RackStateHandlerServices {
                 db_pool: db_pool.clone(),
+                component_manager: component_manager.clone().map(Arc::new),
                 rms_client: rms_client.clone(),
                 site_config: RackConfig {
                     rms: carbide_config.rms.clone(),

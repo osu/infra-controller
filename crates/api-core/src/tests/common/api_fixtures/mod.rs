@@ -182,6 +182,7 @@ pub struct TestEnvOverrides {
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
     pub nmxc_simulator: Option<bool>,
     pub redfish_overrides: Option<RedfishOverrides>,
+    pub component_manager_config: Option<component_manager::config::ComponentManagerConfig>,
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub vpc_prefixes_drain_period: Option<chrono::Duration>,
     pub dhcp_lease_expiry_handling: Option<bool>,
@@ -333,6 +334,13 @@ impl TestEnv {
             db_pool: self.pool.clone(),
             db_reader: self.pool.clone().into(),
             redfish_client_pool: self.redfish_sim.clone(),
+            core_compute_tray_manager: Arc::new(
+                component_manager::core_compute_manager::CoreComputeTrayManager::new(
+                    self.redfish_sim.clone(),
+                ),
+            ),
+            component_manager: self.test_component_manager.clone(),
+            credential_reader: self.test_credential_manager.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
@@ -358,6 +366,7 @@ impl TestEnv {
     pub fn rack_state_handler_services(&self) -> RackStateHandlerServices {
         RackStateHandlerServices {
             db_pool: self.pool.clone(),
+            component_manager: self.test_component_manager.clone(),
             rms_client: self.rms_sim.as_rms_client(),
             site_config: RackConfig {
                 rms: self.config.rms.clone(),
@@ -1354,14 +1363,17 @@ pub async fn create_test_env_with_overrides(
         .rack_profiles
         .extend(config.rack_profiles.rack_profiles.clone());
 
-    let test_component_manager = component_manager::component_manager::build_component_manager(
-        &component_manager::config::ComponentManagerConfig {
+    let component_manager_config = overrides.component_manager_config.unwrap_or_else(|| {
+        component_manager::config::ComponentManagerConfig {
             nv_switch_backend: component_manager::nv_switch_manager::Backend::Rms,
             power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
             compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
             nv_switch_use_state_controller: true,
             ..Default::default()
-        },
+        }
+    });
+    let test_component_manager = component_manager::component_manager::build_component_manager(
+        &component_manager_config,
         component_manager_rack_profiles,
         rms_sim.as_rms_client(),
         None,
@@ -1496,6 +1508,13 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 db_reader: db_pool.clone().into(),
                 redfish_client_pool: redfish_sim.clone(),
+                core_compute_tray_manager: Arc::new(
+                    component_manager::core_compute_manager::CoreComputeTrayManager::new(
+                        redfish_sim.clone(),
+                    ),
+                ),
+                component_manager: test_component_manager.clone(),
+                credential_reader: credential_manager.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
@@ -1635,6 +1654,7 @@ pub async fn create_test_env_with_overrides(
         .services(
             RackStateHandlerServices {
                 db_pool: db_pool.clone(),
+                component_manager: test_component_manager.clone(),
                 rms_client: rms_sim.as_rms_client(),
                 site_config: RackConfig {
                     rms: config.rms.clone(),
