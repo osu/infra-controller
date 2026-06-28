@@ -16104,6 +16104,8 @@ components:
           description: 'Date/time when the InstanceType was last updated'
           format: date-time
           readOnly: true
+      required:
+        - machineCapabilities
     InstanceTypeSummary:
       title: InstanceTypeSummary
       type: object
@@ -16221,12 +16223,14 @@ components:
           description: 'Site Controller assigned Machine type'
         machineCapabilities:
           type: array
+          minItems: 1
           items:
             $ref: '#/components/schemas/InstanceTypeCapabilityCreateRequest'
           description: 'List of Machine Capabilities to match'
       required:
         - name
         - siteId
+        - machineCapabilities
     InstanceTypeUpdateRequest:
       title: InstanceTypeUpdateRequest
       type: object
@@ -16251,6 +16255,7 @@ components:
           description: 'User-defined key-value labels for the Instance Type'
         machineCapabilities:
           type: array
+          minItems: 1
           items:
             $ref: '#/components/schemas/MachineCapability'
           description: 'List of Machine Capabilities to match'

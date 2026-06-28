@@ -35,7 +35,7 @@ type InstanceTypeCreateRequest struct {
 	// Site Controller assigned Machine type
 	ControllerMachineType NullableString `json:"controllerMachineType,omitempty"`
 	// List of Machine Capabilities to match
-	MachineCapabilities []InstanceTypeCapabilityCreateRequest `json:"machineCapabilities,omitempty"`
+	MachineCapabilities []InstanceTypeCapabilityCreateRequest `json:"machineCapabilities"`
 }
 
 type _InstanceTypeCreateRequest InstanceTypeCreateRequest
@@ -44,10 +44,11 @@ type _InstanceTypeCreateRequest InstanceTypeCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewInstanceTypeCreateRequest(name string, siteId string) *InstanceTypeCreateRequest {
+func NewInstanceTypeCreateRequest(name string, siteId string, machineCapabilities []InstanceTypeCapabilityCreateRequest) *InstanceTypeCreateRequest {
 	this := InstanceTypeCreateRequest{}
 	this.Name = name
 	this.SiteId = siteId
+	this.MachineCapabilities = machineCapabilities
 	return &this
 }
 
@@ -225,34 +226,26 @@ func (o *InstanceTypeCreateRequest) UnsetControllerMachineType() {
 	o.ControllerMachineType.Unset()
 }
 
-// GetMachineCapabilities returns the MachineCapabilities field value if set, zero value otherwise.
+// GetMachineCapabilities returns the MachineCapabilities field value
 func (o *InstanceTypeCreateRequest) GetMachineCapabilities() []InstanceTypeCapabilityCreateRequest {
-	if o == nil || IsNil(o.MachineCapabilities) {
+	if o == nil {
 		var ret []InstanceTypeCapabilityCreateRequest
 		return ret
 	}
+
 	return o.MachineCapabilities
 }
 
-// GetMachineCapabilitiesOk returns a tuple with the MachineCapabilities field value if set, nil otherwise
+// GetMachineCapabilitiesOk returns a tuple with the MachineCapabilities field value
 // and a boolean to check if the value has been set.
 func (o *InstanceTypeCreateRequest) GetMachineCapabilitiesOk() ([]InstanceTypeCapabilityCreateRequest, bool) {
-	if o == nil || IsNil(o.MachineCapabilities) {
+	if o == nil {
 		return nil, false
 	}
 	return o.MachineCapabilities, true
 }
 
-// HasMachineCapabilities returns a boolean if a field has been set.
-func (o *InstanceTypeCreateRequest) HasMachineCapabilities() bool {
-	if o != nil && !IsNil(o.MachineCapabilities) {
-		return true
-	}
-
-	return false
-}
-
-// SetMachineCapabilities gets a reference to the given []InstanceTypeCapabilityCreateRequest and assigns it to the MachineCapabilities field.
+// SetMachineCapabilities sets field value
 func (o *InstanceTypeCreateRequest) SetMachineCapabilities(v []InstanceTypeCapabilityCreateRequest) {
 	o.MachineCapabilities = v
 }
@@ -278,9 +271,7 @@ func (o InstanceTypeCreateRequest) ToMap() (map[string]interface{}, error) {
 	if o.ControllerMachineType.IsSet() {
 		toSerialize["controllerMachineType"] = o.ControllerMachineType.Get()
 	}
-	if !IsNil(o.MachineCapabilities) {
-		toSerialize["machineCapabilities"] = o.MachineCapabilities
-	}
+	toSerialize["machineCapabilities"] = o.MachineCapabilities
 	return toSerialize, nil
 }
 
@@ -291,6 +282,7 @@ func (o *InstanceTypeCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	requiredProperties := []string{
 		"name",
 		"siteId",
+		"machineCapabilities",
 	}
 
 	allProperties := make(map[string]interface{})

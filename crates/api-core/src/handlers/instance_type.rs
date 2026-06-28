@@ -36,6 +36,24 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::cfg::file::ComputeAllocationEnforcement;
 
+fn desired_capabilities_from_attributes(
+    attributes: Option<rpc::InstanceTypeAttributes>,
+) -> Result<Vec<InstanceTypeMachineCapabilityFilter>, Status> {
+    let desired_capabilities = attributes.unwrap_or_default().desired_capabilities;
+    if desired_capabilities.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "at least one desired capability must be provided".to_string(),
+        )
+        .into());
+    }
+
+    desired_capabilities
+        .into_iter()
+        .map(InstanceTypeMachineCapabilityFilter::try_from)
+        .collect::<Result<Vec<_>, RpcDataConversionError>>()
+        .map_err(Into::into)
+}
+
 pub(crate) async fn create(
     api: &Api,
     request: Request<rpc::CreateInstanceTypeRequest>,
@@ -64,18 +82,7 @@ pub(crate) async fn create(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    // Prepare the capabilities list
-    let mut desired_capabilities = Vec::<InstanceTypeMachineCapabilityFilter>::new();
-
-    for cap in req
-        .instance_type_attributes
-        .unwrap_or(rpc::InstanceTypeAttributes {
-            ..Default::default()
-        })
-        .desired_capabilities
-    {
-        desired_capabilities.push(cap.try_into()?);
-    }
+    let desired_capabilities = desired_capabilities_from_attributes(req.instance_type_attributes)?;
 
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;
@@ -274,18 +281,7 @@ pub(crate) async fn update(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    // Prepare the desired capabilities list
-    let mut desired_capabilities = Vec::<InstanceTypeMachineCapabilityFilter>::new();
-
-    for cap in req
-        .instance_type_attributes
-        .unwrap_or(rpc::InstanceTypeAttributes {
-            ..Default::default()
-        })
-        .desired_capabilities
-    {
-        desired_capabilities.push(cap.try_into()?);
-    }
+    let desired_capabilities = desired_capabilities_from_attributes(req.instance_type_attributes)?;
 
     // Start a new transaction for a db write.
     let mut txn = api.txn_begin().await?;

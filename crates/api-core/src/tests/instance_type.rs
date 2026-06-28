@@ -153,6 +153,84 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 }
 
 #[crate::sqlx_test]
+async fn test_instance_type_create_and_update_require_desired_capabilities(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let id = "requires_non_empty_capabilities";
+    let metadata = Some(rpc::forge::Metadata {
+        name: "requires non-empty capabilities".to_string(),
+        description: "".to_string(),
+        labels: vec![],
+    });
+
+    for (scenario, instance_type_attributes) in [
+        ("attributes omitted", None),
+        (
+            "desired capabilities empty",
+            Some(rpc::forge::InstanceTypeAttributes::default()),
+        ),
+    ] {
+        let status = env
+            .api
+            .create_instance_type(tonic::Request::new(rpc::forge::CreateInstanceTypeRequest {
+                id: Some(id.to_string()),
+                metadata: metadata.clone(),
+                instance_type_attributes,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(status.code(), Code::InvalidArgument, "{scenario}");
+        assert_eq!(
+            status.message(),
+            "at least one desired capability must be provided",
+            "{scenario}"
+        );
+    }
+
+    let valid_attributes = Some(rpc::forge::InstanceTypeAttributes {
+        desired_capabilities: vec![rpc::forge::InstanceTypeMachineCapabilityFilterAttributes {
+            capability_type: rpc::forge::MachineCapabilityType::CapTypeCpu.into(),
+            name: Some("pentium 4 HT".to_string()),
+            ..Default::default()
+        }],
+    });
+    env.api
+        .create_instance_type(tonic::Request::new(rpc::forge::CreateInstanceTypeRequest {
+            id: Some(id.to_string()),
+            metadata: metadata.clone(),
+            instance_type_attributes: valid_attributes,
+        }))
+        .await
+        .unwrap();
+
+    for (scenario, instance_type_attributes) in [
+        ("attributes omitted", None),
+        (
+            "desired capabilities empty",
+            Some(rpc::forge::InstanceTypeAttributes::default()),
+        ),
+    ] {
+        let status = env
+            .api
+            .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+                id: id.to_string(),
+                metadata: metadata.clone(),
+                instance_type_attributes,
+                if_version_match: None,
+            }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(status.code(), Code::InvalidArgument, "{scenario}");
+        assert_eq!(
+            status.message(),
+            "at least one desired capability must be provided",
+            "{scenario}"
+        );
+    }
+}
+
+#[crate::sqlx_test]
 async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 

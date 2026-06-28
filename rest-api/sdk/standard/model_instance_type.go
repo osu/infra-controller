@@ -14,7 +14,9 @@ API version: 1.6.0
 package standard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -38,7 +40,7 @@ type InstanceType struct {
 	// User-defined key-value labels for the Instance Type
 	Labels map[string]string `json:"labels,omitempty"`
 	// List of capabilities that are supported by the Machine's of this Instance Type
-	MachineCapabilities []MachineCapability `json:"machineCapabilities,omitempty"`
+	MachineCapabilities []MachineCapability `json:"machineCapabilities"`
 	// Available only for Providers
 	MachineInstanceTypes []MachineInstanceType `json:"machineInstanceTypes,omitempty"`
 	// summary of machine counts by allocation status
@@ -55,12 +57,15 @@ type InstanceType struct {
 	Updated *time.Time `json:"updated,omitempty"`
 }
 
+type _InstanceType InstanceType
+
 // NewInstanceType instantiates a new InstanceType object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewInstanceType() *InstanceType {
+func NewInstanceType(machineCapabilities []MachineCapability) *InstanceType {
 	this := InstanceType{}
+	this.MachineCapabilities = machineCapabilities
 	return &this
 }
 
@@ -318,34 +323,26 @@ func (o *InstanceType) SetLabels(v map[string]string) {
 	o.Labels = v
 }
 
-// GetMachineCapabilities returns the MachineCapabilities field value if set, zero value otherwise.
+// GetMachineCapabilities returns the MachineCapabilities field value
 func (o *InstanceType) GetMachineCapabilities() []MachineCapability {
-	if o == nil || IsNil(o.MachineCapabilities) {
+	if o == nil {
 		var ret []MachineCapability
 		return ret
 	}
+
 	return o.MachineCapabilities
 }
 
-// GetMachineCapabilitiesOk returns a tuple with the MachineCapabilities field value if set, nil otherwise
+// GetMachineCapabilitiesOk returns a tuple with the MachineCapabilities field value
 // and a boolean to check if the value has been set.
 func (o *InstanceType) GetMachineCapabilitiesOk() ([]MachineCapability, bool) {
-	if o == nil || IsNil(o.MachineCapabilities) {
+	if o == nil {
 		return nil, false
 	}
 	return o.MachineCapabilities, true
 }
 
-// HasMachineCapabilities returns a boolean if a field has been set.
-func (o *InstanceType) HasMachineCapabilities() bool {
-	if o != nil && !IsNil(o.MachineCapabilities) {
-		return true
-	}
-
-	return false
-}
-
-// SetMachineCapabilities gets a reference to the given []MachineCapability and assigns it to the MachineCapabilities field.
+// SetMachineCapabilities sets field value
 func (o *InstanceType) SetMachineCapabilities(v []MachineCapability) {
 	o.MachineCapabilities = v
 }
@@ -605,9 +602,7 @@ func (o InstanceType) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels
 	}
-	if !IsNil(o.MachineCapabilities) {
-		toSerialize["machineCapabilities"] = o.MachineCapabilities
-	}
+	toSerialize["machineCapabilities"] = o.MachineCapabilities
 	if !IsNil(o.MachineInstanceTypes) {
 		toSerialize["machineInstanceTypes"] = o.MachineInstanceTypes
 	}
@@ -630,6 +625,43 @@ func (o InstanceType) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated"] = o.Updated
 	}
 	return toSerialize, nil
+}
+
+func (o *InstanceType) UnmarshalJSON(data []byte) (err error) {
+	// This validates that all required properties are included in the JSON object
+	// by unmarshalling the object into a generic map with string keys and checking
+	// that every required field exists as a key in the generic map.
+	requiredProperties := []string{
+		"machineCapabilities",
+	}
+
+	allProperties := make(map[string]interface{})
+
+	err = json.Unmarshal(data, &allProperties)
+
+	if err != nil {
+		return err
+	}
+
+	for _, requiredProperty := range requiredProperties {
+		if _, exists := allProperties[requiredProperty]; !exists {
+			return fmt.Errorf("no value given for required property %v", requiredProperty)
+		}
+	}
+
+	varInstanceType := _InstanceType{}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varInstanceType)
+
+	if err != nil {
+		return err
+	}
+
+	*o = InstanceType(varInstanceType)
+
+	return err
 }
 
 type NullableInstanceType struct {

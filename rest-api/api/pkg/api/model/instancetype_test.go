@@ -195,6 +195,23 @@ func TestAPIInstanceTypeCreateRequest_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "test invalid Instance Type create request - missing Machine Capabilities",
+			fields: fields{
+				Name:   "test-name",
+				SiteID: uuid.New().String(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "test invalid Instance Type create request - empty Machine Capabilities",
+			fields: fields{
+				Name:                "test-name",
+				SiteID:              uuid.New().String(),
+				MachineCapabilities: []APIMachineCapability{},
+			},
+			wantErr: true,
+		},
+		{
 			name: "test invalid Instance Type create request - invalid Site ID",
 			fields: fields{
 				Name:                  "test-name",
@@ -450,9 +467,10 @@ func TestAPIInstanceTypeCreateRequest_Validate(t *testing.T) {
 
 func TestAPIInstanceTypeUpdateRequest_Validate(t *testing.T) {
 	type fields struct {
-		Name        *string
-		Description *string
-		Labels      map[string]string
+		Name                *string
+		Description         *string
+		Labels              map[string]string
+		MachineCapabilities APIMachineCapabilities
 	}
 	tests := []struct {
 		name    string
@@ -471,14 +489,39 @@ func TestAPIInstanceTypeUpdateRequest_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:    "test valid Instance Type update request - Machine Capabilities omitted",
+			fields:  fields{},
+			wantErr: false,
+		},
+		{
+			name: "test invalid Instance Type update request - empty Machine Capabilities",
+			fields: fields{
+				MachineCapabilities: APIMachineCapabilities{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "test valid Instance Type update request - non-empty Machine Capabilities",
+			fields: fields{
+				MachineCapabilities: APIMachineCapabilities{
+					{
+						Type: cdbm.MachineCapabilityTypeCPU,
+						Name: "AMD Opteron Series x10",
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			itur := APIInstanceTypeUpdateRequest{
-				Name:        tt.fields.Name,
-				Description: tt.fields.Description,
-				Labels:      tt.fields.Labels,
+				Name:                tt.fields.Name,
+				Description:         tt.fields.Description,
+				Labels:              tt.fields.Labels,
+				MachineCapabilities: tt.fields.MachineCapabilities,
 			}
 			err := itur.Validate()
 			if tt.wantErr {

@@ -43,7 +43,8 @@ func (itcr *APIInstanceTypeCreateRequest) Validate() error {
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&itcr.Labels, validation.By(util.ValidateLabels)),
-		validation.Field(&itcr.MachineCapabilities),
+		validation.Field(&itcr.MachineCapabilities,
+			validation.Required.Error(validationErrorValueRequired)),
 	)
 }
 
@@ -87,7 +88,9 @@ func (itur *APIInstanceTypeUpdateRequest) Validate() error {
 			validation.When(itur.Name != nil, validation.By(util.ValidateNameCharacters)),
 			validation.When(itur.Name != nil, validation.Length(2, 256).Error(validationErrorStringLength))),
 		validation.Field(&itur.Labels, validation.By(util.ValidateLabels)),
-		validation.Field(&itur.MachineCapabilities),
+		validation.Field(&itur.MachineCapabilities,
+			validation.When(itur.MachineCapabilities != nil,
+				validation.Required.Error(validationErrorValueRequired))),
 	)
 }
 

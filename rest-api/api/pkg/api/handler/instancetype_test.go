@@ -205,19 +205,38 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 		},
 	}
 
-	itcrValidWithoutMachineCapabilities := &model.APIInstanceTypeCreateRequest{
+	itcrInvalidMissingMachineCapabilities := &model.APIInstanceTypeCreateRequest{
 		Name:        "x2.large.missing.mc",
 		Description: sutil.GetPtr("Test Description"),
 		SiteID:      st.ID.String(),
 	}
 
+	itcrInvalidEmptyMachineCapabilities := &model.APIInstanceTypeCreateRequest{
+		Name:                "x2.large.empty.mc",
+		Description:         sutil.GetPtr("Test Description"),
+		SiteID:              st.ID.String(),
+		MachineCapabilities: []model.APIMachineCapability{},
+	}
+
 	itcrInvalid1 := &model.APIInstanceTypeCreateRequest{
 		Name: "x2.large",
+		MachineCapabilities: []model.APIMachineCapability{
+			{
+				Type: cdbm.MachineCapabilityTypeCPU,
+				Name: "Intel Xeon E5-2650 v2",
+			},
+		},
 	}
 
 	itcrInvalid2 := &model.APIInstanceTypeCreateRequest{
 		Name:   "x2.large",
 		SiteID: uuid.New().String(),
+		MachineCapabilities: []model.APIMachineCapability{
+			{
+				Type: cdbm.MachineCapabilityTypeCPU,
+				Name: "Intel Xeon E5-2650 v2",
+			},
+		},
 	}
 
 	common.TestBuildInstanceType(t, dbSession, "test-it-name-1", nil, st, map[string]string{
@@ -234,6 +253,12 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 		Description:           sutil.GetPtr("Test Description"),
 		SiteID:                st.ID.String(),
 		ControllerMachineType: sutil.GetPtr("intel_xeon_e5_2650v2"),
+		MachineCapabilities: []model.APIMachineCapability{
+			{
+				Type: cdbm.MachineCapabilityTypeCPU,
+				Name: "Intel Xeon E5-2650 v2",
+			},
+		},
 	}
 
 	cfg := common.GetTestConfig()
@@ -339,7 +364,12 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 						"description": "Test x9001 Instance Type ",
 					},
 					ControllerMachineType: sutil.GetPtr("intel_goku_e9001_dbzv2"),
-					MachineCapabilities:   []model.APIMachineCapability{},
+					MachineCapabilities: []model.APIMachineCapability{
+						{
+							Type: cdbm.MachineCapabilityTypeCPU,
+							Name: "Intel Goku E9001",
+						},
+					},
 				},
 			},
 			wantErr:                false,
@@ -360,12 +390,18 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 					Description:           sutil.GetPtr("Test Description"),
 					SiteID:                st.ID.String(),
 					ControllerMachineType: sutil.GetPtr("intel_goku_e9001_dbzv2"),
-					MachineCapabilities:   []model.APIMachineCapability{},
+					MachineCapabilities: []model.APIMachineCapability{
+						{
+							Type: cdbm.MachineCapabilityTypeCPU,
+							Name: "Intel Goku E9001",
+						},
+					},
 				},
 			},
-			wantErr:                false,
-			expectedResourcesCount: 1,
-			respCode:               http.StatusCreated,
+			wantErr:                     false,
+			expectedResourcesCount:      1,
+			expectedMachineCapabilities: 1,
+			respCode:                    http.StatusCreated,
 		},
 		{
 			name: "test create Instance Type API endpoint with valid data",
@@ -385,7 +421,7 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 			verifyChildSpanner:          true,
 		},
 		{
-			name: "test create Instance Type API endpoint with valid data but no machine capabilities",
+			name: "test create Instance Type API endpoint rejects missing machine capabilities",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        &tmocks.Client{},
@@ -393,12 +429,24 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 				cfg:       cfg,
 			},
 			args: args{
-				reqData: itcrValidWithoutMachineCapabilities,
+				reqData: itcrInvalidMissingMachineCapabilities,
 			},
-			wantErr:                     false,
-			respCode:                    http.StatusCreated,
-			expectedResourcesCount:      1,
-			expectedMachineCapabilities: 0,
+			wantErr:  false,
+			respCode: http.StatusBadRequest,
+		},
+		{
+			name: "test create Instance Type API endpoint rejects empty machine capabilities",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        &tmocks.Client{},
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: itcrInvalidEmptyMachineCapabilities,
+			},
+			wantErr:  false,
+			respCode: http.StatusBadRequest,
 		},
 		{
 			name: "error create Instance Type API endpoint with name clash",
@@ -2114,6 +2162,24 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				reqData:        &model.APIInstanceTypeUpdateRequest{},
 			},
 			wantRespCode: http.StatusOK,
+		},
+		{
+			name: "test Instance Type update rejects empty machine capabilities",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        &tmocks.Client{},
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				user:           ipu,
+				org:            org,
+				instanceTypeID: it2.ID,
+				reqData: &model.APIInstanceTypeUpdateRequest{
+					MachineCapabilities: []model.APIMachineCapability{},
+				},
+			},
+			wantRespCode: http.StatusBadRequest,
 		},
 		{
 			name: "test Instance Type update fail with new capability of a bad type",
