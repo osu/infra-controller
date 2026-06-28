@@ -126,6 +126,17 @@ async fn test_force_delete_rack_success(
         .unwrap();
     drop(txn);
 
+    let mut txn = env.pool.begin().await?;
+    db::state_history::persist(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_id,
+        &"retained-before-force-delete",
+        config_version::ConfigVersion::initial(),
+    )
+    .await?;
+    txn.commit().await?;
+
     let response = env
         .api
         .admin_force_delete_rack(tonic::Request::new(AdminForceDeleteRackRequest {
@@ -146,6 +157,20 @@ async fn test_force_delete_rack_success(
         .racks;
 
     assert!(racks.is_empty(), "Rack should be hard-deleted");
+
+    let mut conn = env.pool.acquire().await?;
+    let history = db::state_history::for_object(
+        &mut conn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_id,
+    )
+    .await?;
+    assert!(
+        history
+            .iter()
+            .any(|record| record.state == r#""retained-before-force-delete""#),
+        "Rack state history should be retained",
+    );
 
     Ok(())
 }
