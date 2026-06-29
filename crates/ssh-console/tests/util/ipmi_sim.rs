@@ -51,6 +51,57 @@ pub struct ActiveSolSession {
     _pty_master: AsyncFd<OwnedFd>,
 }
 
+impl ActiveSolSession {
+    pub async fn assert_console_works(&self, expected_prompt: &[u8]) -> eyre::Result<()> {
+        const PROBE: &[u8] = b"original-sol-owner-probe\r";
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let mut written = 0;
+            while written < PROBE.len() {
+                let mut guard = self._pty_master.writable().await?;
+                match unistd::write(&self._pty_master, &PROBE[written..]) {
+                    Ok(0) => return Err(eyre::eyre!("conflicting SOL session PTY closed")),
+                    Ok(n) => written += n,
+                    Err(Errno::EWOULDBLOCK) => guard.clear_ready(),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+
+            let mut output = Vec::new();
+            let mut buf = [0; 1024];
+            loop {
+                let mut guard = self._pty_master.readable().await?;
+                match unistd::read(guard.get_inner(), &mut buf) {
+                    Ok(0) | Err(Errno::EIO) => {
+                        return Err(eyre::eyre!(
+                            "conflicting SOL session closed while probing it: {}",
+                            String::from_utf8_lossy(&output)
+                        ));
+                    }
+                    Ok(n) => {
+                        output.extend_from_slice(&buf[..n]);
+                        if output
+                            .windows(PROBE.len())
+                            .position(|window| window == PROBE)
+                            .is_some_and(|probe_start| {
+                                output[probe_start + PROBE.len()..]
+                                    .windows(expected_prompt.len())
+                                    .any(|window| window == expected_prompt)
+                            })
+                        {
+                            return Ok::<(), eyre::Report>(());
+                        }
+                    }
+                    Err(Errno::EWOULDBLOCK) => guard.clear_ready(),
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })
+        .await
+        .context("timed out probing the original conflicting SOL session")?
+    }
+}
+
 pub async fn activate_sol(port: u16) -> eyre::Result<ActiveSolSession> {
     let pty = openpty(None, None).context("failed to allocate ipmitool pty")?;
     set_nonblocking(&pty.master).context("failed to make ipmitool pty nonblocking")?;

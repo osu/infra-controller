@@ -163,13 +163,16 @@ pub async fn spawn(
         match exit_status {
             Some(exit_status) => {
                 // Any exit from ipmitool is unexpected: It's supposed to run forever until we shut
-                // it down. A conflicting SOL session is recoverable, so deactivate it before the
-                // client retries the connection.
+                // it down. If explicitly configured, recover a conflicting SOL session by
+                // deactivating it before the client retries the connection.
                 let output = ipmitool_proxy.captured_output_string();
                 Err(handle_unexpected_ipmitool_exit(
                     exit_status,
                     output,
                     ipmitool_proxy.sol_session_operational,
+                    ipmitool_proxy
+                        .config
+                        .force_deactivate_conflicting_ipmi_sol_sessions,
                     || deactivate_sol(&ipmitool_proxy.connection_details, &ipmitool_proxy.config),
                 )
                 .await)
@@ -272,13 +275,17 @@ async fn handle_unexpected_ipmitool_exit<Deactivate, DeactivateFuture>(
     exit_status: ExitStatus,
     output: String,
     sol_session_operational: bool,
+    force_deactivate_conflicting_ipmi_sol_sessions: bool,
     deactivate_sol: Deactivate,
 ) -> SpawnError
 where
     Deactivate: FnOnce() -> DeactivateFuture,
     DeactivateFuture: Future<Output = Result<(), SolDeactivateError>>,
 {
-    if sol_session_operational || !is_sol_payload_already_active(&output) {
+    if sol_session_operational
+        || !force_deactivate_conflicting_ipmi_sol_sessions
+        || !is_sol_payload_already_active(&output)
+    {
         return SpawnError::IpmitoolUnexpectedExit {
             exit_status,
             output,
@@ -307,7 +314,7 @@ async fn deactivate_sol(
     config: &Config,
 ) -> Result<(), SolDeactivateError> {
     let machine_id = connection_details.machine_id;
-    // ssh-console multiplexes all frontends over one long-lived SOL session, so recovery here
+    // The explicit opt-in asserts that ssh-console owns SOL exclusively, so recovery here
     // intentionally replaces any out-of-band session that prevents it from becoming the owner.
     tracing::warn!(
         %machine_id,
@@ -843,6 +850,7 @@ mod tests {
             failed_exit_status(),
             "authentication failed".to_string(),
             false,
+            true,
             || async {
                 deactivation_called.store(true, Ordering::Relaxed);
                 Ok(())
@@ -856,11 +864,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conflicting_sol_session_is_deactivated_and_retried_immediately() {
+    async fn conflicting_sol_session_is_not_deactivated_by_default() {
+        let deactivation_called = AtomicBool::new(false);
+
         let error = handle_unexpected_ipmitool_exit(
             failed_exit_status(),
             format!("Info: {SOL_PAYLOAD_ALREADY_ACTIVE}\r\n"),
             false,
+            false,
+            || async {
+                deactivation_called.store(true, Ordering::Relaxed);
+                Ok(())
+            },
+        )
+        .await;
+
+        assert!(matches!(&error, SpawnError::IpmitoolUnexpectedExit { .. }));
+        assert!(!deactivation_called.load(Ordering::Relaxed));
+        assert!(!error.retry_immediately());
+    }
+
+    #[tokio::test]
+    async fn conflicting_sol_session_is_deactivated_and_retried_immediately_when_enabled() {
+        let error = handle_unexpected_ipmitool_exit(
+            failed_exit_status(),
+            format!("Info: {SOL_PAYLOAD_ALREADY_ACTIVE}\r\n"),
+            false,
+            true,
             || async { Ok(()) },
         )
         .await;
@@ -878,6 +908,7 @@ mod tests {
             failed_exit_status(),
             format!("Info: {SOL_PAYLOAD_ALREADY_ACTIVE}\r\n"),
             false,
+            true,
             || async {
                 Err(SolDeactivateError::Failure {
                     exit_status: failed_exit_status(),
@@ -901,6 +932,7 @@ mod tests {
         let error = handle_unexpected_ipmitool_exit(
             failed_exit_status(),
             format!("host output: {SOL_PAYLOAD_ALREADY_ACTIVE}\r\n"),
+            true,
             true,
             || async {
                 deactivation_called.store(true, Ordering::Relaxed);

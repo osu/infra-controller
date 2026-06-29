@@ -161,7 +161,62 @@ async fn test_ssh_console() -> eyre::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_ipmi_sol_conflict_recovery() -> eyre::Result<()> {
+async fn test_ipmi_sol_conflict_does_not_evict_existing_session_by_default() -> eyre::Result<()> {
+    if std::env::var("REPO_ROOT").is_err() {
+        tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
+        return Ok(());
+    }
+    let Some(env) = run_baseline_test_environment(vec![MockBmcType::Ipmi]).await? else {
+        return Ok(());
+    };
+    let mock_host = &env.mock_hosts[0];
+    let active_sol_session = util::ipmi_sim::activate_sol(
+        mock_host
+            .ipmi_port
+            .expect("IPMI mock should provide an IPMI port"),
+    )
+    .await?;
+
+    let handle = ssh_console_test_helper::spawn(
+        env.mock_api_server.addr.port(),
+        Some(ssh_console_test_helper::ConfigOverrides {
+            reconnect_interval_base: Some(Duration::from_secs(1)),
+            reconnect_interval_max: Some(Duration::from_secs(1)),
+            successful_connection_minimum_duration: Some(Duration::from_secs(60)),
+            ..Default::default()
+        }),
+    )
+    .await?;
+
+    let machine_id = mock_host.machine_id.to_string();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Ok(metrics) = ssh_console_test_helper::get_metrics(handle.metrics_address).await
+                && metrics.lines().any(|line| {
+                    line.starts_with("ssh_console_bmc_status{")
+                        && line.contains(&machine_id)
+                        && line.contains("ConnectionError")
+                })
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .context("ssh-console did not report the expected conflicting SOL connection error")?;
+
+    let expected_prompt = format!("root@{} # ", mock_host.machine_id).into_bytes();
+    active_sol_session
+        .assert_console_works(&expected_prompt)
+        .await?;
+
+    handle.spawn_handle.shutdown_and_wait().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ipmi_sol_conflict_recovery_when_enabled() -> eyre::Result<()> {
     if std::env::var("REPO_ROOT").is_err() {
         tracing::info!("Skipping running ssh-console integration tests, as REPO_ROOT is not set");
         return Ok(());
@@ -183,6 +238,7 @@ async fn test_ipmi_sol_conflict_recovery() -> eyre::Result<()> {
             reconnect_interval_base: Some(Duration::from_secs(30)),
             reconnect_interval_max: Some(Duration::from_secs(30)),
             successful_connection_minimum_duration: Some(Duration::from_secs(60)),
+            force_deactivate_conflicting_ipmi_sol_sessions: Some(true),
         }),
     )
     .await?;
@@ -235,6 +291,7 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
             reconnect_interval_base: Some(Duration::from_secs(3)),
             reconnect_interval_max: Some(reconnect_interval_max),
             successful_connection_minimum_duration: Some(Duration::from_secs(60)),
+            ..Default::default()
         }),
     )
     .await?;
