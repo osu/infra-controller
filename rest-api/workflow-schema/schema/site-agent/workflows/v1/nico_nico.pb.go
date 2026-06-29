@@ -1569,8 +1569,9 @@ func (MessageKind) EnumDescriptor() ([]byte, []int) {
 type ExpireDhcpLeaseStatus int32
 
 const (
-	ExpireDhcpLeaseStatus_EXPIRE_DHCP_LEASE_STATUS_RELEASED  ExpireDhcpLeaseStatus = 0
-	ExpireDhcpLeaseStatus_EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND ExpireDhcpLeaseStatus = 1
+	ExpireDhcpLeaseStatus_EXPIRE_DHCP_LEASE_STATUS_RELEASED         ExpireDhcpLeaseStatus = 0
+	ExpireDhcpLeaseStatus_EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND        ExpireDhcpLeaseStatus = 1
+	ExpireDhcpLeaseStatus_EXPIRE_DHCP_LEASE_STATUS_FEATURE_DISABLED ExpireDhcpLeaseStatus = 2
 )
 
 // Enum value maps for ExpireDhcpLeaseStatus.
@@ -1578,10 +1579,12 @@ var (
 	ExpireDhcpLeaseStatus_name = map[int32]string{
 		0: "EXPIRE_DHCP_LEASE_STATUS_RELEASED",
 		1: "EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND",
+		2: "EXPIRE_DHCP_LEASE_STATUS_FEATURE_DISABLED",
 	}
 	ExpireDhcpLeaseStatus_value = map[string]int32{
-		"EXPIRE_DHCP_LEASE_STATUS_RELEASED":  0,
-		"EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND": 1,
+		"EXPIRE_DHCP_LEASE_STATUS_RELEASED":         0,
+		"EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND":        1,
+		"EXPIRE_DHCP_LEASE_STATUS_FEATURE_DISABLED": 2,
 	}
 )
 
@@ -63312,10 +63315,11 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x18MESSAGE_KIND_V4_DISCOVER\x10\x01\x12\x1b\n" +
 	"\x17MESSAGE_KIND_V6_SOLICIT\x10\x02\x12\x1b\n" +
 	"\x17MESSAGE_KIND_V6_REQUEST\x10\x03\x12 \n" +
-	"\x1cMESSAGE_KIND_V6_INFO_REQUEST\x10\x04*f\n" +
+	"\x1cMESSAGE_KIND_V6_INFO_REQUEST\x10\x04*\x95\x01\n" +
 	"\x15ExpireDhcpLeaseStatus\x12%\n" +
 	"!EXPIRE_DHCP_LEASE_STATUS_RELEASED\x10\x00\x12&\n" +
-	"\"EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND\x10\x01*D\n" +
+	"\"EXPIRE_DHCP_LEASE_STATUS_NOT_FOUND\x10\x01\x12-\n" +
+	")EXPIRE_DHCP_LEASE_STATUS_FEATURE_DISABLED\x10\x02*D\n" +
 	"\tUserRoles\x12\b\n" +
 	"\x04USER\x10\x00\x12\x11\n" +
 	"\rADMINISTRATOR\x10\x01\x12\f\n" +
