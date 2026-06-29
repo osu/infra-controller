@@ -29,19 +29,19 @@ use crate::hardware_info::HardwareInfoError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ErrorSystem {
     /// NCX Infra Controller.
-    NICo,
+    Nico,
 }
 
 impl ErrorSystem {
     const fn as_str(self) -> &'static str {
         match self {
-            ErrorSystem::NICo => "NICO",
+            ErrorSystem::Nico => "NICO",
         }
     }
 
     fn from_token(token: &str) -> Option<Self> {
         match token {
-            "NICO" => Some(ErrorSystem::NICo),
+            "NICO" => Some(ErrorSystem::Nico),
             _ => None,
         }
     }
@@ -104,7 +104,7 @@ impl ErrorCode {
     /// A NICo error code for the given subsystem and numeric code.
     pub const fn nico(subsystem: ErrorSubsystem, code: u32) -> Self {
         Self {
-            system: ErrorSystem::NICo,
+            system: ErrorSystem::Nico,
             subsystem,
             code,
         }
