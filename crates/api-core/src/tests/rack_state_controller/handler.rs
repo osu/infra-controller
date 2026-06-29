@@ -1048,6 +1048,10 @@ async fn test_on_demand_rack_maintenance_schedules_firmware_and_nvos_scope(
         .config
         .maintenance_requested
         .expect("maintenance should be scheduled");
+    let maintenance_request_id = scope
+        .maintenance_request_id
+        .clone()
+        .expect("token-bearing maintenance should have a request ID");
     assert_eq!(scope.switch_ids, vec![switch_id]);
     assert_eq!(scope.activities.len(), 2);
     assert!(matches!(
@@ -1068,6 +1072,7 @@ async fn test_on_demand_rack_maintenance_schedules_firmware_and_nvos_scope(
         .test_credential_manager
         .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
             rack_id: rack_id.clone(),
+            maintenance_request_id: Some(maintenance_request_id),
         })
         .await
         .expect("credential lookup should succeed")
@@ -1115,10 +1120,19 @@ async fn test_on_demand_rack_maintenance_defaults_missing_access_token_to_noauth
     )
     .await?;
 
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let maintenance_request_id = rack
+        .config
+        .maintenance_requested
+        .as_ref()
+        .and_then(|scope| scope.maintenance_request_id.clone())
+        .expect("token-bearing maintenance should have a request ID");
+
     let token_credentials = env
         .test_credential_manager
         .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
             rack_id: rack_id.clone(),
+            maintenance_request_id: Some(maintenance_request_id),
         })
         .await
         .expect("credential lookup should succeed")
@@ -1129,6 +1143,103 @@ async fn test_on_demand_rack_maintenance_defaults_missing_access_token_to_noauth
             username: "access_token".to_string(),
             password: carbide_rack::firmware_object::RMS_NOAUTH_ACCESS_TOKEN.to_string(),
         }
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_concurrent_rack_maintenance_cleans_only_rejected_request_token(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let (rack_id, switch_id) = create_ready_rack_with_switch(&env, &pool).await?;
+    let request = |config_id: &str, access_token: &str| {
+        Request::new(rpc::forge::RackMaintenanceOnDemandRequest {
+            rack_id: Some(rack_id.clone()),
+            scope: Some(rpc::forge::RackMaintenanceScope {
+                machine_ids: vec![],
+                switch_ids: vec![switch_id.to_string()],
+                power_shelf_ids: vec![],
+                activities: vec![rpc::forge::MaintenanceActivityConfig {
+                    activity: Some(
+                        rpc::forge::maintenance_activity_config::Activity::NvosUpdate(
+                            rpc::forge::NvosUpdateActivity {
+                                config_json: format!(r#"{{"Id":"{config_id}"}}"#),
+                                access_token: Some(access_token.to_string()),
+                            },
+                        ),
+                    ),
+                }],
+            }),
+        })
+    };
+
+    let first = crate::handlers::rack::on_demand_rack_maintenance(
+        env.api.as_ref(),
+        request("first", "first-token"),
+    );
+    let second = crate::handlers::rack::on_demand_rack_maintenance(
+        env.api.as_ref(),
+        request("second", "second-token"),
+    );
+    let (first_result, second_result) = tokio::join!(first, second);
+    let (accepted_config_id, accepted_token_value, rejected) = match (first_result, second_result) {
+        (Ok(_), Err(rejected)) => ("first", "first-token", rejected),
+        (Err(rejected), Ok(_)) => ("second", "second-token", rejected),
+        (first, second) => panic!(
+            "exactly one concurrent maintenance request must succeed, got first={first:?}, second={second:?}"
+        ),
+    };
+    assert!(rejected.message().contains("already scheduled"));
+
+    let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let scope = rack
+        .config
+        .maintenance_requested
+        .expect("the accepted maintenance request must remain scheduled");
+    let maintenance_request_id = scope
+        .maintenance_request_id
+        .expect("token-bearing maintenance should have a request ID");
+    assert!(matches!(
+        scope.activities.as_slice(),
+        [MaintenanceActivity::NvosUpdate { config_json }]
+            if config_json == &format!(r#"{{"Id":"{accepted_config_id}"}}"#)
+    ));
+
+    let accepted_credentials = env
+        .test_credential_manager
+        .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
+            rack_id: rack_id.clone(),
+            maintenance_request_id: Some(maintenance_request_id),
+        })
+        .await
+        .map_err(|error| eyre::eyre!("failed to read accepted request token: {error}"))?
+        .expect("the accepted request token must remain available");
+    assert_eq!(
+        accepted_credentials,
+        Credentials::UsernamePassword {
+            username: "access_token".to_string(),
+            password: accepted_token_value.to_string(),
+        }
+    );
+    assert!(
+        env.test_credential_manager
+            .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
+                rack_id: rack_id.clone(),
+                maintenance_request_id: None,
+            })
+            .await
+            .map_err(|error| eyre::eyre!("failed to read legacy request token: {error}"))?
+            .is_none(),
+        "request-scoped scheduling must not write the legacy shared key"
+    );
+    assert_eq!(
+        env.test_credential_manager
+            .count_credentials_with_prefix(&format!("racks/{rack_id}/maintenance/"))
+            .await,
+        1,
+        "the rejected request must clean up only its own request-scoped token"
     );
 
     Ok(())
@@ -1946,6 +2057,12 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
         .await;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+    let maintenance_request_id = rack
+        .config
+        .maintenance_requested
+        .as_ref()
+        .and_then(|scope| scope.maintenance_request_id.clone())
+        .expect("token-bearing maintenance should have a request ID");
     let handler_instance = RackStateHandler::default();
     let mut services = env.rack_state_handler_services();
     let mut metrics = RackMetrics::default();
@@ -1995,6 +2112,7 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
         .test_credential_manager
         .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
             rack_id: rack_id.clone(),
+            maintenance_request_id: Some(maintenance_request_id),
         })
         .await
         .expect("credential lookup should succeed");
@@ -2043,6 +2161,7 @@ async fn test_firmware_upgrade_start_missing_profile_deletes_access_token(
         .set_credentials(
             &CredentialKey::RackMaintenanceAccessToken {
                 rack_id: rack_id.clone(),
+                maintenance_request_id: None,
             },
             &Credentials::UsernamePassword {
                 username: "access_token".to_string(),
@@ -2089,6 +2208,7 @@ async fn test_firmware_upgrade_start_missing_profile_deletes_access_token(
         .test_credential_manager
         .get_credentials(&CredentialKey::RackMaintenanceAccessToken {
             rack_id: rack_id.clone(),
+            maintenance_request_id: None,
         })
         .await
         .map_err(|error| eyre::eyre!("failed to get maintenance access token: {}", error))?;
@@ -2679,6 +2799,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
         .set_credentials(
             &CredentialKey::RackMaintenanceAccessToken {
                 rack_id: rack_id.clone(),
+                maintenance_request_id: None,
             },
             &Credentials::UsernamePassword {
                 username: "access_token".to_string(),

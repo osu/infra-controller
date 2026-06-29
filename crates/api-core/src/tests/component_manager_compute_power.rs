@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
+use carbide_secrets::credentials::{CredentialKey, CredentialType, Credentials};
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use component_manager::compute_tray_manager::Backend as ComputeBackend;
 use component_manager::config::ComponentManagerConfig;
@@ -30,6 +32,18 @@ fn rms_compute_overrides() -> TestEnvOverrides {
             nv_switch_backend: NvSwitchBackend::Mock,
             power_shelf_backend: PowerShelfBackend::Mock,
             compute_tray_backend: ComputeBackend::Rms,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+fn core_compute_overrides() -> TestEnvOverrides {
+    TestEnvOverrides {
+        component_manager_config: Some(ComponentManagerConfig {
+            nv_switch_backend: NvSwitchBackend::Mock,
+            power_shelf_backend: PowerShelfBackend::Mock,
+            compute_tray_backend: ComputeBackend::Core,
             ..Default::default()
         }),
         ..Default::default()
@@ -158,16 +172,158 @@ async fn standalone_power_uses_core_under_global_rms_for_each_bypass_setting(
 }
 
 fn power_request(
-    machine_id: carbide_uuid::machine::MachineId,
+    machine_id: MachineId,
+    bypass_state_controller: bool,
+) -> ComponentPowerControlRequest {
+    power_request_for_machines(
+        vec![machine_id],
+        SystemPowerControl::ForceRestart,
+        bypass_state_controller,
+    )
+}
+
+fn power_request_for_machines(
+    machine_ids: Vec<MachineId>,
+    action: SystemPowerControl,
     bypass_state_controller: bool,
 ) -> ComponentPowerControlRequest {
     ComponentPowerControlRequest {
-        target: Some(Target::MachineIds(MachineIdList {
-            machine_ids: vec![machine_id],
-        })),
-        action: SystemPowerControl::ForceRestart as i32,
+        target: Some(Target::MachineIds(MachineIdList { machine_ids })),
+        action: action as i32,
         bypass_state_controller,
     }
+}
+
+#[crate::sqlx_test]
+async fn core_component_fixture_uses_redfish_and_composite_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, core_compute_overrides()).await;
+
+    assert_eq!(
+        env.test_component_manager
+            .as_ref()
+            .expect("test component manager")
+            .compute_tray
+            .backend(),
+        ComputeBackend::Core,
+    );
+    let credentials = env
+        .machine_state_handler_services()
+        .credential_reader
+        .get_credentials(&CredentialKey::HostRedfish {
+            credential_type: CredentialType::SiteDefault,
+        })
+        .await
+        .expect("read static test credentials");
+    assert_eq!(
+        credentials,
+        Some(Credentials::UsernamePassword {
+            username: "root".into(),
+            password: "hostredfish_sitedefault".into(),
+        }),
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn direct_power_rejects_every_machine_sharing_a_bmc_ip(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, core_compute_overrides()).await;
+    let first_host = new_host(&env, ManagedHostConfig::default()).await?;
+    let second_host = new_host(&env, ManagedHostConfig::default()).await?;
+    let machine_ids = vec![first_host.host_snapshot.id, second_host.host_snapshot.id];
+    let duplicate_bmc_ip = first_host
+        .host_snapshot
+        .bmc_info
+        .ip
+        .expect("first host BMC IP");
+    let second_bmc_interface_id = second_host
+        .host_snapshot
+        .bmc_info
+        .machine_interface_id
+        .expect("second host BMC interface");
+
+    let update =
+        sqlx::query("UPDATE machine_interface_addresses SET address = $1 WHERE interface_id = $2")
+            .bind(duplicate_bmc_ip)
+            .bind(second_bmc_interface_id)
+            .execute(&env.pool)
+            .await?;
+    assert_eq!(update.rows_affected(), 1);
+
+    let mut txn = env.pool.begin().await?;
+    let before = db::power_options::get_by_ids(&machine_ids, txn.as_mut()).await?;
+    txn.commit().await?;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    let response = env
+        .api
+        .component_power_control(Request::new(power_request_for_machines(
+            machine_ids.clone(),
+            SystemPowerControl::ForceOff,
+            false,
+        )))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.results.len(), machine_ids.len());
+    for machine_id in &machine_ids {
+        let result = response
+            .results
+            .iter()
+            .find(|result| result.component_id == machine_id.to_string())
+            .expect("duplicate-IP machine result");
+        assert_eq!(
+            result.status,
+            rpc::forge::ComponentManagerStatusCode::InternalError as i32,
+        );
+        assert!(result.error.contains(&duplicate_bmc_ip.to_string()));
+        assert!(
+            machine_ids
+                .iter()
+                .all(|machine_id| result.error.contains(&machine_id.to_string())),
+            "duplicate-IP result did not identify every affected machine: {}",
+            result.error,
+        );
+    }
+    assert!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts()
+            .is_empty(),
+        "duplicate BMC IPs must not dispatch Core Redfish power",
+    );
+    assert!(
+        env.rms_sim
+            .submitted_batch_set_power_state_requests()
+            .await
+            .is_empty(),
+        "duplicate BMC IPs must not dispatch RMS power",
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let after = db::power_options::get_by_ids(&machine_ids, txn.as_mut()).await?;
+    txn.commit().await?;
+    for machine_id in &machine_ids {
+        let before = before
+            .iter()
+            .find(|options| options.host_id == *machine_id)
+            .expect("power options before request");
+        let after = after
+            .iter()
+            .find(|options| options.host_id == *machine_id)
+            .expect("power options after request");
+        assert_eq!(after.desired_power_state, before.desired_power_state);
+        assert_eq!(
+            after.desired_power_state_version,
+            before.desired_power_state_version,
+        );
+    }
+
+    Ok(())
 }
 
 #[crate::sqlx_test]

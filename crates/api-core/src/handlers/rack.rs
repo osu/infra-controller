@@ -227,20 +227,22 @@ pub async fn admin_force_delete_rack(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack_list = db_rack::find_by(
-        &mut txn,
-        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
-    )
-    .await
-    .map_err(CarbideError::from)?;
-
-    if rack_list.is_empty() {
-        return Err(CarbideError::NotFoundError {
+    let rack = sqlx::query_as::<_, Rack>("SELECT * FROM racks WHERE id = $1 FOR UPDATE")
+        .bind(&rack_id)
+        .fetch_optional(&mut txn)
+        .await
+        .map_err(|error| CarbideError::Internal {
+            message: format!("failed to lock rack {rack_id} for force delete: {error}"),
+        })?
+        .ok_or_else(|| CarbideError::NotFoundError {
             kind: "rack",
             id: rack_id.to_string(),
-        }
-        .into());
-    }
+        })?;
+    let maintenance_request_id = rack
+        .config
+        .maintenance_requested
+        .as_ref()
+        .and_then(|scope| scope.maintenance_request_id.as_deref());
 
     db::state_history::delete_by_object_id(
         &mut txn,
@@ -258,7 +260,10 @@ pub async fn admin_force_delete_rack(
 
     if let Err(error) = api
         .credential_manager
-        .delete_credentials(&rack_maintenance_access_token_key(&rack_id))
+        .delete_credentials(&rack_maintenance_access_token_key(
+            &rack_id,
+            maintenance_request_id,
+        ))
         .await
     {
         tracing::warn!(
@@ -656,6 +661,9 @@ pub(crate) async fn on_demand_rack_maintenance(
     }
 
     let scope = MaintenanceScope {
+        maintenance_request_id: maintenance_access_token
+            .as_ref()
+            .map(|_| uuid::Uuid::new_v4().to_string()),
         machine_ids: proto_scope
             .machine_ids
             .iter()
@@ -774,7 +782,38 @@ pub(crate) async fn on_demand_rack_maintenance(
         }
     }
 
-    let db_result: Result<(), Status> = async {
+    let maintenance_access_token_key = maintenance_access_token.as_ref().map(|_| {
+        rack_maintenance_access_token_key(&rack_id, scope.maintenance_request_id.as_deref())
+    });
+    if let (Some(token), Some(key)) = (
+        maintenance_access_token.as_ref(),
+        maintenance_access_token_key.as_ref(),
+    ) && let Err(error) = api
+        .credential_manager
+        .set_credentials(
+            key,
+            &Credentials::UsernamePassword {
+                username: "access_token".into(),
+                password: token.clone(),
+            },
+        )
+        .await
+    {
+        if let Err(cleanup_error) = api.credential_manager.delete_credentials(key).await {
+            tracing::warn!(
+                rack_id = %rack_id,
+                maintenance_request_id = ?scope.maintenance_request_id,
+                error = %cleanup_error,
+                "failed to clean up request-scoped rack maintenance access token after store error",
+            );
+        }
+        return Err(CarbideError::Internal {
+            message: format!("failed to store rack maintenance access token: {error}"),
+        }
+        .into());
+    }
+
+    let transaction_result: Result<_, Status> = async {
         let mut txn = api.txn_begin().await?;
         // Re-read and lock the live rack before scheduling. The validation
         // above can race another maintenance request while device scope and
@@ -828,49 +867,33 @@ pub(crate) async fn on_demand_rack_maintenance(
             db_rack::update_firmware_upgrade_job(txn.as_mut(), &rack_id, None).await?;
         }
 
-        // Keep the rack row locked while installing the shared rack token so
-        // a losing concurrent request can never delete or replace the token
-        // owned by the request that actually schedules maintenance.
-        if let Some(token) = maintenance_access_token.as_ref()
-            && let Err(error) = api
-                .credential_manager
-                .set_credentials(
-                    &rack_maintenance_access_token_key(&rack_id),
-                    &Credentials::UsernamePassword {
-                        username: "access_token".into(),
-                        password: token.clone(),
-                    },
-                )
-                .await
-        {
-            if let Err(cleanup_error) = api
-                .credential_manager
-                .delete_credentials(&rack_maintenance_access_token_key(&rack_id))
-                .await
+        Ok::<_, Status>(txn)
+    }
+    .await;
+
+    let txn = match transaction_result {
+        Ok(txn) => txn,
+        Err(error) => {
+            // No commit was attempted, so this request cannot own the rack
+            // maintenance claim. Its unique credential is safe to remove.
+            if let Some(key) = maintenance_access_token_key.as_ref()
+                && let Err(cleanup_error) = api.credential_manager.delete_credentials(key).await
             {
                 tracing::warn!(
                     rack_id = %rack_id,
                     error = %cleanup_error,
-                    "failed to clean up rack maintenance access token after store error",
+                    "failed to clean up rejected request-scoped rack maintenance access token",
                 );
             }
-            return Err(CarbideError::Internal {
-                message: format!("failed to store rack maintenance access token: {error}"),
-            }
-            .into());
+            return Err(error);
         }
+    };
 
-        if let Err(error) = txn.commit().await {
-            // Commit errors are outcome-ambiguous. Keep a token installed by
-            // this request: deleting it could break a commit that actually
-            // succeeded, or race a later lock holder. A later accepted request
-            // safely replaces a stale token while holding the same rack lock.
-            return Err(error.into());
-        }
-        Ok(())
-    }
-    .await;
-    db_result?;
+    // Commit errors are outcome-ambiguous. Retain this request's unique token:
+    // the database may have committed a scope that references it. If the commit
+    // did fail, the unreferenced request-scoped token cannot affect a later
+    // maintenance request.
+    txn.commit().await?;
 
     tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);
 

@@ -42,6 +42,15 @@ impl TestCredentialManager {
             set_credentials_sleep_time_ms: Default::default(),
         }
     }
+
+    pub async fn count_credentials_with_prefix(&self, prefix: &str) -> usize {
+        self.credentials
+            .lock()
+            .await
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .count()
+    }
 }
 
 #[async_trait]

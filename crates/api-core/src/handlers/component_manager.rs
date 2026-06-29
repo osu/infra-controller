@@ -31,7 +31,7 @@ use carbide_uuid::switch::SwitchId;
 use component_manager::component_manager::ComponentManager;
 use component_manager::compute_tray_manager::{
     Backend as ComputeBackend, ComputeTrayAuthentication, ComputeTrayEndpoint, ComputeTrayManager,
-    ComputeTrayVendor,
+    ComputeTrayResult, ComputeTrayVendor,
 };
 use component_manager::core_compute_manager::CoreComputeTrayManager;
 use component_manager::error::ComponentManagerError;
@@ -491,6 +491,7 @@ fn rack_power_maintenance_scope(
     action: PowerAction,
 ) -> MaintenanceScope {
     MaintenanceScope {
+        maintenance_request_id: None,
         machine_ids,
         switch_ids: Vec::new(),
         power_shelf_ids: Vec::new(),
@@ -1327,6 +1328,33 @@ async fn resolve_compute_tray_endpoints(
     let mut endpoints = Vec::with_capacity(machine_ids.len());
     let mut ip_to_machine_id = HashMap::with_capacity(machine_ids.len());
     let mut unresolved = Vec::new();
+    let mut machine_ids_by_bmc_ip: HashMap<IpAddr, Vec<MachineId>> = HashMap::new();
+    for &machine_id in machine_ids {
+        if let Some(bmc_ip) = machine_by_id
+            .get(&machine_id)
+            .and_then(|machine| machine.bmc_info.ip)
+        {
+            machine_ids_by_bmc_ip
+                .entry(bmc_ip)
+                .or_default()
+                .push(machine_id);
+        }
+    }
+    let duplicate_bmc_ip_reasons: HashMap<_, _> = machine_ids_by_bmc_ip
+        .into_iter()
+        .filter(|(_, machine_ids)| machine_ids.len() > 1)
+        .map(|(bmc_ip, machine_ids)| {
+            let machine_ids = machine_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            (
+                bmc_ip,
+                format!("BMC IP {bmc_ip} is shared by machines [{machine_ids}]"),
+            )
+        })
+        .collect();
 
     for &machine_id in machine_ids {
         let Some(machine) = machine_by_id.get(&machine_id) else {
@@ -1337,18 +1365,25 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let Some(bmc_mac) = machine.bmc_info.mac else {
-            unresolved.push(UnresolvedDevice {
-                id: machine_id,
-                reason: "BMC MAC not available".into(),
-            });
-            continue;
-        };
-
         let Some(bmc_ip) = machine.bmc_info.ip else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "BMC IP not configured".into(),
+            });
+            continue;
+        };
+        if let Some(reason) = duplicate_bmc_ip_reasons.get(&bmc_ip) {
+            unresolved.push(UnresolvedDevice {
+                id: machine_id,
+                reason: reason.clone(),
+            });
+            continue;
+        }
+
+        let Some(bmc_mac) = machine.bmc_info.mac else {
+            unresolved.push(UnresolvedDevice {
+                id: machine_id,
+                reason: "BMC MAC not available".into(),
             });
             continue;
         };
@@ -1394,6 +1429,59 @@ async fn resolve_compute_tray_endpoints(
         },
         unresolved,
     })
+}
+
+fn reconcile_direct_compute_power_results(
+    dispatch_endpoints: &[ComputeTrayEndpoint],
+    ip_to_machine_id: &HashMap<IpAddr, MachineId>,
+    backend_results: Vec<ComputeTrayResult>,
+) -> Vec<rpc::ComponentResult> {
+    let expected_ips: HashSet<_> = dispatch_endpoints
+        .iter()
+        .map(|endpoint| endpoint.bmc_ip)
+        .collect();
+    let mut results = Vec::with_capacity(dispatch_endpoints.len());
+    let mut backend_results_by_ip: HashMap<_, Vec<_>> =
+        HashMap::with_capacity(backend_results.len());
+
+    for result in backend_results {
+        let id = ip_to_machine_id
+            .get(&result.bmc_ip)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| result.bmc_ip.to_string());
+
+        if !expected_ips.contains(&result.bmc_ip) {
+            results.push(error_result(
+                &id,
+                "backend returned an unexpected compute-tray result".into(),
+            ));
+            continue;
+        }
+        backend_results_by_ip
+            .entry(result.bmc_ip)
+            .or_default()
+            .push(result);
+    }
+
+    for endpoint in dispatch_endpoints {
+        let bmc_ip = endpoint.bmc_ip;
+        let id = ip_to_machine_id
+            .get(&bmc_ip)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| bmc_ip.to_string());
+        let result = match backend_results_by_ip.get(&bmc_ip).map(Vec::as_slice) {
+            None | Some([]) => error_result(&id, "backend returned no compute-tray result".into()),
+            Some([result]) if result.success => success_result(&id),
+            Some([result]) => error_result(&id, result.error.clone().unwrap_or_default()),
+            Some(_) => error_result(
+                &id,
+                "backend returned duplicate compute-tray results".into(),
+            ),
+        };
+        results.push(result);
+    }
+
+    results
 }
 
 fn switch_mac_to_id_str(mac: &MacAddress, mac_to_id: &HashMap<MacAddress, SwitchId>) -> String {
@@ -1523,52 +1611,11 @@ async fn dispatch_compute_power_direct(
         }
     };
 
-    let expected_ips: HashSet<_> = dispatch_endpoints
-        .iter()
-        .map(|endpoint| endpoint.bmc_ip)
-        .collect();
-    let mut seen_ips = HashSet::with_capacity(backend_results.len());
-    for result in backend_results {
-        let id = resolved
-            .resolved
-            .ip_to_machine_id
-            .get(&result.bmc_ip)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| result.bmc_ip.to_string());
-
-        if !expected_ips.contains(&result.bmc_ip) {
-            results.push(error_result(
-                &id,
-                "backend returned an unexpected compute-tray result".into(),
-            ));
-            continue;
-        }
-        if !seen_ips.insert(result.bmc_ip) {
-            results.push(error_result(
-                &id,
-                "backend returned duplicate compute-tray results".into(),
-            ));
-            continue;
-        }
-
-        if result.success {
-            results.push(success_result(&id));
-        } else {
-            results.push(error_result(&id, result.error.unwrap_or_default()));
-        }
-    }
-
-    let mut missing_ips: Vec<_> = expected_ips.difference(&seen_ips).copied().collect();
-    missing_ips.sort_unstable();
-    results.extend(missing_ips.into_iter().map(|bmc_ip| {
-        let id = resolved
-            .resolved
-            .ip_to_machine_id
-            .get(&bmc_ip)
-            .map(ToString::to_string)
-            .unwrap_or_else(|| bmc_ip.to_string());
-        error_result(&id, "backend returned no compute-tray result".into())
-    }));
+    results.extend(reconcile_direct_compute_power_results(
+        &dispatch_endpoints,
+        &resolved.resolved.ip_to_machine_id,
+        backend_results,
+    ));
 
     Ok((results, ips))
 }
@@ -2901,6 +2948,81 @@ mod tests {
             rpc::ComponentManagerStatusCode::InvalidArgument as i32
         );
         assert!(errors[0].error.contains("duplicate machine id"));
+    }
+
+    #[test]
+    fn direct_compute_power_results_are_reconciled_per_expected_machine() {
+        struct Case {
+            scenario: &'static str,
+            backend_results: Vec<ComputeTrayResult>,
+            expected: Vec<(String, i32, &'static str)>,
+        }
+
+        let machine_id = MachineId::new(
+            carbide_uuid::machine::MachineIdSource::ProductBoardChassisSerial,
+            [0; 32],
+            carbide_uuid::machine::MachineType::Host,
+        );
+        let expected_ip: IpAddr = "192.0.2.10".parse().unwrap();
+        let unexpected_ip: IpAddr = "192.0.2.99".parse().unwrap();
+        let endpoints = [ComputeTrayEndpoint {
+            vendor: ComputeTrayVendor::Dell,
+            bmc_ip: expected_ip,
+            bmc_port: None,
+            authentication: ComputeTrayAuthentication::Credentials(Credentials::UsernamePassword {
+                username: "user".into(),
+                password: "password".into(),
+            }),
+        }];
+        let ip_to_machine_id = HashMap::from([(expected_ip, machine_id)]);
+        let success = |bmc_ip| ComputeTrayResult {
+            bmc_ip,
+            success: true,
+            error: None,
+        };
+        let internal_error = rpc::ComponentManagerStatusCode::InternalError as i32;
+        let machine_id = machine_id.to_string();
+
+        for case in [
+            Case {
+                scenario: "duplicate results fail the target exactly once",
+                backend_results: vec![success(expected_ip), success(expected_ip)],
+                expected: vec![(machine_id.clone(), internal_error, "duplicate")],
+            },
+            Case {
+                scenario: "missing results fail the target",
+                backend_results: vec![],
+                expected: vec![(machine_id.clone(), internal_error, "no compute-tray result")],
+            },
+            Case {
+                scenario: "unexpected results are reported without hiding the missing target",
+                backend_results: vec![success(unexpected_ip)],
+                expected: vec![
+                    (unexpected_ip.to_string(), internal_error, "unexpected"),
+                    (machine_id, internal_error, "no compute-tray result"),
+                ],
+            },
+        ] {
+            let actual = reconcile_direct_compute_power_results(
+                &endpoints,
+                &ip_to_machine_id,
+                case.backend_results,
+            );
+            assert_eq!(actual.len(), case.expected.len(), "{}", case.scenario);
+            for (actual, (expected_id, expected_status, expected_error)) in
+                actual.iter().zip(case.expected)
+            {
+                assert_eq!(actual.component_id, expected_id, "{}", case.scenario);
+                assert_eq!(actual.status, expected_status, "{}", case.scenario);
+                assert!(
+                    actual.error.contains(expected_error),
+                    "{}: {:?} should contain {:?}",
+                    case.scenario,
+                    actual.error,
+                    expected_error,
+                );
+            }
+        }
     }
 
     #[test]

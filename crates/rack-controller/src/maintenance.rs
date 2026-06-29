@@ -334,8 +334,9 @@ fn requested_firmware_object_json_upgrade(
 async fn load_rack_maintenance_access_token(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
+    scope: &MaintenanceScope,
 ) -> Result<String, StateHandlerError> {
-    let key = rack_maintenance_access_token_key(rack_id);
+    let key = rack_maintenance_access_token_key(rack_id, scope.maintenance_request_id.as_deref());
     let credentials = credential_manager
         .get_credentials(&key)
         .await
@@ -358,9 +359,13 @@ async fn load_rack_maintenance_access_token(
 async fn delete_rack_maintenance_access_token(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
+    scope: &MaintenanceScope,
 ) {
     if let Err(error) = credential_manager
-        .delete_credentials(&rack_maintenance_access_token_key(rack_id))
+        .delete_credentials(&rack_maintenance_access_token_key(
+            rack_id,
+            scope.maintenance_request_id.as_deref(),
+        ))
         .await
     {
         tracing::warn!(
@@ -2038,6 +2043,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
@@ -2046,6 +2052,7 @@ pub async fn handle_maintenance(
                 let access_token = match load_rack_maintenance_access_token(
                     ctx.services.credential_manager.as_ref(),
                     id,
+                    scope,
                 )
                 .await
                 {
@@ -2080,6 +2087,7 @@ pub async fn handle_maintenance(
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
+                            scope,
                         )
                         .await;
                     }
@@ -2097,6 +2105,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                     return transition_to_rack_error(
@@ -2138,6 +2147,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                 }
@@ -2194,6 +2204,7 @@ pub async fn handle_maintenance(
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
+                            scope,
                         )
                         .await;
                     }
@@ -2213,6 +2224,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                 }
@@ -2386,6 +2398,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
@@ -2394,6 +2407,7 @@ pub async fn handle_maintenance(
                 let access_token = match load_rack_maintenance_access_token(
                     ctx.services.credential_manager.as_ref(),
                     id,
+                    scope,
                 )
                 .await
                 {
@@ -2425,6 +2439,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                     let next = next_state_after_nvos(scope);
@@ -2441,6 +2456,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        scope,
                     )
                     .await;
                     return transition_to_rack_error(
@@ -2457,6 +2473,7 @@ pub async fn handle_maintenance(
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
+                            scope,
                         )
                         .await;
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
@@ -2506,8 +2523,12 @@ pub async fn handle_maintenance(
                     switch_inventory.switches,
                 )
                 .await;
-                delete_rack_maintenance_access_token(ctx.services.credential_manager.as_ref(), id)
-                    .await;
+                delete_rack_maintenance_access_token(
+                    ctx.services.credential_manager.as_ref(),
+                    id,
+                    scope,
+                )
+                .await;
 
                 let job = match submit_result {
                     Ok(job) => job,

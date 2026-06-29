@@ -37,9 +37,13 @@ pub fn rms_access_token_or_noauth(access_token: Option<&str>) -> String {
         .to_string()
 }
 
-pub fn rack_maintenance_access_token_key(rack_id: &RackId) -> CredentialKey {
+pub fn rack_maintenance_access_token_key(
+    rack_id: &RackId,
+    maintenance_request_id: Option<&str>,
+) -> CredentialKey {
     CredentialKey::RackMaintenanceAccessToken {
         rack_id: rack_id.clone(),
+        maintenance_request_id: maintenance_request_id.map(str::to_owned),
     }
 }
 
@@ -64,5 +68,14 @@ mod tests {
             RMS_NOAUTH_ACCESS_TOKEN
         );
         assert_eq!(rms_access_token_or_noauth(Some("token")), "token");
+    }
+
+    #[test]
+    fn maintenance_access_token_key_carries_request_id() {
+        let key = rack_maintenance_access_token_key(&RackId::new("rack-01"), Some("request-123"));
+        assert_eq!(
+            key.to_key_str(),
+            "racks/rack-01/maintenance/request-123/access-token"
+        );
     }
 }

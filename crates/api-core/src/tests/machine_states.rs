@@ -72,9 +72,10 @@ use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
     HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
-    InstanceState, LockdownMode, MachineState, MachineValidatingState, ManagedHostState,
-    MeasuringState, PowerState, RetryInfo, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    SpdmMeasuringState, StateMachineArea, ValidationState,
+    InstanceState, LockdownMode, MachineLastRebootRequestedMode, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, RetryInfo,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    ValidationState,
 };
 use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
@@ -2768,6 +2769,56 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
+async fn test_ac_powercycle_fallback_records_force_off_for_host_and_dpus(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(!snapshot.dpu_snapshots.is_empty());
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let mut write_batch = DbWriteBatch::new();
+    let mut services = env.machine_state_handler_services();
+    let mut metrics = MachineMetrics::default();
+    let mut ctx = StateHandlerContext::<MachineStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut write_batch,
+    };
+
+    handler_host_power_control(
+        &snapshot,
+        &mut ctx,
+        libredfish::SystemPowerControl::ACPowercycle,
+    )
+    .await
+    .unwrap();
+    write_batch.apply_all(&mut txn).await.unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        env.redfish_sim
+            .actions_since(&redfish_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::Power(
+            libredfish::SystemPowerControl::ForceOff
+        )],
+        "the test Redfish backend does not support AC power cycle and must fall back to ForceOff"
+    );
+
+    let mut txn = env.db_txn().await;
+    let updated = mh.snapshot(&mut txn).await;
+    assert_eq!(
+        updated.host_snapshot.last_reboot_requested.unwrap().mode,
+        MachineLastRebootRequestedMode::PowerOff
+    );
+    assert!(updated.dpu_snapshots.iter().all(|dpu| {
+        dpu.last_reboot_requested
+            .is_some_and(|reboot| reboot.mode == MachineLastRebootRequestedMode::PowerOff)
+    }));
+}
+
+#[crate::sqlx_test]
 async fn test_rack_rms_host_power_bypasses_core_redfish_preflight(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = create_managed_host(&env).await;
@@ -2841,7 +2892,7 @@ async fn test_rack_rms_host_power_bypasses_core_redfish_preflight(pool: sqlx::Pg
 }
 
 #[crate::sqlx_test]
-async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sqlx::PgPool) {
+async fn test_rack_rms_initial_reset_uses_core_redfish_end_to_end(pool: sqlx::PgPool) {
     async fn run_tick(
         handler: &carbide_machine_controller::handler::MachineStateHandler,
         snapshot: &mut model::machine::ManagedHostStateSnapshot,
@@ -2921,9 +2972,6 @@ async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sql
     let mut snapshot = mh.snapshot(&mut txn).await;
     let bmc_access = mh.host().bmc_access(&mut txn).await;
     txn.commit().await.unwrap();
-    let host = &snapshot.host_snapshot;
-    let expected_bmc_ip = host.bmc_info.ip.expect("test host BMC IP");
-    let expected_bmc_port = host.bmc_info.port;
     let redfish_client = env.redfish_sim.client_by_info(&bmc_access).await.unwrap();
     redfish_client
         .power(libredfish::SystemPowerControl::On)
@@ -2942,9 +2990,6 @@ async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sql
     );
     let mut services = env.machine_state_handler_services();
     services.component_manager = Some(Arc::new(component_manager));
-    services.redfish_client_pool = Arc::new(PanicRedfishClientPool {
-        credential_reader: env.test_credential_manager.clone(),
-    });
     let handler = MachineStateHandlerBuilder::builder().build();
 
     set_state(
@@ -2963,35 +3008,36 @@ async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sql
     );
     set_state(&mut snapshot, next_state);
     assert_eq!(
-        compute_manager.calls(),
-        vec![RecordedComputePowerCall {
-            bmc_ip: expected_bmc_ip,
-            bmc_port: expected_bmc_port,
-            vendor: ComputeTrayVendor::Dell,
-            action: PowerAction::ForceOff,
-        }]
-    );
-    assert_eq!(
         env.redfish_sim
             .actions_since(&initial_redfish_timepoint)
             .all_hosts(),
-        Vec::<RedfishSimAction>::new(),
-        "the Start phase must dispatch through RMS without reading Core Redfish"
+        vec![RedfishSimAction::Power(
+            libredfish::SystemPowerControl::ForceOff
+        )],
+        "the Start phase must power off through Core Redfish"
+    );
+    assert!(
+        compute_manager.calls().is_empty(),
+        "initial reset must not mix RMS dispatch with direct Redfish polling"
     );
 
-    services.redfish_client_pool = env.redfish_sim.clone();
+    redfish_client
+        .power(libredfish::SystemPowerControl::On)
+        .await
+        .unwrap();
+    let waiting_for_off_timepoint = env.redfish_sim.timepoint();
     assert_waiting(
         run_tick(&handler, &mut snapshot, &mut services).await,
         "turn off",
     );
-    assert_eq!(compute_manager.calls().len(), 1);
     assert_eq!(
         env.redfish_sim
-            .actions_since(&initial_redfish_timepoint)
+            .actions_since(&waiting_for_off_timepoint)
             .all_hosts(),
         Vec::<RedfishSimAction>::new(),
         "polling an On host must not redispatch ForceOff or reset the BMC"
     );
+    assert!(compute_manager.calls().is_empty());
 
     redfish_client
         .power(libredfish::SystemPowerControl::ForceOff)
@@ -3007,39 +3053,35 @@ async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sql
         env.redfish_sim
             .actions_since(&bmc_reset_timepoint)
             .all_hosts(),
-        vec![RedfishSimAction::BmcReset]
+        vec![RedfishSimAction::BmcReset],
+        "the BMC must be reset exactly once after Core observes the host Off"
     );
-    assert_eq!(compute_manager.calls().len(), 1);
+    assert!(compute_manager.calls().is_empty());
 
+    let power_on_timepoint = env.redfish_sim.timepoint();
     let next_state = transitioned_to(
         run_tick(&handler, &mut snapshot, &mut services).await,
         InitialResetPhase::WaitingForHostOn,
     );
     set_state(&mut snapshot, next_state);
     assert_eq!(
-        compute_manager.calls(),
-        vec![
-            RecordedComputePowerCall {
-                bmc_ip: expected_bmc_ip,
-                bmc_port: expected_bmc_port,
-                vendor: ComputeTrayVendor::Dell,
-                action: PowerAction::ForceOff,
-            },
-            RecordedComputePowerCall {
-                bmc_ip: expected_bmc_ip,
-                bmc_port: expected_bmc_port,
-                vendor: ComputeTrayVendor::Dell,
-                action: PowerAction::On,
-            },
-        ]
+        env.redfish_sim
+            .actions_since(&power_on_timepoint)
+            .all_hosts(),
+        vec![RedfishSimAction::Power(libredfish::SystemPowerControl::On)],
+        "the BMC-ready phase must power on through Core Redfish"
     );
+    assert!(compute_manager.calls().is_empty());
 
+    redfish_client
+        .power(libredfish::SystemPowerControl::ForceOff)
+        .await
+        .unwrap();
     let waiting_for_on_timepoint = env.redfish_sim.timepoint();
     assert_waiting(
         run_tick(&handler, &mut snapshot, &mut services).await,
         "turn on",
     );
-    assert_eq!(compute_manager.calls().len(), 2);
     assert_eq!(
         env.redfish_sim
             .actions_since(&waiting_for_on_timepoint)
@@ -3047,6 +3089,7 @@ async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sql
         Vec::<RedfishSimAction>::new(),
         "polling an Off host must not redispatch On"
     );
+    assert!(compute_manager.calls().is_empty());
 
     redfish_client
         .power(libredfish::SystemPowerControl::On)
@@ -3058,23 +3101,14 @@ async fn test_rack_rms_initial_reset_polls_without_redispatching_power(pool: sql
         InitialResetPhase::WaitHostBoot,
     );
     set_state(&mut snapshot, next_state);
-    assert_eq!(compute_manager.calls().len(), 2);
     assert_eq!(
         env.redfish_sim
             .actions_since(&host_on_timepoint)
             .all_hosts(),
-        Vec::<RedfishSimAction>::new()
+        Vec::<RedfishSimAction>::new(),
+        "observing the host On must not redispatch power"
     );
-    assert_eq!(
-        env.redfish_sim
-            .actions_since(&bmc_reset_timepoint)
-            .all_hosts()
-            .iter()
-            .filter(|action| matches!(action, RedfishSimAction::BmcReset))
-            .count(),
-        1,
-        "the BMC must be reset exactly once across polling iterations"
-    );
+    assert!(compute_manager.calls().is_empty());
 }
 
 /// Exercises WaitingForBiosJob state by configuring mock BMC to return a job ID from machine_setup.

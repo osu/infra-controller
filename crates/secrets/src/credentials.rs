@@ -356,6 +356,11 @@ pub enum CredentialKey {
     },
     RackMaintenanceAccessToken {
         rack_id: RackId,
+        /// Identifies the maintenance request that owns this token. `None`
+        /// retains the legacy rack-scoped key for persisted requests created
+        /// before request-scoped tokens were introduced.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        maintenance_request_id: Option<String>,
     },
 }
 
@@ -582,9 +587,16 @@ impl CredentialKey {
             CredentialKey::Bgp { credential_type } => match credential_type {
                 BgpCredentialType::SiteWideLeafPassword => Cow::from("bgp/leaf/site/auth"),
             },
-            CredentialKey::RackMaintenanceAccessToken { rack_id } => {
-                Cow::from(format!("racks/{rack_id}/maintenance/access-token"))
-            }
+            CredentialKey::RackMaintenanceAccessToken {
+                rack_id,
+                maintenance_request_id: Some(maintenance_request_id),
+            } => Cow::from(format!(
+                "racks/{rack_id}/maintenance/{maintenance_request_id}/access-token"
+            )),
+            CredentialKey::RackMaintenanceAccessToken {
+                rack_id,
+                maintenance_request_id: None,
+            } => Cow::from(format!("racks/{rack_id}/maintenance/access-token")),
         }
     }
 }
@@ -679,6 +691,28 @@ mod tests {
         let nvos = CredentialKey::SwitchNvosSiteAdmin { version: 2 };
         assert_eq!(nvos.to_key_str(), "switch_nvos/site/admin/v2");
         assert_eq!(nvos.prefix(), CredentialPrefix::SwitchNvosAdmin);
+    }
+
+    #[test]
+    fn rack_maintenance_access_token_path_is_request_scoped_with_legacy_fallback() {
+        let rack_id = RackId::new("rack-01");
+        let request_scoped = CredentialKey::RackMaintenanceAccessToken {
+            rack_id: rack_id.clone(),
+            maintenance_request_id: Some("request-123".to_string()),
+        };
+        assert_eq!(
+            request_scoped.to_key_str(),
+            "racks/rack-01/maintenance/request-123/access-token"
+        );
+
+        let legacy = CredentialKey::RackMaintenanceAccessToken {
+            rack_id,
+            maintenance_request_id: None,
+        };
+        assert_eq!(
+            legacy.to_key_str(),
+            "racks/rack-01/maintenance/access-token"
+        );
     }
 
     #[tokio::test]
@@ -1020,7 +1054,10 @@ mod tests {
                 Check {
                     scenario: "rack maintenance access token",
                     input: Row {
-                        key: CredentialKey::RackMaintenanceAccessToken { rack_id },
+                        key: CredentialKey::RackMaintenanceAccessToken {
+                            rack_id,
+                            maintenance_request_id: None,
+                        },
                         expected_prefix: "racks/",
                     },
                     expect: PathChecks::all_hold(),
@@ -1099,7 +1136,10 @@ mod tests {
             CredentialKey::MachineIdentityEncryptionKey {
                 key_id: "k".to_string(),
             },
-            CredentialKey::RackMaintenanceAccessToken { rack_id },
+            CredentialKey::RackMaintenanceAccessToken {
+                rack_id,
+                maintenance_request_id: None,
+            },
         ];
 
         for key in &keys {

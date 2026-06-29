@@ -15,7 +15,11 @@
  * limitations under the License.
  */
 
+use carbide_secrets::credentials::{
+    CredentialKey, CredentialReader, CredentialWriter, Credentials,
+};
 use carbide_uuid::rack::RackId;
+use model::rack::{MaintenanceScope, RackConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{AdminForceDeleteRackRequest, DeleteRackRequest};
 use tonic::Code;
@@ -124,7 +128,36 @@ async fn test_force_delete_rack_success(
         .persist(&mut txn)
         .await
         .unwrap();
+    let maintenance_request_id = "force-delete-request".to_string();
+    db::rack::update(
+        &mut txn,
+        &rack_id,
+        &RackConfig {
+            maintenance_requested: Some(MaintenanceScope {
+                maintenance_request_id: Some(maintenance_request_id.clone()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     drop(txn);
+
+    let access_token_key = CredentialKey::RackMaintenanceAccessToken {
+        rack_id: rack_id.clone(),
+        maintenance_request_id: Some(maintenance_request_id),
+    };
+    env.test_credential_manager
+        .set_credentials(
+            &access_token_key,
+            &Credentials::UsernamePassword {
+                username: "access_token".to_string(),
+                password: "token".to_string(),
+            },
+        )
+        .await
+        .unwrap();
 
     let response = env
         .api
@@ -146,6 +179,14 @@ async fn test_force_delete_rack_success(
         .racks;
 
     assert!(racks.is_empty(), "Rack should be hard-deleted");
+    assert!(
+        env.test_credential_manager
+            .get_credentials(&access_token_key)
+            .await
+            .unwrap()
+            .is_none(),
+        "force-delete should remove the persisted request's token"
+    );
 
     Ok(())
 }

@@ -304,6 +304,7 @@ pub struct TestEnv {
     pub nvl_partition_monitor: Arc<Mutex<NvlPartitionMonitor>>,
     pub switch_cert_monitor: Arc<Mutex<SwitchCertificateMonitor>>,
     pub test_credential_manager: Arc<TestCredentialManager>,
+    pub test_credential_reader: Arc<dyn CredentialReader>,
     pub rms_sim: Arc<RmsSim>,
     pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
     pub drop_guard: DropGuard,
@@ -340,7 +341,7 @@ impl TestEnv {
                 ),
             ),
             component_manager: self.test_component_manager.clone(),
-            credential_reader: self.test_credential_manager.clone(),
+            credential_reader: self.test_credential_reader.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
@@ -1253,12 +1254,13 @@ pub async fn create_test_env_with_overrides(
     let test_meter = TestMeter::default();
     let credential_manager = Arc::new(TestCredentialManager::default());
 
-    let chained_reader = ChainedCredentialReader::from(vec![
-        Box::new(test_static_credential_snapshot()) as Box<dyn CredentialReader>,
-        Box::new(credential_manager.clone()),
-    ]);
+    let credential_reader: Arc<dyn CredentialReader> =
+        Arc::new(ChainedCredentialReader::from(vec![
+            Box::new(test_static_credential_snapshot()) as Box<dyn CredentialReader>,
+            Box::new(credential_manager.clone()),
+        ]));
     let composite_manager: Arc<dyn CredentialManager> = Arc::new(CompositeCredentialManager::new(
-        chained_reader,
+        credential_reader.clone(),
         credential_manager.clone(),
     ));
 
@@ -1378,7 +1380,7 @@ pub async fn create_test_env_with_overrides(
         rms_sim.as_rms_client(),
         None,
         Some(db_pool.clone()),
-        None,
+        Some(redfish_sim.clone()),
     )
     .await
     .expect("test component manager should build");
@@ -1514,7 +1516,7 @@ pub async fn create_test_env_with_overrides(
                     ),
                 ),
                 component_manager: test_component_manager.clone(),
-                credential_reader: credential_manager.clone(),
+                credential_reader: credential_reader.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
@@ -1810,6 +1812,7 @@ pub async fn create_test_env_with_overrides(
         nvl_partition_monitor: Arc::new(Mutex::new(nvl_partition_monitor)),
         switch_cert_monitor: Arc::new(Mutex::new(switch_cert_monitor)),
         test_credential_manager: credential_manager.clone(),
+        test_credential_reader: credential_reader,
         rms_sim,
         test_component_manager,
         drop_guard: cancel_token.drop_guard(),

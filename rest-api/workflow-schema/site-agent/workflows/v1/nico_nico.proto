@@ -8425,9 +8425,8 @@ message ComponentPowerControlRequest {
     PowerShelfIdList power_shelf_ids = 3;
   }
   common.SystemPowerControl action = 4;
-  // When true, bypass a target's state controller and dispatch directly.
-  // Rack-associated RMS compute targets use the configured RMS backend;
-  // standalone compute targets always retain the Core Redfish path.
+  // When true, bypass the state controller and dispatch directly to the
+  // configured HAL backend (NSM, PSM, Redfish, etc.).
   bool bypass_state_controller = 5;
 }
 

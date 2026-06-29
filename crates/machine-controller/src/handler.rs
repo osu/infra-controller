@@ -8681,7 +8681,11 @@ impl HostUpgradeState {
         match phase.unwrap_or(InitialResetPhase::Start) {
             InitialResetPhase::Start => {
                 services
-                    .power_control(&state.host_snapshot, PowerAction::ForceOff)
+                    .power_control_with_manager(
+                        &state.host_snapshot,
+                        services.core_compute_tray_manager.as_ref(),
+                        PowerAction::ForceOff,
+                    )
                     .await?;
 
                 Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
@@ -8754,7 +8758,11 @@ impl HostUpgradeState {
                     )));
                 }
                 services
-                    .power_control(&state.host_snapshot, PowerAction::On)
+                    .power_control_with_manager(
+                        &state.host_snapshot,
+                        services.core_compute_tray_manager.as_ref(),
+                        PowerAction::On,
+                    )
                     .await?;
 
                 Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
@@ -10298,7 +10306,7 @@ async fn dispatch_core_host_power_control(
     mut action: SystemPowerControl,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     trigger_location: &std::panic::Location<'_>,
-) -> Result<(), StateHandlerError> {
+) -> Result<SystemPowerControl, StateHandlerError> {
     if action == SystemPowerControl::ACPowercycle
         && !redfish_client.ac_powercycle_supported_by_power()
     {
@@ -10316,7 +10324,9 @@ async fn dispatch_core_host_power_control(
             .await?;
     }
 
-    dispatch_component_manager_power_control(machine, backend, action, ctx, trigger_location).await
+    dispatch_component_manager_power_control(machine, backend, action, ctx, trigger_location)
+        .await?;
+    Ok(action)
 }
 
 pub async fn handler_host_power_control_with_location(
@@ -10365,7 +10375,7 @@ pub async fn handler_host_power_control_with_location(
             if is_restart && needs_ipmi_restart(machine, ctx).await? {
                 do_ipmi_restart(machine, ctx, action, location).await?;
             } else {
-                dispatch_core_host_power_control(
+                action = dispatch_core_host_power_control(
                     machine,
                     backend.as_ref(),
                     redfish_client.as_ref(),

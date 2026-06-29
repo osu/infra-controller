@@ -826,6 +826,12 @@ impl std::fmt::Display for MaintenanceActivity {
 /// is maintained.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MaintenanceScope {
+    /// Correlates an on-demand maintenance request with request-scoped secrets.
+    ///
+    /// Older persisted scopes do not contain this field and continue to use the
+    /// legacy rack-scoped credential key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maintenance_request_id: Option<String>,
     #[serde(default)]
     pub machine_ids: Vec<MachineId>,
     #[serde(default)]
@@ -969,6 +975,25 @@ mod tests {
     fn is_full_rack_when_all_lists_empty() {
         let scope = MaintenanceScope::default();
         assert!(scope.is_full_rack());
+    }
+
+    #[test]
+    fn maintenance_scope_request_id_is_backward_compatible() {
+        let legacy: MaintenanceScope = serde_json::from_value(serde_json::json!({
+            "machine_ids": [],
+            "switch_ids": [],
+            "power_shelf_ids": [],
+            "activities": []
+        }))
+        .unwrap();
+        assert_eq!(legacy.maintenance_request_id, None);
+
+        let request_scoped = MaintenanceScope {
+            maintenance_request_id: Some("request-123".to_string()),
+            ..Default::default()
+        };
+        let serialized = serde_json::to_value(request_scoped).unwrap();
+        assert_eq!(serialized["maintenance_request_id"], "request-123");
     }
 
     #[test]
