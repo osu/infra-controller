@@ -101,7 +101,7 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
         attrs.push(kv("switch.id", switch_id.to_string()));
     }
     if let Some(serial) = context.switch_serial() {
-        attrs.push(kv("switch.serial", serial.to_string()));
+        attrs.push(kv("switch.serial_number", serial.to_string()));
     }
     if let Some(role) = context.switch_endpoint_role() {
         let endpoint_role = match role {
@@ -246,6 +246,7 @@ pub fn build_export_request(batch: &[(EventContext, CollectorEvent)]) -> ExportL
 /// be added when the health metric model exposes those temporality choices.
 pub fn build_metrics_export_request(
     batch: &[(EventContext, MetricSample)],
+    metric_name_prefix: &str,
 ) -> ExportMetricsServiceRequest {
     let observed_nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -255,19 +256,30 @@ pub fn build_metrics_export_request(
     let mut by_endpoint: HashMap<String, (Vec<KeyValue>, Vec<OtlpMetric>)> = HashMap::new();
 
     for (context, sample) in batch {
+        // Switch identity rides once on the resource attributes (switch.id,
+        // switch.serial_number, switch.ip). VictoriaMetrics flattens resource
+        // attributes onto every series, so promoting them onto the datapoint too
+        // only duplicates the same value under a second (underscore) label name.
+        let attributes: Vec<KeyValue> = sample
+            .labels
+            .iter()
+            .map(|(k, v)| kv(k, v.clone()))
+            .collect();
+
         let data_point = NumberDataPoint {
-            attributes: sample
-                .labels
-                .iter()
-                .map(|(k, v)| kv(k, v.clone()))
-                .collect(),
+            attributes,
             time_unix_nano: observed_nanos,
             value: Some(number_data_point::Value::AsDouble(sample.value)),
             ..Default::default()
         };
 
         let otlp_metric = OtlpMetric {
-            name: sample.metric_type.clone(),
+            // match the Prometheus sink's full series name exactly so Grafana queries
+            // resolve identically across both export paths.
+            name: format!(
+                "{}_{}_{}_{}",
+                metric_name_prefix, sample.name, sample.metric_type, sample.unit
+            ),
             description: String::new(),
             unit: sample.unit.clone(),
             data: Some(metric::Data::Gauge(OtlpGauge {
@@ -522,7 +534,10 @@ mod tests {
             attr_value(&attrs, "switch.id"),
             Some(switch_id_attr.as_str())
         );
-        assert_eq!(attr_value(&attrs, "switch.serial"), Some("SN-SWITCH-001"));
+        assert_eq!(
+            attr_value(&attrs, "switch.serial_number"),
+            Some("SN-SWITCH-001")
+        );
         assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("host"));
         assert_eq!(attr_bool_value(&attrs, "switch.is_primary"), Some(true));
         assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
@@ -571,7 +586,7 @@ mod tests {
             Some(switch_id_attr.as_str())
         );
         assert_eq!(
-            attr_value(&attrs, "switch.serial"),
+            attr_value(&attrs, "switch.serial_number"),
             Some("SN-SWITCH-BMC-001")
         );
         assert_eq!(attr_value(&attrs, "switch.endpoint_role"), Some("bmc"));
@@ -771,10 +786,13 @@ mod tests {
             context: None,
         };
 
-        let request = build_metrics_export_request(&[
-            (rest_ctx, sample("nvue_rest")),
-            (gnmi_ctx, sample("nvue_gnmi")),
-        ]);
+        let request = build_metrics_export_request(
+            &[
+                (rest_ctx, sample("nvue_rest")),
+                (gnmi_ctx, sample("nvue_gnmi")),
+            ],
+            "carbide_hardware_health",
+        );
 
         let collector_types: std::collections::HashSet<_> = request
             .resource_metrics
@@ -789,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn metric_export_name_uses_metric_type() {
+    fn metric_export_name_uses_full_prometheus_series_name() {
         let ctx = test_context();
         let sample = MetricSample {
             key: "asic0/oper_status".to_string(),
@@ -801,11 +819,81 @@ mod tests {
             context: None,
         };
 
-        let request = build_metrics_export_request(&[(ctx, sample)]);
+        let request = build_metrics_export_request(&[(ctx, sample)], "carbide_hardware_health");
         let metrics = &request.resource_metrics[0].scope_metrics[0].metrics;
 
         assert_eq!(metrics.len(), 1);
-        assert_eq!(metrics[0].name, "interface_oper_status");
+        assert_eq!(
+            metrics[0].name,
+            "carbide_hardware_health_nvue_gnmi_interface_oper_status_state"
+        );
         assert_eq!(metrics[0].unit, "state");
+    }
+
+    #[test]
+    fn switch_nmxt_identity_is_resource_only_not_on_datapoint() {
+        let switch_id = test_switch_id("switch-nmxt");
+        let switch_id_attr = switch_id.to_string();
+        let context = EventContext {
+            endpoint_key: "11:22:33:44:55:66".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 1, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
+            },
+            collector_type: "nvue_gnmi",
+            metadata: Some(EndpointMetadata::Switch(SwitchData {
+                id: Some(switch_id),
+                serial: "SN-SWITCH-001".to_string(),
+                slot_number: Some(7),
+                tray_index: Some(3),
+                endpoint_role: SwitchEndpointRole::Host,
+                is_primary: true,
+                nmxt_enabled: true,
+            })),
+            rack_id: Some(RackId::new("RACK_2")),
+        };
+        let sample = MetricSample {
+            key: "effective_ber".to_string(),
+            name: "switch_nmxt".to_string(),
+            metric_type: "effective_ber".to_string(),
+            unit: "ratio".to_string(),
+            value: 0.5,
+            labels: vec![],
+            context: None,
+        };
+
+        let request = build_metrics_export_request(&[(context, sample)], "carbide_hardware_health");
+        let resource_metrics = &request.resource_metrics[0];
+        let metrics = &resource_metrics.scope_metrics[0].metrics;
+
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(
+            metrics[0].name,
+            "carbide_hardware_health_switch_nmxt_effective_ber_ratio"
+        );
+
+        let metric::Data::Gauge(gauge) = metrics[0].data.as_ref().expect("metric data") else {
+            panic!("expected gauge data");
+        };
+        // Identity must NOT be promoted onto the datapoint (VM duplicates it from the resource).
+        let attrs = &gauge.data_points[0].attributes;
+        assert_eq!(attr_value(attrs, "switch_serial"), None);
+        assert_eq!(attr_value(attrs, "switch_id"), None);
+
+        // It lives once, on the resource (dotted form).
+        let resource_attrs = &resource_metrics
+            .resource
+            .as_ref()
+            .expect("resource")
+            .attributes;
+        assert_eq!(
+            attr_value(resource_attrs, "switch.serial_number"),
+            Some("SN-SWITCH-001")
+        );
+        assert_eq!(
+            attr_value(resource_attrs, "switch.id"),
+            Some(switch_id_attr.as_str())
+        );
     }
 }

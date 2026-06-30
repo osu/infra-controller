@@ -47,6 +47,7 @@ use crate::io_util::{
     self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
 };
 
+const IPMITOOL_PASSWORD_ENV_VAR: &str = "IPMITOOL_PASSWORD";
 const SOL_PAYLOAD_ALREADY_ACTIVE: &str = "SOL payload already active on another session";
 const SOL_SESSION_OPERATIONAL: &[u8] = b"SOL Session operational";
 const MAX_CAPTURED_IPMITOOL_OUTPUT_SIZE: usize = 4096;
@@ -749,11 +750,10 @@ fn captured_output_contains(output: &VecDeque<u8>, needle: &[u8]) -> bool {
         })
 }
 
-fn ipmitool_command(
+fn configure_ipmitool_connection(
+    command: &mut tokio::process::Command,
     connection_details: &ConnectionDetails,
-    config: &Config,
-) -> tokio::process::Command {
-    let mut command = tokio::process::Command::new("ipmitool");
+) {
     command
         .arg("-I")
         .arg("lanplus")
@@ -763,8 +763,16 @@ fn ipmitool_command(
         .arg(connection_details.addr.port().to_string())
         .arg("-U")
         .arg(&connection_details.user)
-        .arg("-P")
-        .arg(&connection_details.password);
+        .arg("-E")
+        .env(IPMITOOL_PASSWORD_ENV_VAR, &connection_details.password);
+}
+
+fn ipmitool_command(
+    connection_details: &ConnectionDetails,
+    config: &Config,
+) -> tokio::process::Command {
+    let mut command = tokio::process::Command::new("ipmitool");
+    configure_ipmitool_connection(&mut command, connection_details);
 
     if config.insecure_ipmi_ciphers {
         command.arg("-C").arg("3"); // use SHA1 ciphers, useful for ipmi_sim
@@ -813,7 +821,7 @@ impl Debug for ConnectionDetails {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::os::unix::process::ExitStatusExt;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1067,8 +1075,7 @@ mod tests {
             "1623",
             "-U",
             "admin",
-            "-P",
-            "password",
+            "-E",
             "-C",
             "3",
             "sol",
@@ -1098,6 +1105,17 @@ mod tests {
                 .chain(std::iter::once(action))
                 .collect();
             assert_eq!(args, expected_args, "{scenario}");
+            assert!(!args.contains(&"-P"), "{scenario}");
+            assert!(!args.contains(&"password"), "{scenario}");
+
+            let password_env = command.as_std().get_envs().find_map(|(key, value)| {
+                if key == OsStr::new(IPMITOOL_PASSWORD_ENV_VAR) {
+                    value.and_then(OsStr::to_str)
+                } else {
+                    None
+                }
+            });
+            assert_eq!(password_env, Some("password"), "{scenario}");
         }
 
         let command = sol_deactivate_command(&connection_details, &Config::default());
@@ -1182,5 +1200,47 @@ mod tests {
 
     fn failed_exit_status() -> ExitStatus {
         ExitStatus::from_raw(256)
+    }
+
+    #[test]
+    fn configure_ipmitool_connection_passes_password_through_environment() {
+        let connection_details = ConnectionDetails {
+            machine_id: MachineId::new(MachineIdSource::Tpm, [0; 32], MachineType::Host),
+            addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 623),
+            user: "admin".to_string(),
+            password: "hunter2".to_string(),
+        };
+        let mut command = tokio::process::Command::new("ipmitool");
+
+        configure_ipmitool_connection(&mut command, &connection_details);
+
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_str().expect("ipmitool args should be valid UTF-8"))
+            .collect();
+        let expected_args = [
+            "-I",
+            "lanplus",
+            "-H",
+            "127.0.0.1",
+            "-p",
+            "623",
+            "-U",
+            "admin",
+            "-E",
+        ];
+        assert_eq!(args.as_slice(), expected_args.as_slice());
+        assert!(!args.contains(&"-P"));
+        assert!(!args.contains(&"hunter2"));
+
+        let password_env = command.as_std().get_envs().find_map(|(key, value)| {
+            if key == OsStr::new(IPMITOOL_PASSWORD_ENV_VAR) {
+                value.and_then(OsStr::to_str)
+            } else {
+                None
+            }
+        });
+        assert_eq!(password_env, Some("hunter2"));
     }
 }
