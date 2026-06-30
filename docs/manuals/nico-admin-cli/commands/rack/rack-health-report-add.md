@@ -25,31 +25,20 @@ Insert a health report source for a rack using exactly one of
 New health report as JSON; mutually exclusive with --template
 
 **--template** *\<TEMPLATE\>*  
-Predefined template name; mutually exclusive with --health-report\
+Predefined template name; mutually exclusive with --health-report
 
-\
 *Possible values:*
 
 - host-update
-
 - internal-maintenance
-
 - out-for-repair
-
 - degraded
-
 - validation
-
 - suppress-external-alerting
-
 - mark-healthy
-
 - stop-reboot-for-automatic-recovery-from-state-machine
-
 - tenant-reported-issue
-
 - request-online-repair
-
 - request-repair
 
 **--message** *\<MESSAGE\>*  
