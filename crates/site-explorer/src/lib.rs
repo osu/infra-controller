@@ -40,6 +40,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::errors::OperatorError;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::machine::MachineInterfaceSnapshot;
@@ -66,7 +67,7 @@ mod credentials;
 mod metrics;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-pub use metrics::SiteExplorationMetrics;
+pub use metrics::{SiteExplorationMetrics, site_explorer_latency_histogram_view};
 mod bmc_endpoint_explorer;
 mod redfish;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
@@ -1186,17 +1187,14 @@ impl SiteExplorer {
                 .map(|em| em.data.dpu_mode);
             DpuMode::resolve(declared, site_dpu_mode)
         };
-        // Match HOST and DPU using SerialNumber.
-        // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
+        // Match HOST and DPU using the serial Redfish reports for the same
+        // physical card. BF4 does not expose that serial on the DPU system
+        // object, so this uses `EndpointExplorationReport::dpu_pairing_serial_number`
+        // rather than reading `systems[0].serial_number` directly.
         let mut dpu_sn_to_endpoint = HashMap::new();
         for (_, ep) in explored_dpus {
-            if let Some(sn) = ep
-                .report
-                .systems
-                .first()
-                .and_then(|system| system.serial_number.as_ref())
-            {
-                dpu_sn_to_endpoint.insert(sn.trim().to_string(), ep);
+            if let Some(sn) = ep.report.dpu_pairing_serial_number() {
+                dpu_sn_to_endpoint.insert(sn.to_string(), ep);
             }
         }
 
@@ -2183,7 +2181,9 @@ impl SiteExplorer {
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.last_explored.and_then(|e| e.report.last_exploration_error.as_ref()),
+                            endpoint
+                                .last_explored
+                                .and_then(|e| e.report.last_exploration_error.as_ref()),
                             endpoint.last_explored.and_then(|e| e.boot_interface_mac),
                         )
                         .await;
@@ -2196,13 +2196,33 @@ impl SiteExplorer {
                             &database_connection,
                             &endpoint.address.to_string(),
                         )
-                            .await
+                        .await
                         {
-                            Ok(state) if !state.is_empty() => format!(" (state: {state})"),
-                            _ => String::new(),
+                            Ok(state) if !state.is_empty() => Some(state),
+                            _ => None,
                         };
                         steps.failure_context_load = Some(failure_context_load_start.elapsed());
-                        tracing::info!(%error, "Failed to explore {}: {}{}", bmc_target_addr, error, machine_state);
+                        let schema = error.operator_error_schema();
+                        if let Some(machine_state) = machine_state.as_deref() {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                machine_state,
+                                "Failed to explore endpoint"
+                            );
+                        } else {
+                            tracing::info!(
+                                endpoint = %bmc_target_addr,
+                                error = %error,
+                                error_code = %schema.error_code,
+                                mitigation = %schema.mitigation_for_log(),
+                                text = %schema.text,
+                                "Failed to explore endpoint"
+                            );
+                        }
                     }
 
                     if let Ok(report) = &mut result {
@@ -2218,7 +2238,7 @@ impl SiteExplorer {
                         steps,
                     }))
                 }
-                    .in_current_span(),
+                .in_current_span(),
             );
         }
 
@@ -2810,28 +2830,38 @@ impl SiteExplorer {
             return Ok(true);
         }
 
-        if let Some(nic_mode) = dpu_endpoint.report.nic_mode() {
-            // DPU's in NIC mode do not have full redfish functionality,
-            // for example, we will not be able to retrieve the base GUID
-            // from the redfish response. Skip the next check because the DPUs
-            // in NIC mode will not expose a pf0 interface to the host.
-            if nic_mode == NicMode::Nic {
+        match dpu_endpoint.report.nic_mode() {
+            Some(NicMode::Nic) => {
+                // DPU's in NIC mode do not have full redfish functionality,
+                // for example, we will not be able to retrieve the base GUID
+                // from the redfish response. Skip the next check because the DPUs
+                // in NIC mode will not expose a pf0 interface to the host.
                 tracing::info!(
                     "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
                     dpu_endpoint.address
                 );
                 return Ok(true);
             }
-        } else {
-            tracing::error!(
-                "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
-                dpu_endpoint.address
-            );
-            metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
-            return Ok(false);
+            Some(NicMode::Dpu) => {}
+            None if dpu_endpoint.report.dpu_pairing_serial_number().is_some() => {
+                tracing::warn!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) without a Redfish DPU/NIC mode; continuing because it has a host-pairing serial",
+                    dpu_endpoint.address
+                );
+            }
+            None => {
+                tracing::error!(
+                    "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
+                    dpu_endpoint.address
+                );
+                metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
+                return Ok(false);
+            }
         }
 
-        // This is a bluefield in DPU mode
+        // This is a BlueField that should be pairable as a managed DPU. BF4 may
+        // not report mode, so host pairing and the PF MAC check decide whether
+        // it can continue.
         match find_host_pf_mac_address(dpu_endpoint) {
             Ok(_) => Ok(true),
             Err(error) => {
@@ -3205,7 +3235,9 @@ impl SiteExplorer {
                 // Preserve existing BF3 part-number heuristics when the operator
                 // hasn't explicitly chosen a mode. Missing part numbers only
                 // disable this heuristic fallback; explicit modes above do not
-                // require a part number.
+                // require a part number. BF4 does not currently
+                // expose a reliable DPU/NIC mode signal over Redfish, so the
+                // default path does not infer or reconfigure BF4 mode,
                 dpu_part_number.and_then(|dpu_part_number| {
                     if is_bf3_supernic_part_number(dpu_part_number) {
                         Some(NicMode::Nic)
