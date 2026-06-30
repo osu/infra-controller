@@ -275,6 +275,20 @@ navigation:
               path: development/tls.md
             - page: nico-admin-cli
               path: manuals/nico-admin-cli.md
+            - section: Rack health-report CLI reference
+              contents:
+                - page: Rack commands
+                  path: manuals/nico-admin-cli/commands/rack/rack.md
+                - page: Health-report overview
+                  path: manuals/nico-admin-cli/commands/rack/rack-health-report.md
+                - page: Add a health report
+                  path: manuals/nico-admin-cli/commands/rack/rack-health-report-add.md
+                - page: Show health reports
+                  path: manuals/nico-admin-cli/commands/rack/rack-health-report-show.md
+                - page: Print an empty template
+                  path: manuals/nico-admin-cli/commands/rack/rack-health-report-print-empty-template.md
+                - page: Remove a health report
+                  path: manuals/nico-admin-cli/commands/rack/rack-health-report-remove.md
             - page: Re-creating Issuer/CA in Local Dev
               path: development/issuer_ca_recreate.md
             - page: Visual Studio Code Remote Development

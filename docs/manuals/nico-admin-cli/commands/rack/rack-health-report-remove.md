@@ -22,18 +22,14 @@ Remove a health report source from a rack
 **--extended**  
 Extended result output.
 
-This used by measured boot, where basic output contains just what you
-probably care about, and "extended" output also dumps out all the
-internal UUIDs that are used to associate instances.
+Used by measured boot. Basic output contains broadly-relevant information; extended output also dumps out all the internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field\
+Sort output by specified field
 
-\
 *Possible values:*
 
-- primary-id: Sort by the primary id
-
+- primary-id: Sort by primary ID
 - state: Sort by state
 
 **-h**, **--help**  
@@ -43,7 +39,7 @@ Print help (see a summary with -h)
 Rack whose health report source will be removed
 
 \<*REPORT_SOURCE*\>  
-Source name returned by \`health-report show\`
+Source name returned by [health-report show](./rack-health-report-show.md)
 
 ## Examples
 
