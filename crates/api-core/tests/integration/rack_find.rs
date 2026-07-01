@@ -99,10 +99,10 @@ async fn test_find_rack_by_id(pool: PgPool) {
 
 #[sqlx_test]
 async fn test_force_delete_rack_success(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = TestHarness::builder(pool).build().await;
+    let env = TestHarness::builder(pool.clone()).build().await;
     let TestRack { id: rack_id } = env.create_rack().await;
 
-    let mut txn = env.pool.begin().await?;
+    let mut txn = pool.begin().await?;
     db::state_history::persist(
         &mut txn,
         db::state_history::StateHistoryTableId::Rack,
@@ -134,7 +134,7 @@ async fn test_force_delete_rack_success(pool: PgPool) -> Result<(), Box<dyn std:
 
     assert!(racks.is_empty(), "Rack should be hard-deleted");
 
-    let mut conn = env.pool.acquire().await?;
+    let mut conn = pool.acquire().await?;
     let history = db::state_history::for_object(
         &mut conn,
         db::state_history::StateHistoryTableId::Rack,
